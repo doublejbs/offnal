@@ -44,7 +44,8 @@ const createPgliteClient = (dataDir: string | null): PGlite => {
     return new PGlite();
   }
 
-  const resolvedDir = path.resolve(process.cwd(), dataDir);
+  // Runtime-configured dev directory: exclude it from output file tracing.
+  const resolvedDir = path.resolve(/* turbopackIgnore: true */ process.cwd(), dataDir);
 
   mkdirSync(path.dirname(resolvedDir), { recursive: true });
 
