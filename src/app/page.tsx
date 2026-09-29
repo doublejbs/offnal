@@ -19,7 +19,7 @@ const HomePage = async () => {
     }
   }
 
-  return <UploadPanel />;
+  return <UploadPanel isLoggedIn={Boolean(context.user)} />;
 };
 
 export default HomePage;

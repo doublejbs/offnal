@@ -1,17 +1,24 @@
 'use client';
 
+import Link from 'next/link';
 import { CalendarPlus, Image as ImageIcon, Link as LinkIcon, LoaderCircle, ScanLine } from 'lucide-react';
 import { useId } from 'react';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import { useUploadState } from '@/components/upload/UseUploadState';
+import LoginOptions from '@/components/LoginOptions';
+
+type UploadPanelProps = {
+  isLoggedIn: boolean;
+};
 
 /** Entry screen: free months and price from server config, AI/deletion notice before choosing a photo. */
-const UploadPanel = () => {
+const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
   const { freeMonthLimit, priceKrw, uploadMaxBytes } = usePublicConfig();
   const { isUploading, statusText, error, handleFileChange } = useUploadState(uploadMaxBytes);
   const inputId = useId();
+  const loginSectionId = useId();
   const freeMonths = formatMonthCount(freeMonthLimit);
   const price = formatPrice(priceKrw);
 
@@ -82,6 +89,19 @@ const UploadPanel = () => {
           필요한 달만 구매하고, 자동 결제는 없어요.
         </p>
       </div>
+      {!isLoggedIn ? (
+        <section className="block" aria-labelledby={loginSectionId}>
+          <h2 id={loginSectionId}>이미 이용 중이신가요?</h2>
+          <p className="m-0">로그인하면 저장한 달력을 바로 볼 수 있어요.</p>
+          <LoginOptions returnTo="/" primaryLabel="로그인" />
+        </section>
+      ) : (
+        <div className="center">
+          <Link href="/calendar" className="textbutton">
+            내 달력 보기
+          </Link>
+        </div>
+      )}
     </>
   );
 };
