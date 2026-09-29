@@ -1,26 +1,26 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { GET as publicConfigRoute } from '@/app/api/config/public/route';
-import { GET as candidatesRoute } from '@/app/api/recognitions/[id]/candidates/route';
 import { GET as callbackRoute } from '@/app/auth/callback/route';
 import { GET as loginRoute } from '@/app/auth/login/route';
 import { POST as logoutRoute } from '@/app/auth/logout/route';
-import { AppMode } from '@/domain/enums/AppMode';
-import { AuthIdentityProvider } from '@/domain/enums/AuthIdentityProvider';
-import { AuthProviderType } from '@/domain/enums/AuthProviderType';
-import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
-import { authIdentities, recognitionJobs, users } from '@/server/db/Schema';
+import { setDbForTesting } from '@/server/db/Database';
+import { users } from '@/server/db/Schema';
 import {
-  type ApiTestClient,
   createApiTestClient,
   type IntegrationEnvironment,
-  readJson,
   setupIntegrationEnvironment,
   TEST_APP_URL,
 } from '../helpers/ApiTestClient';
+import {
+  findJobOwner,
+  findSupabaseIdentities,
+  kakaoLogin,
+  OPEN_REDIRECT_PROBES,
+  requestCandidates,
+} from '../helpers/AuthFlows';
 import { createEnvSandbox } from '../helpers/EnvSandbox';
 import {
   createFakeSupabase,
@@ -30,16 +30,7 @@ import {
   FAKE_VERIFIER_COOKIE,
   SUPABASE_KAKAO_ENV,
 } from '../helpers/FakeSupabase';
-import { createLoggedInJob, devLogin, uploadAndProcess } from '../helpers/OffnalFlows';
-
-const OPEN_REDIRECT_PROBES = [
-  '//evil.example/x',
-  'https://evil.example',
-  '/\\evil.example',
-  'relative',
-  '/.//evil.example',
-  '/a/..//evil.example',
-];
+import { devLogin, uploadAndProcess } from '../helpers/OffnalFlows';
 
 let env: IntegrationEnvironment;
 
@@ -57,110 +48,9 @@ afterAll(async () => {
   await env.close();
 });
 
-describe('dev login', () => {
-  it('is 404 outside demo mode', async () => {
-    envSandbox.set({ APP_MODE: 'live' });
-
-    const client = createApiTestClient();
-    const response = await devLogin(client, '라이브');
-
-    expect(response.status).toBe(404);
-    expect(response.headers.get('content-type') ?? '').not.toContain('json');
-    expect(client.cookies.has('offnal_session')).toBe(false);
-  });
-
-  it('only redirects to relative paths', async () => {
-    const client = createApiTestClient();
-
-    for (const returnTo of OPEN_REDIRECT_PROBES) {
-      const response = await devLogin(client, '리다이렉트', returnTo);
-
-      expect(response.status).toBe(303);
-      expect(response.headers.get('location')).toBe(`${TEST_APP_URL}/`);
-    }
-  });
-
-  it('redirects invalid submissions back with login=failed instead of JSON', async () => {
-    const client = createApiTestClient();
-    const response = await client.send((await import('@/app/auth/dev-login/route')).POST, '/auth/dev-login', {
-      json: { displayName: '가'.repeat(201), returnTo: '/recognitions/abc' },
-    });
-
-    expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${TEST_APP_URL}/recognitions/abc?login=failed`);
-    expect(response.headers.get('content-type') ?? '').not.toContain('json');
-    expect(client.cookies.has('offnal_session')).toBe(false);
-  });
-
-  it('accepts form submissions', async () => {
-    const client = createApiTestClient();
-    const form = new FormData();
-    const { POST } = await import('@/app/auth/dev-login/route');
-
-    form.set('displayName', '폼 사용자');
-    form.set('returnTo', '/calendar');
-
-    const response = await client.send(POST, '/auth/dev-login', { method: 'POST', form });
-
-    expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${TEST_APP_URL}/calendar`);
-    expect(client.cookies.has('offnal_session')).toBe(true);
-  });
-
-  it('rotates the session on every login', async () => {
-    const client = createApiTestClient();
-    const jobId = await createLoggedInJob(client, '회전 사용자');
-    const firstToken = client.cookies.get('offnal_session');
-
-    await devLogin(client, '회전 사용자');
-
-    const secondToken = client.cookies.get('offnal_session');
-
-    expect(secondToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(secondToken).not.toBe(firstToken);
-
-    client.cookies.set('offnal_session', firstToken ?? '');
-
-    const withOldToken = await client.send(candidatesRoute, `/api/recognitions/${jobId}/candidates`, {
-      params: { id: jobId },
-    });
-
-    expect(withOldToken.status).toBe(401);
-  });
-});
-
 const useKakao = (overrides: Record<string, string | undefined> = {}): void => {
   envSandbox.set({ APP_MODE: 'live', ...SUPABASE_KAKAO_ENV, ...overrides });
 };
-
-const findJobOwner = async (jobId: string): Promise<string | null> => {
-  const [job] = await env.db
-    .select({ userId: recognitionJobs.userId })
-    .from(recognitionJobs)
-    .where(eq(recognitionJobs.id, jobId));
-
-  return job?.userId ?? null;
-};
-
-const findSupabaseIdentities = async (subject: string) =>
-  env.db
-    .select({ userId: authIdentities.userId, email: authIdentities.email })
-    .from(authIdentities)
-    .where(
-      and(
-        eq(authIdentities.provider, AuthIdentityProvider.SUPABASE),
-        eq(authIdentities.providerSubject, subject),
-      ),
-    );
-
-const kakaoLogin = async (client: ApiTestClient, code: string, returnTo: string): Promise<Response> => {
-  await client.send(loginRoute, `/auth/login?provider=kakao&returnTo=${encodeURIComponent(returnTo)}`);
-
-  return client.send(callbackRoute, `/auth/callback?code=${code}&returnTo=${encodeURIComponent(returnTo)}`);
-};
-
-const requestCandidates = async (client: ApiTestClient, jobId: string): Promise<Response> =>
-  client.send(candidatesRoute, `/api/recognitions/${jobId}/candidates`, { params: { id: jobId } });
 
 describe('Kakao login via Supabase', () => {
   const fake = createFakeSupabase();
@@ -239,7 +129,7 @@ describe('Kakao login via Supabase', () => {
     fake.registerCode('code-success', { id: supabaseUserId, email: 'haru@example.com', nickname: '하루' });
 
     const response = await kakaoLogin(client, 'code-success', `/recognitions/${jobId}`);
-    const [identity] = await findSupabaseIdentities(supabaseUserId);
+    const [identity] = await findSupabaseIdentities(env.db, supabaseUserId);
     const [user] = await env.db
       .select()
       .from(users)
@@ -256,7 +146,7 @@ describe('Kakao login via Supabase', () => {
     expect(client.cookies.has(FAKE_VERIFIER_COOKIE)).toBe(false);
     expect(identity?.email).toBe('haru@example.com');
     expect(user?.displayName).toBe('하루');
-    expect(await findJobOwner(jobId)).toBe(user?.id);
+    expect(await findJobOwner(env.db, jobId)).toBe(user?.id);
     expect((await requestCandidates(client, jobId)).status).toBe(200);
   });
 
@@ -291,7 +181,7 @@ describe('Kakao login via Supabase', () => {
     expect(evilReturn.headers.get('location')).toBe(`${TEST_APP_URL}/?login=failed`);
     expect(fake.calls.exchangeCodeForSession.slice(exchangesBefore)).toEqual(['unknown', 'unknown']);
     expect(client.cookies.has(FAKE_SESSION_COOKIE)).toBe(false);
-    expect(await findJobOwner(jobId)).toBeNull();
+    expect(await findJobOwner(env.db, jobId)).toBeNull();
     expect((await requestCandidates(client, jobId)).status).toBe(401);
   });
 
@@ -307,7 +197,7 @@ describe('Kakao login via Supabase', () => {
     await kakaoLogin(first, 'code-first', '/calendar');
     await kakaoLogin(second, 'code-second', '/calendar');
 
-    const identities = await findSupabaseIdentities(supabaseUserId);
+    const identities = await findSupabaseIdentities(env.db, supabaseUserId);
     const [user] = await env.db
       .select()
       .from(users)
@@ -357,6 +247,94 @@ describe('Kakao login via Supabase', () => {
     expect(client.cookies.get(FAKE_SESSION_COOKIE)).toBe(fake.sessionCookieFor(supabaseUserId));
   });
 
+  it('keeps refreshed Supabase cookies on error responses', async () => {
+    useKakao();
+
+    const client = createApiTestClient();
+    const supabaseUserId = randomUUID();
+
+    fake.registerCode('code-error-refresh', { id: supabaseUserId });
+    await kakaoLogin(client, 'code-error-refresh', '/');
+    client.cookies.set(FAKE_SESSION_COOKIE, `${EXPIRED_PREFIX}${supabaseUserId}`);
+
+    // Unknown job → the handler throws ApiError(NOT_FOUND) after the session was refreshed.
+    const response = await requestCandidates(client, randomUUID());
+
+    expect(response.status).toBe(404);
+    expect(
+      response.headers
+        .getSetCookie()
+        .some((cookie) =>
+          cookie.startsWith(`${FAKE_SESSION_COOKIE}=${fake.sessionCookieFor(supabaseUserId)}`),
+        ),
+    ).toBe(true);
+    expect(client.cookies.get(FAKE_SESSION_COOKIE)).toBe(fake.sessionCookieFor(supabaseUserId));
+  });
+
+  it('does not verify the old Supabase session during the callback', async () => {
+    useKakao();
+
+    const client = createApiTestClient();
+
+    fake.registerCode('code-old', { id: randomUUID() });
+    await kakaoLogin(client, 'code-old', '/');
+    fake.registerCode('code-new', { id: randomUUID() });
+    await client.send(loginRoute, '/auth/login?provider=kakao&returnTo=%2F');
+
+    const claimsBefore = fake.calls.getClaims;
+    const response = await client.send(callbackRoute, '/auth/callback?code=code-new&returnTo=%2F');
+
+    expect(response.headers.get('location')).toBe(`${TEST_APP_URL}/`);
+    expect(fake.calls.getClaims).toBe(claimsBefore);
+  });
+
+  it('signs out and drops every Supabase cookie when linking fails after a successful exchange', async () => {
+    useKakao();
+
+    const client = createApiTestClient();
+    const jobId = await uploadAndProcess(client);
+    const failingDb = new Proxy(env.db, {
+      get: (target, property, receiver) =>
+        property === 'transaction'
+          ? async () => {
+              throw new Error('database unavailable');
+            }
+          : Reflect.get(target, property, receiver),
+    });
+
+    fake.registerCode('code-db-failure', { id: randomUUID() });
+    await client.send(
+      loginRoute,
+      `/auth/login?provider=kakao&returnTo=${encodeURIComponent(`/recognitions/${jobId}`)}`,
+    );
+    expect(client.cookies.has(FAKE_VERIFIER_COOKIE)).toBe(true);
+
+    const signOutsBefore = fake.calls.signOut;
+    const staleVerifier = 'sb-test-ref-auth-token-flow-stale-code-verifier';
+
+    // Leftovers from an earlier session in this browser must not survive the failed login either.
+    client.cookies.set(FAKE_SESSION_COOKIE, fake.sessionCookieFor(randomUUID()));
+    client.cookies.set(staleVerifier, 'stale');
+    setDbForTesting(failingDb);
+
+    try {
+      const response = await client.send(
+        callbackRoute,
+        `/auth/callback?code=code-db-failure&returnTo=${encodeURIComponent(`/recognitions/${jobId}`)}`,
+      );
+
+      expect(response.headers.get('location')).toBe(`${TEST_APP_URL}/recognitions/${jobId}?login=failed`);
+    } finally {
+      setDbForTesting(env.db);
+    }
+
+    expect(fake.calls.signOut).toBe(signOutsBefore + 1);
+    expect(client.cookies.has(FAKE_SESSION_COOKIE)).toBe(false);
+    expect(client.cookies.has(FAKE_VERIFIER_COOKIE)).toBe(false);
+    expect(client.cookies.has(staleVerifier)).toBe(false);
+    expect(await findJobOwner(env.db, jobId)).toBeNull();
+  });
+
   it('does not touch Supabase for requests without Supabase cookies', async () => {
     useKakao();
 
@@ -400,60 +378,5 @@ describe('Kakao login via Supabase', () => {
 
     expect(client.cookies.has('offnal_session')).toBe(false);
     expect(client.cookies.has(FAKE_SESSION_COOKIE)).toBe(true);
-  });
-});
-
-describe('demo logout', () => {
-  it('deletes the demo session', async () => {
-    const client = createApiTestClient();
-    const jobId = await createLoggedInJob(client, '로그아웃 사용자');
-    const response = await client.send(logoutRoute, '/auth/logout', { method: 'POST' });
-
-    expect(response.status).toBe(303);
-    expect(response.headers.get('location')).toBe(`${TEST_APP_URL}/`);
-    expect(client.cookies.has('offnal_session')).toBe(false);
-    expect((await requestCandidates(client, jobId)).status).toBe(401);
-  });
-});
-
-describe('public config', () => {
-  it('exposes only non-secret settings', async () => {
-    const client = createApiTestClient();
-    const response = await client.send(publicConfigRoute, '/api/config/public');
-    const body = await readJson<PublicConfigResponse>(response);
-
-    expect(body).toMatchObject({
-      appMode: AppMode.DEMO,
-      priceKrw: 1900,
-      freeMonthLimit: 2,
-      authProviders: [AuthProviderType.DEV],
-      isMockVision: true,
-      isMockPayment: true,
-    });
-    expect(JSON.stringify(body)).not.toContain('secret');
-  });
-
-  it('flags mock providers of a live test deployment and keeps dev login off', async () => {
-    envSandbox.set({
-      OFFNAL_ENV: 'preview',
-      APP_MODE: 'live',
-      ...SUPABASE_KAKAO_ENV,
-      AUTH_PROVIDERS: 'kakao,dev',
-    });
-
-    const client = createApiTestClient();
-    const body = await readJson<PublicConfigResponse>(
-      await client.send(publicConfigRoute, '/api/config/public'),
-    );
-    const devLoginResponse = await devLogin(client, '라이브 테스트');
-
-    expect(body).toMatchObject({
-      appMode: AppMode.LIVE,
-      authProviders: [AuthProviderType.KAKAO],
-      isMockVision: true,
-      isMockPayment: true,
-    });
-    expect(JSON.stringify(body)).not.toContain('sb_publishable');
-    expect(devLoginResponse.status).toBe(404);
   });
 });

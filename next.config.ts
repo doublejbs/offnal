@@ -19,9 +19,10 @@ const BASELINE_HEADERS = {
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['sharp', '@electric-sql/pglite', 'pg'],
-  // Migration SQL is read at runtime from ./drizzle, so it must be traced into server bundles.
+  // Read at runtime via fs, so they must be traced into server bundles: migration SQL (./drizzle) and
+  // the Supabase root CA used to verify the Postgres TLS certificate.
   outputFileTracingIncludes: {
-    '/**': ['./drizzle/**/*'],
+    '/**': ['./drizzle/**/*', './src/server/db/certs/*.crt'],
   },
   poweredByHeader: false,
   // `next dev` would otherwise (re)write an agent-rules block into CLAUDE.md/AGENTS.md.

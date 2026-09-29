@@ -82,10 +82,17 @@ const resolveSupabaseUser = async (
   return { supabaseUserId, user: supabaseUserId ? await findUserBySupabaseId(db, supabaseUserId) : null };
 };
 
-const resolveContext = async (db: DbExecutor, source: CookieSource, ip: string): Promise<RequestContext> => {
+const NO_SUPABASE_USER = { supabaseUserId: null, user: null };
+
+const resolveContext = async (
+  db: DbExecutor,
+  source: CookieSource,
+  ip: string,
+  includeSupabase = true,
+): Promise<RequestContext> => {
   const rawSession = isDemoMode() ? source.read(SESSION_COOKIE_NAME) : undefined;
   const rawAnonymous = source.read(ANONYMOUS_COOKIE_NAME);
-  const supabase = await resolveSupabaseUser(db, source);
+  const supabase = includeSupabase ? await resolveSupabaseUser(db, source) : NO_SUPABASE_USER;
   const demoUser = !supabase.user && rawSession ? await resolveUserFromSessionToken(db, rawSession) : null;
   const anonymousSessionId = rawAnonymous ? await resolveAnonymousSessionId(db, rawAnonymous) : null;
 
@@ -119,6 +126,22 @@ export const getRequestSession = async (request: NextRequest, db: DbExecutor): P
 
   return { context, supabase };
 };
+
+/**
+ * Login callback: anonymous session and demo session only. The Supabase session is about to be
+ * replaced by the code exchange, so verifying the old one (getClaims) would be wasted work.
+ */
+export const getPreLoginContext = async (request: NextRequest, db: DbExecutor): Promise<RequestContext> =>
+  resolveContext(
+    db,
+    {
+      read: (name) => request.cookies.get(name)?.value,
+      all: () => request.cookies.getAll(),
+      createSupabase: async () => null,
+    },
+    getClientIpFromHeaders(request.headers),
+    false,
+  );
 
 export const getRequestContext = async (request: NextRequest, db: DbExecutor): Promise<RequestContext> =>
   (await getRequestSession(request, db)).context;

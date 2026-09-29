@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -12,6 +14,7 @@ import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import {
   buildPoolConfig,
+  SUPABASE_ROOT_CA_PATH,
   createDbHandleFromEnv,
   createTestDb,
   type Db,
@@ -19,7 +22,11 @@ import {
   setDbForTesting,
   type TestDb,
 } from '@/server/db/Database';
-import { listAppTableRowSecurity, listPublicRoleAccessibleTables } from '@/server/db/DatabaseInspection';
+import {
+  countMockPaymentData,
+  listAppTableRowSecurity,
+  listPublicRoleAccessibleTables,
+} from '@/server/db/DatabaseInspection';
 import {
   authIdentities,
   calendars,
@@ -389,6 +396,59 @@ describe('Database schema', () => {
     }
   });
 
+  it('counts mock payments and their entitlements, and the cleanup SQL removes exactly those', async () => {
+    const handle = createDbHandleFromEnv({ OFFNAL_ENV: 'test', PGLITE_DIR: 'memory' });
+
+    try {
+      await handle.migrate();
+
+      const [user] = await handle.db.insert(users).values({ displayName: '결제 테스트' }).returning();
+      const userId = user!.id;
+      const [mockPayment] = await handle.db
+        .insert(payments)
+        .values({
+          userId,
+          yearMonth: '2026-10',
+          amount: 1900,
+          provider: PaymentProviderType.MOCK,
+          status: PaymentStatus.PAID,
+        })
+        .returning();
+      const [tossPayment] = await handle.db
+        .insert(payments)
+        .values({
+          userId,
+          yearMonth: '2026-11',
+          amount: 1900,
+          provider: PaymentProviderType.TOSS,
+          status: PaymentStatus.PAID,
+        })
+        .returning();
+
+      await handle.db.insert(entitlements).values([
+        { userId, yearMonth: '2026-10', source: EntitlementSource.PURCHASE, paymentId: mockPayment!.id },
+        { userId, yearMonth: '2026-11', source: EntitlementSource.PURCHASE, paymentId: tossPayment!.id },
+        { userId, yearMonth: '2026-12', source: EntitlementSource.TRIAL },
+      ]);
+
+      expect(await countMockPaymentData(handle.db)).toEqual({ payments: 1, entitlements: 1 });
+
+      const cleanup = readFileSync(path.join(process.cwd(), 'docs/sql/CleanupMockPayments.sql'), 'utf8');
+
+      for (const statement of cleanup.split(';').map((part) => part.replace(/--.*$/gm, '').trim())) {
+        if (statement && !['begin', 'commit'].includes(statement)) {
+          await handle.db.execute(sql.raw(statement));
+        }
+      }
+
+      expect(await countMockPaymentData(handle.db)).toEqual({ payments: 0, entitlements: 0 });
+      expect(await handle.db.select().from(entitlements)).toHaveLength(2);
+      expect(await handle.db.select().from(payments)).toHaveLength(1);
+    } finally {
+      await handle.close();
+    }
+  });
+
   it('accepts only supabase and dev identities', async () => {
     const userId = await createUser(db);
 
@@ -461,18 +521,25 @@ describe('Database schema', () => {
 });
 
 describe('buildPoolConfig', () => {
-  it('uses TLS for Supabase hosts and strips sslmode so the explicit ssl option wins', () => {
+  const bundledCa = readFileSync(path.join(process.cwd(), SUPABASE_ROOT_CA_PATH), 'utf8');
+
+  it('verifies Supabase hosts against the bundled Supabase root CA and strips sslmode', () => {
     const config = buildPoolConfig(
       'postgresql://postgres.ref:pw@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres?sslmode=require',
       {},
     );
 
-    expect(config.ssl).toEqual({ rejectUnauthorized: false });
+    expect(config.ssl).toEqual({ rejectUnauthorized: true, ca: bundledCa });
+    expect(bundledCa).toContain('BEGIN CERTIFICATE');
     expect(config.connectionString).not.toContain('sslmode');
     expect(config.max).toBe(5);
+    expect(buildPoolConfig('postgresql://postgres:pw@db.ref.supabase.co:5432/postgres', {}).ssl).toEqual({
+      rejectUnauthorized: true,
+      ca: bundledCa,
+    });
   });
 
-  it('verifies the server certificate when a root CA is provided', () => {
+  it('lets DATABASE_SSL_ROOT_CERT override the bundled CA', () => {
     const config = buildPoolConfig('postgresql://postgres:pw@db.ref.supabase.co:5432/postgres', {
       DATABASE_SSL_ROOT_CERT: '-----BEGIN CERTIFICATE-----\\nabc\\n-----END CERTIFICATE-----',
     });
@@ -483,13 +550,41 @@ describe('buildPoolConfig', () => {
     });
   });
 
-  it('keeps plain connections for local Postgres and honours sslmode', () => {
+  it('follows libpq sslmode semantics for other hosts', () => {
     expect(buildPoolConfig('postgres://user:pw@localhost:5432/offnal', {}).ssl).toBeUndefined();
+    expect(
+      buildPoolConfig('postgres://user:pw@localhost:5432/offnal?sslmode=prefer', {}).ssl,
+    ).toBeUndefined();
     expect(buildPoolConfig('postgres://user:pw@db.example.com:5432/offnal?sslmode=require', {}).ssl).toEqual({
       rejectUnauthorized: false,
     });
     expect(
-      buildPoolConfig('postgres://user:pw@db.ref.supabase.co:5432/postgres?sslmode=disable', {}).ssl,
+      buildPoolConfig('postgres://user:pw@db.example.com:5432/offnal?sslmode=verify-full', {}).ssl,
+    ).toEqual({
+      rejectUnauthorized: true,
+    });
+    expect(
+      buildPoolConfig('postgres://user:pw@db.example.com:5432/offnal?sslmode=require', {
+        DATABASE_SSL_ROOT_CERT: 'PEM',
+      }).ssl,
+    ).toEqual({ rejectUnauthorized: true, ca: 'PEM' });
+  });
+
+  it('allows sslmode=disable outside production only', () => {
+    expect(
+      buildPoolConfig('postgres://user:pw@db.ref.supabase.co:5432/postgres?sslmode=disable', {
+        OFFNAL_ENV: 'development',
+      }).ssl,
     ).toBeUndefined();
+    expect(() =>
+      buildPoolConfig('postgres://user:pw@db.example.com:5432/offnal?sslmode=disable', {
+        OFFNAL_ENV: 'production',
+      }),
+    ).toThrow(/sslmode=disable/);
+    expect(() =>
+      buildPoolConfig('postgres://user:pw@db.example.com:5432/offnal?sslmode=disable', {
+        NODE_ENV: 'production',
+      }),
+    ).toThrow(/sslmode=disable/);
   });
 });

@@ -31,5 +31,6 @@ pnpm storage:check  # Supabase Storage(S3) 키 확인
 - re-export 금지, 경로 별칭 `@/` → `src/`
 - API 라우트 핸들러는 `next/headers` 대신 `NextRequest`/`NextResponse` 쿠키만 사용 (통합 테스트에서 직접 호출)
 - 로그인 전 응답·HTML에 인식된 이름·근무 데이터 금지. 권한 판정은 항상 서버
+- **새 테이블을 추가하면 RLS 활성화 마이그레이션(`ALTER TABLE ... ENABLE ROW LEVEL SECURITY`)도 추가하고 `pnpm db:check`로 확인**한다 (테스트도 모든 public 테이블의 RLS를 검사한다)
 - 인증은 Supabase Auth(카카오). 서버에서 Supabase 세션은 `getClaims()`로만 신뢰(`getSession()` 금지). 데모 로그인만 자체 `offnal_session`
 - 사용자 문구·문서·커밋 메시지는 한국어

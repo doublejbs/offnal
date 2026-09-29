@@ -7,6 +7,7 @@ import { DbDriver } from '@/domain/enums/DbDriver';
 import { createDbHandleFromEnv } from '@/server/db/Database';
 import {
   countAppliedMigrations,
+  countMockPaymentData,
   listAppTableRowSecurity,
   listPublicRoleAccessibleTables,
 } from '@/server/db/DatabaseInspection';
@@ -43,6 +44,9 @@ const runDbCheck = async (): Promise<void> => {
     const expected = await readJournalCount();
     const tables = await listAppTableRowSecurity(handle.db);
     const exposed = await listPublicRoleAccessibleTables(handle.db);
+    const mockData = tables.some((table) => table.name === 'payments')
+      ? await countMockPaymentData(handle.db)
+      : null;
     const withoutRls = tables.filter((table) => !table.rowSecurity).map((table) => table.name);
 
     console.info(`[db:check] 마이그레이션: 적용 ${applied ?? 0} / 저장소 ${expected}`);
@@ -60,6 +64,14 @@ const runDbCheck = async (): Promise<void> => {
       }`,
     );
 
+    if (mockData && (mockData.payments > 0 || mockData.entitlements > 0)) {
+      // A warning, not a failure: expected on a test deployment, fatal only before going to production.
+      console.warn(
+        `[db:check] 경고: 테스트 결제(mock) 데이터가 있어요 — 결제 ${mockData.payments}건, 이용권 ${mockData.entitlements}건. ` +
+          'OFFNAL_ENV=production으로 전환하기 전에 docs/sql/CleanupMockPayments.sql을 실행하거나 별도 Supabase 프로젝트를 쓰세요.',
+      );
+    }
+
     if (applied !== expected || withoutRls.length > 0 || tables.length === 0 || (exposed?.length ?? 0) > 0) {
       console.error('[db:check] 확인 필요: `pnpm db:migrate`로 마이그레이션을 적용하세요.');
       process.exitCode = 1;
@@ -76,7 +88,7 @@ const runDbCheck = async (): Promise<void> => {
 runDbCheck().catch((error: unknown) => {
   console.error('[db:check] 실패', {
     name: error instanceof Error ? error.name : typeof error,
-    code: (error as { code?: unknown } | null)?.code,
+    code: error instanceof Error && 'code' in error ? String(error.code) : undefined,
     message: error instanceof Error ? error.message : String(error),
   });
   process.exitCode = 1;

@@ -65,6 +65,10 @@ export const buildCallbackUrl = (appUrl: string, returnTo: string): string => {
  * Kakao login through Supabase Auth. No `scopes` option: Supabase always requests its default Kakao
  * scopes (account_email, profile_image, profile_nickname) and only appends extra ones, so the scope
  * set is controlled by the Kakao console consent items, not here.
+ *
+ * PKCE limitation: the callback exchanges without a `flowId`, so @supabase/auth-js uses the most
+ * recently stored code verifier. If the same browser starts two logins at once (two tabs), the
+ * first tab to return may pick the other tab's verifier and fail with `login=failed`; retrying works.
  */
 export const createKakaoAuthProvider = (auth: SupabaseAuthApi, appUrl: string): KakaoAuthProvider => ({
   kind: AuthProviderType.KAKAO,

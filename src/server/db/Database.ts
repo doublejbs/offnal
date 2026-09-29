@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -46,7 +46,19 @@ const POOL_MAX_CONNECTIONS = 5;
 const SUPABASE_HOST_SUFFIXES = ['.supabase.com', '.supabase.co'];
 /** libpq TLS parameters: node-postgres would let them override the explicit `ssl` option. */
 const SSL_URL_PARAMS = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'uselibpqcompat'];
-const SSL_REQUIRED_MODES = new Set(['require', 'verify-ca', 'verify-full', 'prefer']);
+/** Modes that force TLS (libpq names). `prefer`/`allow` do not: node-postgres cannot fall back, so they mean plain. */
+const SSL_REQUIRED_MODES = new Set(['require', 'verify-ca', 'verify-full']);
+const SSL_VERIFY_MODES = new Set(['verify-ca', 'verify-full']);
+
+/**
+ * Supabase Root 2021 CA (public certificate, valid until 2031-04-26), from the dashboard's
+ * Database Settings → SSL Configuration → Download certificate
+ * (https://supabase-downloads.s3-ap-southeast-1.amazonaws.com/prod/ssl/prod-ca-2021.crt). Verified to
+ * sign the pooler chain (`*.pooler.supabase.com` ← "Supabase Intermediate 2021 CA", ports 6543 and 5432);
+ * direct hosts (`db.<ref>.supabase.co`) are documented to use the same CA.
+ * Traced into server bundles by next.config.ts `outputFileTracingIncludes`.
+ */
+export const SUPABASE_ROOT_CA_PATH = 'src/server/db/certs/SupabaseRootCa2021.crt';
 
 const getMigrationsFolder = (): string => path.join(process.cwd(), 'drizzle');
 
@@ -97,24 +109,55 @@ const readSslRootCert = (env: RawEnv): string | null => {
   return value ? value.replace(/\\n/g, '\n') : null;
 };
 
+let supabaseRootCa: string | null = null;
+
+const readSupabaseRootCa = (): string => {
+  supabaseRootCa ??= readFileSync(
+    path.join(/* turbopackIgnore: true */ process.cwd(), SUPABASE_ROOT_CA_PATH),
+    'utf8',
+  );
+
+  return supabaseRootCa;
+};
+
+const isProductionEnv = (env: RawEnv): boolean =>
+  (env.OFFNAL_ENV?.trim() || (env.NODE_ENV === 'production' ? OffnalEnv.PRODUCTION : '')) ===
+  OffnalEnv.PRODUCTION;
+
+/**
+ * TLS policy (never a silent downgrade):
+ * - Supabase hosts: always TLS, certificate verified against DATABASE_SSL_ROOT_CERT or the bundled Supabase root CA.
+ * - `sslmode=verify-ca|verify-full`: verified (DATABASE_SSL_ROOT_CERT, otherwise the system CAs).
+ * - `sslmode=require`: libpq semantics — encrypted; verified only when DATABASE_SSL_ROOT_CERT is set.
+ * - `sslmode=disable`: plain, refused in production.
+ */
 const resolveSsl = (url: URL, env: RawEnv): PoolConfig['ssl'] => {
   const sslMode = url.searchParams.get('sslmode');
-
-  if (sslMode === 'disable') {
-    return undefined;
-  }
-
   const isSupabaseHost = SUPABASE_HOST_SUFFIXES.some((suffix) => url.hostname.endsWith(suffix));
 
-  if (!isSupabaseHost && !(sslMode && SSL_REQUIRED_MODES.has(sslMode))) {
+  if (sslMode === 'disable') {
+    if (isProductionEnv(env)) {
+      throw new Error('sslmode=disable is not allowed in production');
+    }
+
     return undefined;
   }
 
-  const ca = readSslRootCert(env);
+  const customCa = readSslRootCert(env);
 
-  // Supabase signs server certificates with its own root CA (Dashboard → Database Settings → SSL
-  // Configuration), not a publicly trusted one: verify when that CA is provided, otherwise encrypt only.
-  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: false };
+  if (isSupabaseHost) {
+    return { rejectUnauthorized: true, ca: customCa ?? readSupabaseRootCa() };
+  }
+
+  if (!sslMode || !SSL_REQUIRED_MODES.has(sslMode)) {
+    return undefined;
+  }
+
+  if (customCa) {
+    return { rejectUnauthorized: true, ca: customCa };
+  }
+
+  return { rejectUnauthorized: SSL_VERIFY_MODES.has(sslMode) };
 };
 
 /**

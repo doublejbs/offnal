@@ -55,15 +55,19 @@ const noCacheHeaders = { 'Cache-Control': 'private, no-cache, no-store, must-rev
 const readCookie = async (cookies: SupabaseCookieMethods, name: string): Promise<string | undefined> =>
   (await cookies.getAll())?.find((cookie) => cookie.name === name)?.value;
 
-const toUser = (user: FakeSupabaseUser): User =>
-  ({
-    id: user.id,
-    aud: 'authenticated',
-    email: user.email,
-    app_metadata: { provider: 'kakao' },
-    user_metadata: user.nickname ? { nickname: user.nickname, name: user.nickname } : {},
-    created_at: new Date().toISOString(),
-  }) as User;
+const toUser = (user: FakeSupabaseUser): User => ({
+  id: user.id,
+  aud: 'authenticated',
+  role: 'authenticated',
+  ...(user.email ? { email: user.email } : {}),
+  app_metadata: { provider: 'kakao', providers: ['kakao'] },
+  // Same keys Supabase fills from a Kakao profile (nickname → name / preferred_username).
+  user_metadata: user.nickname
+    ? { nickname: user.nickname, name: user.nickname, preferred_username: user.nickname }
+    : {},
+  created_at: new Date().toISOString(),
+  is_anonymous: false,
+});
 
 /**
  * In-memory stand-in for the Supabase Auth API, wired through the same cookie adapter as the real

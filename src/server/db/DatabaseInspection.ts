@@ -80,3 +80,22 @@ export const listPublicRoleAccessibleTables = async (db: DbExecutor): Promise<st
 
   return readRows(result).map((row) => tableNameSchema.parse(row).name);
 };
+
+export type MockPaymentData = {
+  payments: number;
+  entitlements: number;
+};
+
+const mockCountsSchema = z.object({ payments: z.coerce.number(), entitlements: z.coerce.number() });
+
+/** Test-payment leftovers (mock provider) that must not survive into production data. */
+export const countMockPaymentData = async (db: DbExecutor): Promise<MockPaymentData> => {
+  const result = await db.execute(sql`
+    select
+      (select count(*) from payments where provider = 'mock') as payments,
+      (select count(*) from entitlements e join payments p on p.id = e.payment_id where p.provider = 'mock')
+        as entitlements
+  `);
+
+  return mockCountsSchema.parse(readRows(result)[0]);
+};

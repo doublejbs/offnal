@@ -52,6 +52,11 @@ export type SupabaseRouteClient = {
    * A plain Response is re-wrapped as a NextResponse only when there is something to write.
    */
   applyCookies: (response: Response) => Response;
+  /**
+   * Queues removal of every Supabase cookie this browser holds or this request wrote (session
+   * chunks, PKCE code verifiers), so `applyCookies` leaves no Supabase auth state behind.
+   */
+  expireAllCookies: () => void;
 };
 
 /**
@@ -86,6 +91,8 @@ export const isSupabaseCookieName = (name: string): boolean => name.startsWith(S
 
 export const hasSupabaseCookies = (cookies: SupabaseCookie[]): boolean =>
   cookies.some((cookie) => isSupabaseCookieName(cookie.name));
+
+const EXPIRED_COOKIE_OPTIONS: CookieOptions = { path: '/', maxAge: 0 };
 
 const isRemoval = (cookie: SupabaseCookieToSet): boolean =>
   cookie.value === '' || (cookie.options.maxAge !== undefined && cookie.options.maxAge <= 0);
@@ -133,6 +140,15 @@ export const createSupabaseRouteClient = (
 
   return {
     auth,
+    expireAllCookies: () => {
+      const names = new Set([...request.cookies.getAll().map((cookie) => cookie.name), ...pending.keys()]);
+
+      for (const name of names) {
+        if (isSupabaseCookieName(name)) {
+          pending.set(name, { name, value: '', options: { ...EXPIRED_COOKIE_OPTIONS } });
+        }
+      }
+    },
     applyCookies: (response) => {
       if (pending.size === 0) {
         return response;

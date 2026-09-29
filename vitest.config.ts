@@ -6,11 +6,8 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(import.meta.dirname, 'src'),
-      // Marker package (bundled by Next): a no-op outside the React client graph.
-      'server-only': path.resolve(
-        import.meta.dirname,
-        'node_modules/next/dist/compiled/server-only/empty.js',
-      ),
+      // Marker package: tests run server code outside the react-server condition, so use its no-op entry.
+      'server-only': path.resolve(import.meta.dirname, 'node_modules/server-only/empty.js'),
     },
   },
   test: {

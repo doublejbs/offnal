@@ -43,7 +43,7 @@ pnpm dev:https                    # https://localhost:3000 (Next가 mkcert로 �
 
 데모 흐름: 사진 선택(아무 표 사진; 가로 300px 미만 이미지는 인식 실패 경로) → 흐린 달력 + 로그인 → 데모 로그인(표시 이름 입력) → 이름·월 선택 → “확인 필요” 날짜 수정 → 무료 저장 → 공유·ICS·PNG → 세 번째 달은 테스트 결제.
 
-> 데모 로그인은 같은 표시 이름을 입력하면 같은 계정으로 들어갑니다. 공개된 preview에서 데모 모드를 켜면 사람끼리 계정이 겹칠 수 있으니 내부 확인용으로만 쓰세요. `OFFNAL_ENV=production`에서는 데모 모드·mock 제공자·PGlite·로컬 저장소가 **기동 단계에서 차단**됩니다.
+> 데모 로그인은 **PGlite(키 없는 데모) 또는 개발 전용 DB에서만** 쓰세요. 실사용자가 있는 Supabase DB에 `APP_MODE=demo`로 붙이면 데모 계정·세션이 실데이터에 섞입니다. 데모 로그인은 같은 표시 이름을 입력하면 같은 계정으로 들어갑니다. 공개된 preview에서 데모 모드를 켜면 사람끼리 계정이 겹칠 수 있으니 내부 확인용으로만 쓰세요. `OFFNAL_ENV=production`에서는 데모 모드·mock 제공자·PGlite·로컬 저장소가 **기동 단계에서 차단**됩니다.
 
 ## 명령
 
@@ -99,7 +99,7 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 - 대시보드 상단 **Connect** → Connection string
   - `DATABASE_URL`: **Transaction pooler**(포트 6543, `postgres.<project-ref>` 사용자). 서버리스 함수용
   - `DATABASE_MIGRATION_URL`: **Session pooler**(포트 5432) 또는 IPv6가 되는 환경이면 Direct connection. `pnpm db:migrate` 전용
-- `*.supabase.com`/`*.supabase.co` 호스트는 자동으로 TLS로 연결합니다. Supabase DB 인증서는 Supabase 자체 루트 CA로 서명되므로, 인증서까지 검증하려면 Project Settings → Database → SSL Configuration에서 인증서를 받아 `DATABASE_SSL_ROOT_CERT`에 PEM을 넣습니다(없으면 암호화만).
+- `*.supabase.com`/`*.supabase.co` 호스트는 항상 TLS로 연결하고 **서버 인증서를 검증**합니다. Supabase DB 인증서는 공개 CA가 아닌 Supabase 자체 루트 CA(“Supabase Root 2021 CA”, 2031-04-26 만료)로 서명되므로 이 공개 인증서를 저장소에 포함했습니다(`src/server/db/certs/SupabaseRootCa2021.crt`, 대시보드 Database Settings → SSL Configuration → Download certificate와 같은 파일). 풀러(`*.pooler.supabase.com`, 6543·5432)가 이 CA로 검증되는 것을 실제 프로젝트에서 확인했습니다. 다른 CA가 필요하면 `DATABASE_SSL_ROOT_CERT`(PEM)로 덮어씁니다. 그 밖의 호스트는 libpq `sslmode`를 따르며(`verify-*`는 시스템 CA로 검증, `require`는 암호화), production에서 `sslmode=disable`은 거부합니다.
 - `pnpm db:migrate` → `pnpm db:check`로 마이그레이션 수와 “RLS 미적용: 없음”, “anon/authenticated 테이블 권한: 없음”을 확인합니다. 마이그레이션 `0003_supabase_rls`가 모든 앱 테이블에 RLS를 켜고 `anon`·`authenticated` 권한을 회수합니다(서버는 테이블 소유자인 `postgres` 역할로 접속해 RLS 영향을 받지 않습니다).
 
 **4. 원본 저장소 → `STORAGE_DRIVER=s3`, `S3_*`**
@@ -168,6 +168,8 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 | `STORAGE_DRIVER`, `S3_*` | `s3`와 Supabase Storage 값 (live 기본값도 `s3`) |
 | `AUTH_PROVIDERS` | `kakao` |
 | `VISION_PROVIDER` / `PAYMENT_PROVIDER` | `mock` / `mock` |
+
+**테스트 결제 데이터 주의**: mock 결제로 받은 월 이용권은 DB에 `payments.provider='mock'`으로 남습니다. mock 결제를 쓰는 테스트 배포는 **운영과 다른 Supabase 프로젝트**를 쓰는 것을 권장합니다. 같은 프로젝트를 운영으로 올릴 때는 `OFFNAL_ENV=production`으로 바꾸기 **전에** Supabase SQL Editor에서 [`docs/sql/CleanupMockPayments.sql`](docs/sql/CleanupMockPayments.sql)(mock 결제에 연결된 이용권 → mock 결제 이벤트 → mock 결제 순으로 삭제)을 실행하고 `pnpm db:check`에 경고가 없는지 확인하세요. `db:check`는 mock 결제·이용권이 남아 있으면 경고를 출력합니다. mock 인식으로 만든 가상 근무 데이터도 남으므로 별도 프로젝트가 가장 깔끔합니다.
 
 키가 준비되면 `VISION_PROVIDER=anthropic`+`ANTHROPIC_API_KEY`, `PAYMENT_PROVIDER=toss`+토스 키로 바꾸고 `OFFNAL_ENV=production`으로 올립니다. 빌드(`next build`)는 환경 변수·DB에 접근하지 않으므로(모든 화면이 요청 시 렌더링) 값이 비어 있어도 빌드는 통과하고, 잘못된 설정은 첫 요청에서 드러납니다. Supabase 값이 없으면 `src/proxy.ts`는 아무것도 하지 않습니다.
 

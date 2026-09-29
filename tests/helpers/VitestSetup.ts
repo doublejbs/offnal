@@ -1,3 +1,7 @@
+import { afterEach } from 'vitest';
+
+import { setSupabaseClientFactoryForTesting } from '@/server/auth/SupabaseServerClient';
+
 // Force an isolated test environment regardless of the developer's shell or .env files.
 const TEST_ENV: Record<string, string> = {
   OFFNAL_ENV: 'test',
@@ -36,3 +40,8 @@ for (const key of CLEARED_KEYS) {
 }
 
 Object.assign(process.env, TEST_ENV);
+
+// A fake Supabase client installed by one test must never leak into the next.
+afterEach(() => {
+  setSupabaseClientFactoryForTesting(null);
+});
