@@ -19,9 +19,9 @@
     "test:pg": "OFFNAL_REQUIRE_TEST_PG=1 vitest run tests/integration",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx --env-file-if-exists=.env.local src/server/db/Migrate.ts",
-    "db:check": "tsx --env-file-if-exists=.env.local src/server/db/DbCheck.ts",
-    "storage:check": "tsx --env-file-if-exists=.env.local src/server/storage/StorageCheck.ts"
+    "db:migrate": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/db/Migrate.ts",
+    "db:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/db/DbCheck.ts",
+    "storage:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/storage/StorageCheck.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -44,6 +44,7 @@
     "pg": "^8.23.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
     "sharp": "^0.35.5",
     "zod": "^4.6.5"
   },

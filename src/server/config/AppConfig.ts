@@ -247,8 +247,11 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
   const isProduction = offnalEnv === OffnalEnv.PRODUCTION;
   const appMode = parsed.APP_MODE ?? (isProduction ? AppMode.LIVE : AppMode.DEMO);
   const isDemo = appMode === AppMode.DEMO;
+  // Live deployments (development/preview/production) default to the Supabase bucket: a serverless
+  // filesystem is read-only/ephemeral. Only demo mode and automated tests default to local files.
   const storageDriver =
-    parsed.STORAGE_DRIVER ?? (isDemo || !isProduction ? StorageDriver.LOCAL : StorageDriver.S3);
+    parsed.STORAGE_DRIVER ??
+    (isDemo || offnalEnv === OffnalEnv.TEST ? StorageDriver.LOCAL : StorageDriver.S3);
 
   const defaultAuthProviders = isDemo ? [AuthProviderType.DEV] : [AuthProviderType.KAKAO];
   const authProviders = resolveAuthProviders(parsed.AUTH_PROVIDERS ?? defaultAuthProviders, appMode);

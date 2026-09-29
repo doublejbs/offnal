@@ -12,5 +12,9 @@ export type PublicConfigResponse = {
   authProviders: AuthProviderType[];
   paymentProvider: PaymentProviderType;
   visionProvider: VisionProviderType;
+  /** Recognition uses fixture data (demo, or a live test deployment without an Anthropic key). */
+  isMockVision: boolean;
+  /** Checkout uses the test payment button, never charges (demo, or live test deployment without Toss keys). */
+  isMockPayment: boolean;
   uploadMaxBytes: number;
 };

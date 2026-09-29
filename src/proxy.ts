@@ -5,6 +5,7 @@ import {
   getSupabaseClientFactory,
   getSupabaseSettings,
   hasSupabaseCookies,
+  type SupabaseSettings,
 } from '@/server/auth/SupabaseServerClient';
 
 /**
@@ -15,9 +16,16 @@ import {
  */
 export const proxy = async (request: NextRequest): Promise<NextResponse> => {
   let response = NextResponse.next({ request });
-  const settings = getSupabaseSettings();
+  let settings: SupabaseSettings | null = null;
 
-  if (!settings || !isKakaoLoginEnabled() || !hasSupabaseCookies(request.cookies.getAll())) {
+  try {
+    settings = isKakaoLoginEnabled() ? getSupabaseSettings() : null;
+  } catch {
+    // Invalid configuration: let the route itself report it instead of failing every request here.
+    return response;
+  }
+
+  if (!settings || !hasSupabaseCookies(request.cookies.getAll())) {
     return response;
   }
 

@@ -169,4 +169,48 @@ describe('parseAppConfig', () => {
       parseAppConfig({ OFFNAL_ENV: 'development', NEXT_PUBLIC_SUPABASE_URL: 'not a url' }),
     ).toThrow();
   });
+
+  it('allows a live test deployment with mock recognition and payment in preview and development', () => {
+    for (const offnalEnv of [OffnalEnv.PREVIEW, OffnalEnv.DEVELOPMENT]) {
+      const config = parseAppConfig(
+        withOverrides({
+          OFFNAL_ENV: offnalEnv,
+          VISION_PROVIDER: 'mock',
+          PAYMENT_PROVIDER: 'mock',
+          AUTH_PROVIDERS: 'kakao,dev',
+        }),
+      );
+
+      expect(config).toMatchObject({
+        offnalEnv,
+        appMode: AppMode.LIVE,
+        visionProvider: VisionProviderType.MOCK,
+        paymentProvider: PaymentProviderType.MOCK,
+        storageDriver: StorageDriver.S3,
+        // Dev login stays off in live mode even when requested.
+        authProviders: [AuthProviderType.KAKAO],
+      });
+    }
+  });
+
+  it('rejects mock recognition or payment in production live mode', () => {
+    expect(() =>
+      parseAppConfig(withOverrides({ VISION_PROVIDER: 'mock', PAYMENT_PROVIDER: 'mock' })),
+    ).toThrow(/VISION_PROVIDER=mock; PAYMENT_PROVIDER=mock/);
+    expect(() => parseAppConfig(withOverrides({ VISION_PROVIDER: 'mock' }))).toThrow(/VISION_PROVIDER=mock/);
+    expect(() => parseAppConfig(withOverrides({ PAYMENT_PROVIDER: 'mock' }))).toThrow(
+      /PAYMENT_PROVIDER=mock/,
+    );
+  });
+
+  it('defaults live deployments to the S3 bucket and demo/test to local files', () => {
+    expect(parseAppConfig({ OFFNAL_ENV: 'preview', APP_MODE: 'live' }).storageDriver).toBe(StorageDriver.S3);
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'live' }).storageDriver).toBe(
+      StorageDriver.S3,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo' }).storageDriver).toBe(
+      StorageDriver.LOCAL,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'test', APP_MODE: 'live' }).storageDriver).toBe(StorageDriver.LOCAL);
+  });
 });

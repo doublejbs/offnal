@@ -427,7 +427,33 @@ describe('public config', () => {
       priceKrw: 1900,
       freeMonthLimit: 2,
       authProviders: [AuthProviderType.DEV],
+      isMockVision: true,
+      isMockPayment: true,
     });
     expect(JSON.stringify(body)).not.toContain('secret');
+  });
+
+  it('flags mock providers of a live test deployment and keeps dev login off', async () => {
+    envSandbox.set({
+      OFFNAL_ENV: 'preview',
+      APP_MODE: 'live',
+      ...SUPABASE_KAKAO_ENV,
+      AUTH_PROVIDERS: 'kakao,dev',
+    });
+
+    const client = createApiTestClient();
+    const body = await readJson<PublicConfigResponse>(
+      await client.send(publicConfigRoute, '/api/config/public'),
+    );
+    const devLoginResponse = await devLogin(client, '라이브 테스트');
+
+    expect(body).toMatchObject({
+      appMode: AppMode.LIVE,
+      authProviders: [AuthProviderType.KAKAO],
+      isMockVision: true,
+      isMockPayment: true,
+    });
+    expect(JSON.stringify(body)).not.toContain('sb_publishable');
+    expect(devLoginResponse.status).toBe(404);
   });
 });

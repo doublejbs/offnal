@@ -36,6 +36,16 @@ describe('proxy', () => {
     expect(fake.clientCount()).toBe(0);
   });
 
+  it('passes requests through when the configuration itself is invalid', async () => {
+    envSandbox.set({ ...SUPABASE_KAKAO_ENV, OFFNAL_ENV: 'staging' });
+    fake.install();
+
+    const response = await proxy(buildRequest(`${FAKE_SESSION_COOKIE}=${EXPIRED_PREFIX}abc`));
+
+    expect(response.headers.get('x-middleware-next')).toBe('1');
+    expect(fake.clientCount()).toBe(0);
+  });
+
   it('skips requests without Supabase cookies', async () => {
     envSandbox.set(SUPABASE_KAKAO_ENV);
     fake.install();

@@ -4,12 +4,10 @@ import { type Metadata, type Viewport } from 'next';
 import { Noto_Sans_KR } from 'next/font/google';
 import { type ReactNode } from 'react';
 
+import { getEnvironmentBannerText } from '@/client/EnvironmentBanner';
 import AppShell from '@/components/AppShell';
 import ConfigProvider from '@/components/ConfigProvider';
-import { AppMode } from '@/domain/enums/AppMode';
-import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
-import { getAppConfig } from '@/server/config/AppConfig';
-import { getPricing } from '@/server/config/PricingConfig';
+import { buildPublicConfig } from '@/server/config/PublicConfig';
 
 /** Every screen is per-user and reads runtime config; nothing is prerendered at build time. */
 export const dynamic = 'force-dynamic';
@@ -35,34 +33,19 @@ export const viewport: Viewport = {
   ],
 };
 
-/** Same values as GET /api/config/public, resolved once per request on the server. */
-const buildPublicConfig = (): PublicConfigResponse => {
-  const config = getAppConfig();
-  const pricing = getPricing(config);
-
-  return {
-    appMode: config.appMode,
-    priceKrw: pricing.priceKrw,
-    freeMonthLimit: pricing.freeMonthLimit,
-    authProviders: config.authProviders,
-    paymentProvider: config.paymentProvider,
-    visionProvider: config.visionProvider,
-    uploadMaxBytes: config.uploadMaxBytes,
-  };
-};
-
 type RootLayoutProps = {
   children: ReactNode;
 };
 
 const RootLayout = ({ children }: RootLayoutProps) => {
+  // Same values as GET /api/config/public, resolved once per request on the server.
   const config = buildPublicConfig();
 
   return (
     <html lang="ko" className={notoSansKr.variable}>
       <body>
         <ConfigProvider config={config}>
-          <AppShell isDemo={config.appMode === AppMode.DEMO}>{children}</AppShell>
+          <AppShell bannerText={getEnvironmentBannerText(config)}>{children}</AppShell>
         </ConfigProvider>
       </body>
     </html>
