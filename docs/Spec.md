@@ -11,10 +11,10 @@
 | 영역 | 결정 | 근거 |
 |---|---|---|
 | 프레임워크 | Next.js 16 App Router + TypeScript(strict), pnpm | Handoff 4장 제안. UI·서버 엔드포인트를 한 저장소에 |
-| DB | PostgreSQL + Drizzle ORM. preview·운영: `DATABASE_URL`(Supabase Postgres 등 일반 Postgres) 필수, `pnpm db:migrate`로 적용. 개발·테스트(`OFFNAL_ENV=development|test`)만 PGlite(임베디드 Postgres, 파일 또는 메모리) 허용 | 로컬에 Postgres·Docker 데몬 없이도 실제 Postgres 문법·트랜잭션·유니크 제약으로 검증 |
+| DB | **Supabase Postgres** + Drizzle ORM(서버가 `DATABASE_URL` 직접 연결, Supabase Data API는 쓰지 않음). 로컬 개발도 개발용 클라우드 Supabase 프로젝트에 연결. 자동 테스트(`OFFNAL_ENV=test`)와 키 없는 데모 개발만 PGlite 허용. 모든 테이블 RLS 활성 + 정책 없음(anon/authenticated 키로 접근 불가) | 로컬에 Postgres·Docker 데몬 없이도 실제 Postgres 문법·트랜잭션·유니크 제약으로 검증 |
 | 마이그레이션 | `drizzle-kit generate`로 `drizzle/` 아래 SQL 생성·커밋, 앱 기동 시 또는 `pnpm db:migrate`로 적용 | |
-| 인증 | 자체 세션(HttpOnly 쿠키 + DB 세션 테이블) + `AuthProvider` 경계. 실제: Google OAuth(arctic 라이브러리, PKCE). 개발: `DevAuthProvider`(데모 전용 즉시 로그인) | 로그인 수단 미확정 → 제공자 교체가 쉬운 경계. 익명 작업 claim을 서버 세션으로 직접 통제 |
-| 원본 저장 | `ObjectStorage` 경계. 개발: 로컬 파일(`.data/storage`). 운영: S3 호환(Supabase Storage S3 엔드포인트 등) | 비공개 저장, 공개 URL 발급 안 함 |
+| 인증 | **Supabase Auth**(`@supabase/ssr`, PKCE, 세션 쿠키는 Supabase가 관리) + **카카오** 로그인. 서버는 요청마다 Supabase 세션을 검증해 앱 `users` 행과 매핑(`auth_identities.provider='supabase'`, subject = Supabase user id). 데모 모드만 기존 자체 세션 `DevAuthProvider` 유지 | 고객 확정(2026-09-29): DB·인증 모두 Supabase, 로그인은 카카오. 익명 작업 claim은 앱의 `offnal_anon` 쿠키로 계속 통제 |
+| 원본 저장 | `ObjectStorage` 경계. **Supabase Storage 비공개 버킷**(S3 호환 엔드포인트, 기존 `S3ObjectStorage`). 테스트·키 없는 데모만 로컬 파일 | 비공개 저장, 공개 URL 발급 안 함 |
 | 이미지 인식 | `VisionProvider` 경계. 실제: Anthropic Claude(`@anthropic-ai/sdk`, 기본 모델 `claude-opus-5-5`, env로 교체), 이미지 base64 입력 + `output_config.format` JSON 스키마 구조화 출력 + `fallbacks: "default"`(beta `server-side-fallback-2026-07-01`). 개발: `MockVisionProvider`(가상 fixture) | 공식 SDK 문서(claude-api 스킬 2026-09-25 캐시)로 이미지 입력·구조화 출력 지원 확인 |
 | 결제 | `PaymentProvider` 경계. 실제: 토스페이먼츠(결제위젯 + 서버 승인 API + 웹훅 재조회). 개발: `MockPaymentProvider`(테스트 결제 버튼) | 사업자 미확정. 국내 단건결제 표준 흐름(승인 API 서버 호출)과 호환 |
 | ICS | `ics` npm 라이브러리 | 포맷 수작업 금지 |
@@ -163,12 +163,14 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 
 - `ShiftDefinition`은 published_months에 **월별 스냅샷(JSONB)** 으로 저장해 과거 달이 바뀌지 않게 한다. draft도 자체 사본을 가진다.
 - 삭제한 달력(`published_months` 삭제)은 `entitlements`를 건드리지 않는다.
+- **Supabase 접근 정책**: 마이그레이션으로 모든 앱 테이블에 `ENABLE ROW LEVEL SECURITY`(정책 없음 = anon/authenticated 역할 전면 차단). `anon`·`authenticated` 역할이 존재할 때만(Supabase) 해당 역할의 테이블 권한 `REVOKE ALL`도 수행(DO 블록으로 PGlite 호환). 서버는 `DATABASE_URL`(postgres 역할, RLS 우회)로만 접근. Storage 버킷도 비공개 + 정책 없음.
+- 앱 `users.id`는 앱 자체 uuid를 유지하고 Supabase user id는 `auth_identities`(provider `supabase`)로 연결한다(auth 스키마에 FK를 걸지 않음 — PGlite 테스트 호환).
 
 ---
 
 ## 6. 권한·보안 경계
 
-- **쿠키**: `offnal_session`(로그인, 30일), `offnal_anon`(익명, 7일). 값은 32바이트 랜덤 base64url, DB엔 sha256만 저장. `HttpOnly; SameSite=Lax; Path=/; Secure(https일 때)`.
+- **쿠키**: Supabase Auth 세션 쿠키(`sb-*`, `@supabase/ssr` 관리), 데모 전용 `offnal_session`(30일), `offnal_anon`(익명, 7일). 값은 32바이트 랜덤 base64url, DB엔 sha256만 저장. `HttpOnly; SameSite=Lax; Path=/; Secure(https일 때)`.
 - API 핸들러는 `next/headers`를 쓰지 않고 `NextRequest.cookies`/`NextResponse.cookies`만 사용한다(통합 테스트에서 핸들러를 직접 호출하기 위함). 서버 컴포넌트 page는 `next/headers` 사용 가능.
 - **CSRF**: 상태 변경 API(POST/PATCH/DELETE)는 `Origin` 헤더가 `APP_URL` 오리진과 같아야 한다(`RouteHelpers.assertSameOrigin`). 웹훅·cron 제외.
 - **소유권**: 작업은 `user_id = 현재 사용자` 또는 (`user_id is null` AND `anonymous_session_id = 현재 익명 세션`)일 때만 접근. 작업 ID만으로 인정하지 않는다. 불일치는 **404**(존재 노출 방지).
@@ -245,10 +247,12 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 
 ### 7.5 인증
 
-- `GET /auth/login?provider=google&returnTo=/recognitions/:id` → state·PKCE verifier·returnTo(상대경로만 허용)를 짧은 HttpOnly 쿠키에 저장 후 제공자로 리다이렉트
-- `GET /auth/callback?code&state` (Google) → 검증 → user/identity upsert → 세션 발급 → 익명 세션 작업 claim → `returnTo`로 리다이렉트. 사용자가 취소·실패하면 `returnTo?login=failed`로 복귀(작업 유지)
+- `GET /auth/login?provider=kakao&returnTo=/recognitions/:id` → Supabase `signInWithOAuth({ provider:'kakao', options:{ redirectTo: ${APP_URL}/auth/callback?returnTo=..., skipBrowserRedirect:true } })`로 받은 URL로 리다이렉트(PKCE verifier는 `@supabase/ssr` 쿠키). returnTo는 기존 `sanitizeReturnTo`로 검증
+- `GET /auth/callback?code&returnTo` → `exchangeCodeForSession(code)` → Supabase user로 앱 user/identity upsert(표시 이름: 카카오 닉네임, 없으면 '오프날 사용자') → 익명 세션 작업 claim(한 트랜잭션) → `returnTo`. 취소·실패(`error` 파라미터, 교환 실패)는 `returnTo?login=failed`(작업 유지)
+- 요청 인증: `RequestContext`가 Supabase 서버 클라이언트로 쿠키 세션을 검증(`auth.getClaims()` 또는 `getUser()`; 서명 검증된 값만 신뢰)하고 앱 user를 찾는다. 세션 갱신은 Next 16 `proxy.ts`에서 `@supabase/ssr` 권장 방식으로 처리. API 핸들러는 계속 `NextRequest`/`NextResponse` 쿠키만 사용
+- Supabase 대시보드 설정: Kakao provider 활성(REST API 키·Client Secret), Site URL = `APP_URL`, Redirect URLs에 `${APP_URL}/auth/callback`. 카카오 개발자 콘솔 Redirect URI = `https://<project-ref>.supabase.co/auth/v1/callback`
 - `POST /auth/dev-login` `{ displayName, returnTo }` → **demo 모드에서만** 존재. 같은 흐름
-- `POST /auth/logout`
+- `POST /auth/logout` → Supabase `signOut()`(데모는 자체 세션 삭제)
 - 로그인 버튼 옆 안내: “업로드한 사진은 다시 올리지 않아도 돼요.”
 
 ### 7.6 정리 작업
@@ -331,6 +335,8 @@ interface PaymentProvider {
 11. 업로드 검증: 형식 위조(확장자만 png) 415, HEIC 415, 크기 초과 413, 한도 초과 429
 12. 추출 재시도 멱등(같은 draftId), 만료 작업 → 410/expired
 13. production + demo 설정 → AppConfig 예외
+14. Supabase 인증(가짜 Supabase 클라이언트 주입): 콜백 코드 교환 성공 → 앱 user 생성·익명 작업 claim·returnTo 복귀 / `error` 파라미터·교환 실패 → `login=failed` / 같은 Supabase user 재로그인 → 같은 앱 user / 서명 검증 실패 세션 → 비로그인 취급
+15. RLS 마이그레이션 후 모든 앱 테이블 `relrowsecurity = true`
 
 ### 11.3 E2E (`e2e`, Playwright, demo 모드 dev 서버)
 - 390px: 업로드(fixture 이미지) → 블러 → 페이지 HTML·접근성 스냅샷에 가상 이름 없음 → 데모 로그인 → 이름 선택 → 확인 필요 날짜 수정 → 무료 저장 → 달력 → 공유 링크 생성·새 컨텍스트에서 열람 → ICS 다운로드 → PNG 다운로드(파일 시그니처 확인)
@@ -342,6 +348,6 @@ interface PaymentProvider {
 
 ## 12. 환경 변수 (`.env.example`)
 
-`OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, AUTH_PROVIDERS(google,dev), GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, VISION_PROVIDER(anthropic|mock), ANTHROPIC_API_KEY, VISION_MODEL(기본 claude-opus-5-5), VISION_EFFORT, VISION_TIMEOUT_MS, MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(1900), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
+`OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, AUTH_PROVIDERS(kakao,dev), NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY(anon/publishable 키, 공개 가능), SUPABASE_JWT_ISSUER 등 검증에 필요한 값(구현 시 확정), VISION_PROVIDER(anthropic|mock), ANTHROPIC_API_KEY, VISION_MODEL(기본 claude-opus-5-5), VISION_EFFORT, VISION_TIMEOUT_MS, MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(1900), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
 
 한도·TTL 숫자는 모두 **초기 제안값**이며 README에 그렇게 명시한다.
