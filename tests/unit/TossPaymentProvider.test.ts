@@ -234,6 +234,14 @@ describe('TossPaymentProvider fetchPayment', () => {
     expect(await buildProvider().fetchPayment('pk_1')).toMatchObject({ ok: true, status: expected });
   });
 
+  it('GETs the payment by order ID for deposit callbacks', async () => {
+    const fetchMock = stubFetch(jsonReply(200, tossPayment('DONE')));
+    const result = await buildProvider().fetchPaymentByOrderId(ORDER_ID);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(`${TOSS_API_BASE_URL}/v1/payments/orders/${ORDER_ID}`);
+    expect(result).toMatchObject({ ok: true, orderId: ORDER_ID, status: PaymentStatus.PAID });
+  });
+
   it('reports lookup failures', async () => {
     stubFetch(jsonReply(404, { code: 'NOT_FOUND_PAYMENT', message: '존재하지 않는 결제 정보 입니다.' }));
 

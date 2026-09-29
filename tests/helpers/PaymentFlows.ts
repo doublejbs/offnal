@@ -6,12 +6,32 @@ import { expect } from 'vitest';
 import { POST as confirmPaymentRoute } from '@/app/api/payments/confirm/route';
 import { POST as createPaymentRoute } from '@/app/api/payments/route';
 import { POST as webhookRoute } from '@/app/api/payments/webhook/route';
+import { PaymentClientMode } from '@/domain/enums/PaymentClientMode';
+import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { type CreatePaymentResponse } from '@/domain/types/api/CreatePaymentResponse';
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
 import { type Db } from '@/server/db/Database';
 import { users } from '@/server/db/Schema';
+import { type PaymentProvider, type ProviderPaymentResult } from '@/server/payment/PaymentProvider';
 import { type ApiTestClient, readJson } from './ApiTestClient';
 import { createLoggedInJob, createReadyDraft, publishDraft } from './OffnalFlows';
+
+const unusedResult = async (): Promise<ProviderPaymentResult> => ({
+  ok: false,
+  code: 'UNUSED',
+  message: '',
+  transient: false,
+});
+
+/** Fake provider (kind mock, so it matches orders created in demo mode); unset methods fail permanently. */
+export const buildFakeProvider = (overrides: Partial<PaymentProvider>): PaymentProvider => ({
+  kind: PaymentProviderType.MOCK,
+  getClientConfig: () => ({ clientKey: null, mode: PaymentClientMode.MOCK }),
+  confirm: unusedResult,
+  fetchPayment: unusedResult,
+  fetchPaymentByOrderId: unusedResult,
+  ...overrides,
+});
 
 export const buildMockSuccessKey = (): string => `mock_success_${randomUUID()}`;
 

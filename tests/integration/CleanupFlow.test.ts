@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { GET as cleanupRoute } from '@/app/api/cron/cleanup/route';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
@@ -10,6 +10,7 @@ import { MS_PER_DAY, MS_PER_HOUR } from '@/domain/DomainLimits';
 import {
   anonymousSessions,
   drafts,
+  paymentEvents,
   payments,
   publishedMonths,
   rateLimitCounters,
@@ -23,6 +24,7 @@ import {
   readJson,
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
+import { setObjectStorageForTesting } from '@/server/storage/StorageFactory';
 import { createEnvSandbox } from '../helpers/EnvSandbox';
 import { createLoggedInJob, createReadyDraft, extractRow, uploadAndProcess } from '../helpers/OffnalFlows';
 import { findUserId, publishReady } from '../helpers/PaymentFlows';
@@ -38,6 +40,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   envSandbox.restore();
+  setObjectStorageForTesting(env.storage);
 });
 
 afterAll(async () => {
@@ -142,6 +145,12 @@ describe('cleanup run', () => {
       })
       .returning();
 
+    await env.db.insert(paymentEvents).values([
+      { provider: PaymentProviderType.MOCK, eventKey: 'old-processed', processedAt: past(31 * MS_PER_DAY) },
+      { provider: PaymentProviderType.MOCK, eventKey: 'recent-processed', processedAt: past(MS_PER_DAY) },
+      { provider: PaymentProviderType.MOCK, eventKey: 'old-unprocessed', receivedAt: past(31 * MS_PER_DAY) },
+    ]);
+
     const response = await runCleanup();
     const result = await readJson<CleanupResult>(response);
 
@@ -153,6 +162,7 @@ describe('cleanup run', () => {
       draftsDeleted: 2,
       rateLimitCountersDeleted: 1,
       paymentsCanceled: 1,
+      paymentEventsDeleted: 1,
     });
     expect(result.sourcesDeleted).toBe(2);
     expect(result.sessionsDeleted).toBeGreaterThanOrEqual(1);
@@ -195,6 +205,11 @@ describe('cleanup run', () => {
     expect(paymentStatuses.find((row) => row.id === stalePayment?.id)?.status).toBe(PaymentStatus.CANCELED);
     expect(paymentStatuses.find((row) => row.id === freshPayment?.id)?.status).toBe(PaymentStatus.PENDING);
 
+    const eventKeys = (await env.db.select().from(paymentEvents)).map((row) => row.eventKey);
+
+    expect(eventKeys).toEqual(expect.arrayContaining(['recent-processed', 'old-unprocessed']));
+    expect(eventKeys).not.toContain('old-processed');
+
     const second = await readJson<CleanupResult>(await runCleanup());
 
     expect(second).toEqual({
@@ -206,6 +221,7 @@ describe('cleanup run', () => {
       sessionsDeleted: 0,
       anonymousSessionsDeleted: 0,
       paymentsCanceled: 0,
+      paymentEventsDeleted: 0,
     });
   });
 
@@ -224,5 +240,51 @@ describe('cleanup run', () => {
     expect(result.expiredJobs).toBe(1);
     expect(result.sourceDeleteFailures).toBe(0);
     expect(await findJob(jobId)).toMatchObject({ status: RecognitionStatus.EXPIRED, tableResult: null });
+  });
+
+  it('keeps going past an object that keeps failing and retries it after the others', async () => {
+    const client = createApiTestClient();
+    const failingJobId = await uploadAndProcess(client);
+    const otherJobId = await uploadAndProcess(client);
+
+    await env.db
+      .update(recognitionJobs)
+      .set({ expiresAt: past(2 * MS_PER_HOUR) })
+      .where(eq(recognitionJobs.id, failingJobId));
+    await env.db
+      .update(recognitionJobs)
+      .set({ expiresAt: past(MS_PER_HOUR) })
+      .where(eq(recognitionJobs.id, otherJobId));
+    setObjectStorageForTesting({
+      ...env.storage,
+      delete: async (key) => {
+        if (key === `sources/${failingJobId}`) {
+          throw new Error('storage unavailable');
+        }
+
+        await env.storage.delete(key);
+      },
+    });
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const result = await readJson<CleanupResult>(await runCleanup());
+
+    expect(result).toMatchObject({ expiredJobs: 2, sourcesDeleted: 1, sourceDeleteFailures: 1 });
+    expect(await findJob(failingJobId)).toMatchObject({
+      status: RecognitionStatus.EXPIRED,
+      tableResult: null,
+      sourceDeletedAt: null,
+    });
+    expect((await findJob(otherJobId))?.sourceDeletedAt).not.toBeNull();
+    expect(await env.storage.exists(`sources/${otherJobId}`)).toBe(false);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+
+    setObjectStorageForTesting(env.storage);
+
+    const retry = await readJson<CleanupResult>(await runCleanup());
+
+    expect(retry).toMatchObject({ expiredJobs: 0, sourcesDeleted: 1, sourceDeleteFailures: 0 });
+    expect(await env.storage.exists(`sources/${failingJobId}`)).toBe(false);
   });
 });

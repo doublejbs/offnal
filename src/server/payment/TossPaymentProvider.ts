@@ -169,5 +169,7 @@ export const createTossPaymentProvider = (options: TossPaymentOptions): PaymentP
       return result;
     },
     fetchPayment,
+    fetchPaymentByOrderId: async (orderId: string): Promise<ProviderPaymentResult> =>
+      request(`/v1/payments/orders/${encodeURIComponent(orderId)}`, { method: 'GET' }),
   };
 };

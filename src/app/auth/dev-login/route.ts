@@ -1,4 +1,5 @@
 import { type NextRequest } from 'next/server';
+import { z } from 'zod';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { getDevAuthProvider, isDevLoginEnabled } from '@/server/auth/AuthProviderRegistry';
@@ -18,7 +19,9 @@ import { devLoginRequestSchema } from '@/server/services/RequestSchemas';
 
 export const runtime = 'nodejs';
 
-type RawDevLoginBody = Record<string, unknown>;
+const rawBodySchema = z.record(z.string(), z.unknown());
+
+type RawDevLoginBody = z.infer<typeof rawBodySchema>;
 
 const readFormValue = (form: FormData, key: string): string | undefined => {
   const value = form.get(key);
@@ -32,9 +35,9 @@ const readRawBody = async (request: NextRequest): Promise<RawDevLoginBody> => {
 
   try {
     if (contentType.includes('application/json')) {
-      const json: unknown = await request.json();
+      const parsed = rawBodySchema.safeParse(await request.json());
 
-      return typeof json === 'object' && json !== null ? (json as RawDevLoginBody) : {};
+      return parsed.success ? parsed.data : {};
     }
 
     const form = await request.formData();

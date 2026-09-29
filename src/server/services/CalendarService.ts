@@ -25,7 +25,7 @@ import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { buildDraftInsert } from '@/server/services/DraftFactory';
 import { getFreeRemainingForUser } from '@/server/services/EntitlementService';
-import { resolveShareUrl } from '@/server/services/ShareTokens';
+import { resolveShareUrl } from '@/server/crypto/ShareTokens';
 import { requireUser } from '@/server/validation/RequestGuards';
 
 export type OwnedPublishedMonth = {

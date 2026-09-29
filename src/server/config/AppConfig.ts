@@ -46,6 +46,8 @@ export type AppConfig = {
   extractLimitUserMonthly: number;
   /** Public share link views per IP per day (slows token guessing; tokens are 256-bit anyway). */
   rateLimitSharedIpDaily: number;
+  /** Payment webhook deliveries per IP per day (generous: all events come from a few provider IPs). */
+  rateLimitWebhookIpDaily: number;
   sourceTtlHours: number;
   draftTtlDays: number;
   cronSecret: string | null;
@@ -54,6 +56,9 @@ export type AppConfig = {
 type RawEnv = Record<string, string | undefined>;
 
 export const MIN_APP_SECRET_LENGTH = 32;
+export const MIN_CRON_SECRET_LENGTH = 32;
+/** The `.env.example` value; must never reach production. */
+export const CRON_SECRET_PLACEHOLDER = 'change-me-cron-secret';
 
 const DEFAULT_APP_URL = 'http://localhost:3000';
 const DEVELOPMENT_APP_SECRET = 'offnal-development-only-secret-do-not-use-in-production';
@@ -110,6 +115,7 @@ const envSchema = z.object({
   RATE_LIMIT_USER_DAILY: positiveInt(20),
   EXTRACT_LIMIT_USER_MONTHLY: positiveInt(30),
   RATE_LIMIT_SHARED_IP_DAILY: positiveInt(300),
+  RATE_LIMIT_WEBHOOK_IP_DAILY: positiveInt(5000),
   SOURCE_TTL_HOURS: positiveInt(24),
   DRAFT_TTL_DAYS: positiveInt(30),
   CRON_SECRET: optionalText,
@@ -183,6 +189,16 @@ const collectProductionViolations = (
 
   if (!parsed.APP_SECRET || parsed.APP_SECRET.length < MIN_APP_SECRET_LENGTH) {
     violations.push(`APP_SECRET must be at least ${MIN_APP_SECRET_LENGTH} characters`);
+  }
+
+  // Unset CRON_SECRET only disables the cleanup endpoint (503); a set one must be strong.
+  if (
+    parsed.CRON_SECRET &&
+    (parsed.CRON_SECRET === CRON_SECRET_PLACEHOLDER || parsed.CRON_SECRET.length < MIN_CRON_SECRET_LENGTH)
+  ) {
+    violations.push(
+      `CRON_SECRET must be at least ${MIN_CRON_SECRET_LENGTH} characters and not the example value`,
+    );
   }
 
   if (!parsed.APP_URL) {
@@ -260,6 +276,7 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     rateLimitUserDaily: parsed.RATE_LIMIT_USER_DAILY,
     extractLimitUserMonthly: parsed.EXTRACT_LIMIT_USER_MONTHLY,
     rateLimitSharedIpDaily: parsed.RATE_LIMIT_SHARED_IP_DAILY,
+    rateLimitWebhookIpDaily: parsed.RATE_LIMIT_WEBHOOK_IP_DAILY,
     sourceTtlHours: parsed.SOURCE_TTL_HOURS,
     draftTtlDays: parsed.DRAFT_TTL_DAYS,
     cronSecret: parsed.CRON_SECRET ?? null,

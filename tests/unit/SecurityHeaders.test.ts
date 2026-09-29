@@ -49,6 +49,8 @@ describe('next.config security headers', () => {
     expect(globalHeaders['x-content-type-options']).toBe('nosniff');
     expect(globalHeaders['permissions-policy']).toContain('camera=()');
     expect(globalHeaders['referrer-policy']).toBe('strict-origin-when-cross-origin');
+    expect(globalHeaders['x-frame-options']).toBe('DENY');
+    expect(globalHeaders['content-security-policy']).toBe("frame-ancestors 'none'");
 
     // Later matching rules win in Next.js, so the share rule must come after the global one.
     expect(rules.findIndex((rule) => rule.source === '/s/:path*')).toBeGreaterThan(

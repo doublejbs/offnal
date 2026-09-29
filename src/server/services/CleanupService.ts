@@ -1,4 +1,4 @@
-import { and, eq, exists, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 
 import { MS_PER_DAY, MS_PER_HOUR } from '@/domain/DomainLimits';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
@@ -8,9 +8,9 @@ import { type Db } from '@/server/db/Database';
 import {
   anonymousSessions,
   drafts,
+  paymentEvents,
   payments,
   rateLimitCounters,
-  type RecognitionJobRow,
   recognitionJobs,
   sessions,
 } from '@/server/db/Schema';
@@ -18,6 +18,8 @@ import { type ObjectStorage } from '@/server/storage/ObjectStorage';
 
 /** Rate-limit windows are at most a month; keep a margin. */
 const RATE_LIMIT_RETENTION_DAYS = 40;
+/** Processed webhook events only guard against provider retries, which stop within days. */
+const PAYMENT_EVENT_RETENTION_DAYS = 30;
 /** Checkout windows are minutes long; an order untouched for a day is abandoned. */
 const STALE_PENDING_PAYMENT_HOURS = 24;
 /** Per run, so one invocation stays well inside the function time limit; the next run continues. */
@@ -28,127 +30,113 @@ export type CleanupResult = {
   expiredJobs: number;
   /** Source objects deleted (expired jobs + published jobs whose post-publish deletion failed). */
   sourcesDeleted: number;
-  /** Deletions that failed this run; retried next run. */
+  /** Deletions that failed this run; retried next run (after the other pending ones). */
   sourceDeleteFailures: number;
   draftsDeleted: number;
   rateLimitCountersDeleted: number;
   sessionsDeleted: number;
   anonymousSessionsDeleted: number;
   paymentsCanceled: number;
+  paymentEventsDeleted: number;
 };
 
 type SourceRef = {
   id: string;
-  sourceObjectKey: RecognitionJobRow['sourceObjectKey'];
-  sourceDeletedAt: RecognitionJobRow['sourceDeletedAt'];
+  sourceObjectKey: string;
 };
 
-type SourceDeletion = {
-  deleted: boolean;
-  failed: boolean;
-};
+const daysBefore = (now: Date, days: number): Date => new Date(now.getTime() - days * MS_PER_DAY);
 
-const deleteSource = async (
-  db: Db,
-  storage: ObjectStorage,
-  job: SourceRef,
-  now: Date,
-): Promise<SourceDeletion> => {
-  if (!job.sourceObjectKey || job.sourceDeletedAt) {
-    return { deleted: false, failed: false };
-  }
-
-  try {
-    // Missing objects are a no-op in both storage drivers.
-    await storage.delete(job.sourceObjectKey);
-  } catch (error: unknown) {
-    console.warn('[cleanup] source deletion failed', {
-      name: error instanceof Error ? error.name : typeof error,
-    });
-
-    return { deleted: false, failed: true };
-  }
-
-  await db.update(recognitionJobs).set({ sourceDeletedAt: now }).where(eq(recognitionJobs.id, job.id));
-
-  return { deleted: true, failed: false };
-};
-
-/** Past TTL: source deleted, temporary table (other people's names) removed, status expired. */
-const expireJobs = async (
-  db: Db,
-  storage: ObjectStorage,
-  now: Date,
-  result: CleanupResult,
-): Promise<void> => {
+/**
+ * Past TTL: temporary table (other people's names) removed and status expired, oldest first. Source
+ * deletion is a separate step so a failing object never blocks this one.
+ */
+const expireJobs = async (db: Db, now: Date): Promise<number> => {
   const expired = await db
-    .select()
+    .select({ id: recognitionJobs.id })
     .from(recognitionJobs)
     .where(
       and(
         lte(recognitionJobs.expiresAt, now),
-        or(
-          ne(recognitionJobs.status, RecognitionStatus.EXPIRED),
-          isNotNull(recognitionJobs.tableResult),
-          and(isNotNull(recognitionJobs.sourceObjectKey), isNull(recognitionJobs.sourceDeletedAt)),
-        ),
+        or(ne(recognitionJobs.status, RecognitionStatus.EXPIRED), isNotNull(recognitionJobs.tableResult)),
       ),
     )
+    .orderBy(asc(recognitionJobs.expiresAt))
     .limit(JOB_BATCH_SIZE);
 
   for (const job of expired) {
-    const deletion = await deleteSource(db, storage, job, now);
-
-    result.sourcesDeleted += deletion.deleted ? 1 : 0;
-    result.sourceDeleteFailures += deletion.failed ? 1 : 0;
-
-    if (job.status !== RecognitionStatus.EXPIRED || job.tableResult !== null) {
-      await db
-        .update(recognitionJobs)
-        .set({ status: RecognitionStatus.EXPIRED, tableResult: null, leaseExpiresAt: null })
-        .where(eq(recognitionJobs.id, job.id));
-      result.expiredJobs += 1;
-    }
+    await db
+      .update(recognitionJobs)
+      .set({ status: RecognitionStatus.EXPIRED, tableResult: null, leaseExpiresAt: null })
+      .where(eq(recognitionJobs.id, job.id));
   }
+
+  return expired.length;
 };
 
-/** Publish deletes the source after commit; this retries the ones that failed. */
-const retryPublishedSourceDeletion = async (
-  db: Db,
-  storage: ObjectStorage,
-  now: Date,
-  result: CleanupResult,
-): Promise<void> => {
-  const pending = await db
-    .select({
-      id: recognitionJobs.id,
-      sourceObjectKey: recognitionJobs.sourceObjectKey,
-      sourceDeletedAt: recognitionJobs.sourceDeletedAt,
-    })
+/**
+ * Sources still stored for expired jobs or jobs with a published draft (publish deletes after commit;
+ * this retries). Least recently attempted first: a failure bumps `updated_at`, so an object that keeps
+ * failing goes to the back of the queue instead of starving the rest.
+ */
+const listPendingSources = async (db: Db, now: Date): Promise<SourceRef[]> => {
+  const rows = await db
+    .select({ id: recognitionJobs.id, sourceObjectKey: recognitionJobs.sourceObjectKey })
     .from(recognitionJobs)
     .where(
       and(
         isNotNull(recognitionJobs.sourceObjectKey),
         isNull(recognitionJobs.sourceDeletedAt),
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(drafts)
-            .where(
-              and(eq(drafts.recognitionJobId, recognitionJobs.id), eq(drafts.status, DraftStatus.PUBLISHED)),
-            ),
+        or(
+          lte(recognitionJobs.expiresAt, now),
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(drafts)
+              .where(
+                and(
+                  eq(drafts.recognitionJobId, recognitionJobs.id),
+                  eq(drafts.status, DraftStatus.PUBLISHED),
+                ),
+              ),
+          ),
         ),
       ),
     )
+    .orderBy(asc(recognitionJobs.updatedAt), asc(recognitionJobs.expiresAt))
     .limit(JOB_BATCH_SIZE);
 
-  for (const job of pending) {
-    const deletion = await deleteSource(db, storage, job, now);
+  return rows.flatMap((row) =>
+    row.sourceObjectKey ? [{ id: row.id, sourceObjectKey: row.sourceObjectKey }] : [],
+  );
+};
 
-    result.sourcesDeleted += deletion.deleted ? 1 : 0;
-    result.sourceDeleteFailures += deletion.failed ? 1 : 0;
+const deletePendingSources = async (
+  db: Db,
+  storage: ObjectStorage,
+  now: Date,
+  result: CleanupResult,
+): Promise<void> => {
+  for (const job of await listPendingSources(db, now)) {
+    try {
+      // Already-missing objects are a no-op in both storage drivers, so they are simply marked deleted.
+      await storage.delete(job.sourceObjectKey);
+    } catch (error: unknown) {
+      console.warn('[cleanup] source deletion failed', {
+        name: error instanceof Error ? error.name : typeof error,
+      });
+      result.sourceDeleteFailures += 1;
+      await db.update(recognitionJobs).set({ updatedAt: now }).where(eq(recognitionJobs.id, job.id));
+
+      continue;
+    }
+
+    await db.update(recognitionJobs).set({ sourceDeletedAt: now }).where(eq(recognitionJobs.id, job.id));
+    result.sourcesDeleted += 1;
   }
 };
+
+const countDeleted = (rows: unknown[]): number => rows.length;
 
 /**
  * Spec §7.6 cleanup. Idempotent: a second run right after the first changes nothing.
@@ -168,32 +156,31 @@ export const runCleanup = async (
     sessionsDeleted: 0,
     anonymousSessionsDeleted: 0,
     paymentsCanceled: 0,
+    paymentEventsDeleted: 0,
   };
 
-  await expireJobs(db, storage, now, result);
-  await retryPublishedSourceDeletion(db, storage, now, result);
+  result.expiredJobs = await expireJobs(db, now);
+  await deletePendingSources(db, storage, now, result);
 
-  result.draftsDeleted = (
-    await db.delete(drafts).where(lte(drafts.expiresAt, now)).returning({ id: drafts.id })
-  ).length;
-  result.rateLimitCountersDeleted = (
+  result.draftsDeleted = countDeleted(
+    await db.delete(drafts).where(lte(drafts.expiresAt, now)).returning({ id: drafts.id }),
+  );
+  result.rateLimitCountersDeleted = countDeleted(
     await db
       .delete(rateLimitCounters)
-      .where(
-        lt(rateLimitCounters.windowStart, new Date(now.getTime() - RATE_LIMIT_RETENTION_DAYS * MS_PER_DAY)),
-      )
-      .returning({ key: rateLimitCounters.key })
-  ).length;
-  result.sessionsDeleted = (
-    await db.delete(sessions).where(lte(sessions.expiresAt, now)).returning({ id: sessions.id })
-  ).length;
-  result.anonymousSessionsDeleted = (
+      .where(lt(rateLimitCounters.windowStart, daysBefore(now, RATE_LIMIT_RETENTION_DAYS)))
+      .returning({ key: rateLimitCounters.key }),
+  );
+  result.sessionsDeleted = countDeleted(
+    await db.delete(sessions).where(lte(sessions.expiresAt, now)).returning({ id: sessions.id }),
+  );
+  result.anonymousSessionsDeleted = countDeleted(
     await db
       .delete(anonymousSessions)
       .where(lte(anonymousSessions.expiresAt, now))
-      .returning({ id: anonymousSessions.id })
-  ).length;
-  result.paymentsCanceled = (
+      .returning({ id: anonymousSessions.id }),
+  );
+  result.paymentsCanceled = countDeleted(
     await db
       .update(payments)
       .set({ status: PaymentStatus.CANCELED })
@@ -203,8 +190,20 @@ export const runCleanup = async (
           lt(payments.updatedAt, new Date(now.getTime() - STALE_PENDING_PAYMENT_HOURS * MS_PER_HOUR)),
         ),
       )
-      .returning({ id: payments.id })
-  ).length;
+      .returning({ id: payments.id }),
+  );
+  // Unprocessed events are kept: they mark deliveries that still need a successful retry.
+  result.paymentEventsDeleted = countDeleted(
+    await db
+      .delete(paymentEvents)
+      .where(
+        and(
+          isNotNull(paymentEvents.processedAt),
+          lt(paymentEvents.processedAt, daysBefore(now, PAYMENT_EVENT_RETENTION_DAYS)),
+        ),
+      )
+      .returning({ id: paymentEvents.id }),
+  );
 
   return result;
 };

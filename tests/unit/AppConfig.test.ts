@@ -62,8 +62,16 @@ describe('parseAppConfig', () => {
     ['short APP_SECRET', { APP_SECRET: 'short-secret' }],
     ['missing APP_URL', { APP_URL: undefined }],
     ['http APP_URL', { APP_URL: 'http://offnal.example' }],
+    ['placeholder CRON_SECRET', { CRON_SECRET: 'change-me-cron-secret' }],
+    ['short CRON_SECRET', { CRON_SECRET: 'short-cron-secret' }],
   ])('throws in production with %s', (_label, overrides) => {
     expect(() => parseAppConfig(withOverrides(overrides))).toThrow();
+  });
+
+  it('accepts a strong CRON_SECRET in production and leaves cron disabled when unset', () => {
+    expect(parseAppConfig(withOverrides({ CRON_SECRET: 'c'.repeat(32) })).cronSecret).toBe('c'.repeat(32));
+    expect(parseAppConfig(withOverrides({ CRON_SECRET: undefined })).cronSecret).toBeNull();
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', CRON_SECRET: 'short' }).cronSecret).toBe('short');
   });
 
   it('throws when production defaults would fall back to demo providers', () => {

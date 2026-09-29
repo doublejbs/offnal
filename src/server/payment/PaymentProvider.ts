@@ -45,4 +45,6 @@ export type PaymentProvider = {
   confirm: (input: ConfirmPaymentInput) => Promise<ProviderPaymentResult>;
   /** Webhook re-lookup: the payload itself is never trusted. */
   fetchPayment: (paymentKey: string) => Promise<ProviderPaymentResult>;
+  /** Re-lookup by our order ID (virtual-account deposit callbacks carry no paymentKey). */
+  fetchPaymentByOrderId: (orderId: string) => Promise<ProviderPaymentResult>;
 };

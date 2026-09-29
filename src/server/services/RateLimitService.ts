@@ -169,3 +169,15 @@ export const enforceSharedViewLimit = async (db: DbExecutor, ipHash: string): Pr
     },
   ]);
 };
+
+/** Payment webhook deliveries per IP hash. */
+export const enforceWebhookLimit = async (db: DbExecutor, ipHash: string): Promise<void> => {
+  await enforceRateLimits(db, [
+    {
+      scope: RateLimitScope.PAYMENT_WEBHOOK_IP,
+      subject: ipHash,
+      window: RateLimitWindow.DAILY,
+      limit: getAppConfig().rateLimitWebhookIpDaily,
+    },
+  ]);
+};

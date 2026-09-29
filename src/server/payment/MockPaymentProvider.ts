@@ -46,5 +46,12 @@ export const createMockPaymentProvider = (): PaymentProvider => {
     },
     fetchPayment: async (paymentKey: string): Promise<ProviderPaymentResult> =>
       confirmed.get(paymentKey) ?? { ok: false, code: NOT_FOUND_CODE, message: '', transient: false },
+    fetchPaymentByOrderId: async (orderId: string): Promise<ProviderPaymentResult> =>
+      [...confirmed.values()].find((payment) => payment.orderId === orderId) ?? {
+        ok: false,
+        code: NOT_FOUND_CODE,
+        message: '',
+        transient: false,
+      },
   };
 };

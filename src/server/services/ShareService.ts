@@ -18,7 +18,7 @@ import {
   isShareTokenFormat,
   issueShareToken,
   resolveShareUrl,
-} from '@/server/services/ShareTokens';
+} from '@/server/crypto/ShareTokens';
 import { requireUser } from '@/server/validation/RequestGuards';
 
 export const SHARE_EXPIRED_MESSAGE = '링크가 만료되었거나 공유가 중지되었어요.';
