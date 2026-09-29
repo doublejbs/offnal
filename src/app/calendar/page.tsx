@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation';
 
 import AuthRequired from '@/components/AuthRequired';
 import EmptyState from '@/components/EmptyState';
-import { currentYearMonthInSeoul } from '@/domain/YearMonth';
+import { pickLandingMonth } from '@/domain/CalendarLanding';
 import { getDb } from '@/server/db/Database';
 import { getServerComponentContext } from '@/server/http/RequestContext';
 import { getCalendarSummary } from '@/server/services/CalendarService';
@@ -18,8 +18,7 @@ const CalendarIndexPage = async () => {
 
   const summary = await getCalendarSummary(await getDb(), context);
   const months = summary.months.map((month) => month.yearMonth);
-  const current = currentYearMonthInSeoul(new Date());
-  const target = months.includes(current) ? current : months.at(-1);
+  const target = pickLandingMonth(months, new Date());
 
   if (target) {
     redirect(`/calendar/${target}`);
@@ -31,7 +30,7 @@ const CalendarIndexPage = async () => {
       title="아직 저장한 달력이 없어요"
       description="근무표 사진을 올리고 내 근무를 확인하면 여기에 달력이 생겨요."
     >
-      <Link href="/" className="primary">
+      <Link href="/upload" className="primary">
         근무표 올리기
       </Link>
     </EmptyState>

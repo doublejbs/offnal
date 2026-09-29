@@ -35,7 +35,7 @@ const PersonMonthSelector = ({ recognitionId }: PersonMonthSelectorProps) => {
         title={loadState === ScreenLoadState.EXPIRED ? '보관 기간이 지났어요' : '근무표를 불러오지 못했어요'}
         message={state.candidates.errorMessage ?? '사진을 다시 올려 주세요.'}
         onRetry={loadState === ScreenLoadState.ERROR ? state.candidates.reload : undefined}
-        alternativeHref="/"
+        alternativeHref="/upload"
         alternativeLabel="사진 다시 올리기"
       />
     );
@@ -43,14 +43,14 @@ const PersonMonthSelector = ({ recognitionId }: PersonMonthSelectorProps) => {
 
   return (
     <form onSubmit={state.handleSubmit} noValidate>
-      <BackLink href="/" label="다른 사진 올리기" />
+      <BackLink href="/upload" label="다른 사진 올리기" />
       <div className="label">1 / 2 · 내 근무 찾기</div>
       <h1>어느 분의 근무표인가요?</h1>
       <p>이름과 대상 월을 확인해 주세요.</p>
       {state.isSourceGone && (
         <div className="warning" role="alert">
           원본 사진이 삭제되었거나 보관 기간이 지나 내 근무를 가져올 수 없어요. 사진을 다시 올려 주세요.
-          <Link href="/" className="primary mt-10">
+          <Link href="/upload" className="primary mt-10">
             사진 다시 올리기
           </Link>
         </div>

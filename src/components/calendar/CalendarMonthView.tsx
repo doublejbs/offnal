@@ -46,7 +46,7 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
         title="이 달은 저장된 달력이 없어요"
         description="근무표를 올려 이 달의 달력을 만들어 보세요."
       >
-        <Link href="/" className="primary">
+        <Link href="/upload" className="primary">
           근무표 올리기
         </Link>
         {latest && (
@@ -124,7 +124,7 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
         <button type="button" className="secondary" onClick={state.handleEdit} disabled={state.isEditing}>
           {state.isEditing ? '여는 중…' : '근무 수정'}
         </button>
-        <Link href="/" className="secondary">
+        <Link href="/upload" className="secondary">
           다음 달 등록
         </Link>
       </div>

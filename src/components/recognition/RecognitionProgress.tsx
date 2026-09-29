@@ -39,7 +39,7 @@ const RecognitionProgress = ({ status, isDelayed }: RecognitionProgressProps) =>
         </div>
       )}
       <div className="center">
-        <Link href="/" className="textbutton">
+        <Link href="/upload" className="textbutton">
           취소하고 처음으로
         </Link>
       </div>

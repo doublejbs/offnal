@@ -76,7 +76,7 @@ const BlurredPreviewGate = ({ recognitionId, loginFailed }: BlurredPreviewGatePr
         로그인 후 이어서 확인할 수 있어요.
       </div>
       <div className="center">
-        <Link href="/" className="textbutton">
+        <Link href="/upload" className="textbutton">
           다른 사진 올리기
         </Link>
       </div>
