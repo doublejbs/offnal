@@ -7,7 +7,6 @@ describe('CalendarLanding', () => {
     const months = ['2025-10', '2025-11', '2025-12'];
     const now = new Date('2025-11-15T12:00:00Z');
 
-    // Mock currentYearMonthInSeoul to return 2025-11 for this test
     const result = pickLandingMonth(months, now);
 
     expect(result).toBe('2025-11');
@@ -38,5 +37,15 @@ describe('CalendarLanding', () => {
     const result = pickLandingMonth(months, now);
 
     expect(result).toBe('2025-10');
+  });
+
+  it('respects Seoul timezone boundaries (UTC+9)', () => {
+    const months = ['2025-11', '2025-12'];
+    // 2025-11-30T15:30:00Z is 2025-12-01 00:30:00 in Seoul (UTC+9)
+    const now = new Date('2025-11-30T15:30:00Z');
+
+    const result = pickLandingMonth(months, now);
+
+    expect(result).toBe('2025-12');
   });
 });

@@ -23,7 +23,7 @@ const RecognitionScreen = ({ id, loginFailed }: RecognitionScreenProps) => {
         title="계정에 연결하지 못했어요"
         message={claimError}
         onRetry={handleRetry}
-        alternativeHref="/"
+        alternativeHref="/upload"
         alternativeLabel="다른 사진 올리기"
       />
     );
@@ -39,7 +39,7 @@ const RecognitionScreen = ({ id, loginFailed }: RecognitionScreenProps) => {
         title="근무표를 읽지 못했어요"
         message={recognitionErrorMessage(status?.errorCode ?? null)}
         onRetry={status?.retryable ? handleRetry : undefined}
-        alternativeHref="/"
+        alternativeHref="/upload"
         alternativeLabel="다른 사진 올리기"
       />
     );
@@ -50,7 +50,7 @@ const RecognitionScreen = ({ id, loginFailed }: RecognitionScreenProps) => {
       <RecoverableError
         title="보관 기간이 지났어요"
         message="올린 사진의 임시 보관 기간이 지나 이어서 진행할 수 없어요. 사진을 다시 올려 주세요."
-        alternativeHref="/"
+        alternativeHref="/upload"
         alternativeLabel="사진 다시 올리기"
       />
     );
@@ -61,7 +61,7 @@ const RecognitionScreen = ({ id, loginFailed }: RecognitionScreenProps) => {
       <RecoverableError
         title="작업을 찾을 수 없어요"
         message="다른 기기나 브라우저에서 올린 사진이거나 이미 정리된 작업이에요. 사진을 다시 올려 주세요."
-        alternativeHref="/"
+        alternativeHref="/upload"
         alternativeLabel="사진 다시 올리기"
       />
     );

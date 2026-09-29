@@ -37,7 +37,7 @@ const DraftReviewView = ({ draftId }: DraftReviewViewProps) => {
         }
         message={state.loadError ?? '다시 시도해 주세요.'}
         onRetry={state.loadState === ScreenLoadState.ERROR ? state.handleReload : undefined}
-        alternativeHref="/"
+        alternativeHref="/upload"
         alternativeLabel="근무표 새로 올리기"
       />
     );
