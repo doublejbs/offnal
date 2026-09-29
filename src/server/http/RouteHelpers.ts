@@ -6,7 +6,6 @@ import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { ApiError } from '@/server/errors/ApiError';
-import { getClientIpFromHeaders } from '@/server/http/ClientIp';
 
 export const NO_STORE = 'no-store, max-age=0';
 
@@ -150,6 +149,15 @@ export const buildLoginFailedUrl = (returnTo: string): URL => {
   return url;
 };
 
+/** Browser redirect to `returnTo?login=failed` (never JSON). */
+export const buildLoginFailedRedirect = (returnTo: string, status: number): NextResponse => {
+  const response = NextResponse.redirect(buildLoginFailedUrl(returnTo), status);
+
+  response.headers.set('Cache-Control', NO_STORE);
+
+  return response;
+};
+
 /**
  * Wraps a browser-navigation route (login/callback): never answers with JSON. Any failure is
  * logged and redirected to `returnTo?login=failed`.
@@ -166,13 +174,6 @@ export const withRedirectRoute =
         logUnexpectedError(request, error);
       }
 
-      const response = NextResponse.redirect(buildLoginFailedUrl(resolveReturnTo(request)), 302);
-
-      response.headers.set('Cache-Control', NO_STORE);
-
-      return response;
+      return buildLoginFailedRedirect(resolveReturnTo(request), 302);
     }
   };
-
-/** See ClientIp: trusted-proxy assumption. */
-export const getClientIp = (request: NextRequest): string => getClientIpFromHeaders(request.headers);

@@ -4,10 +4,13 @@ import { MAX_DISPLAY_NAME_LENGTH, MAX_LABEL_LENGTH } from '@/domain/DomainLimits
 import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
 import { isValidCode } from '@/domain/ScheduleValidator';
 import { isValidTime } from '@/domain/ShiftTime';
+import { type ConfirmPaymentRequest } from '@/domain/types/api/ConfirmPaymentRequest';
+import { type CreatePaymentRequest } from '@/domain/types/api/CreatePaymentRequest';
 import { type DevLoginRequest } from '@/domain/types/api/DevLoginRequest';
 import { type ExtractRecognitionRequest } from '@/domain/types/api/ExtractRecognitionRequest';
 import { type PatchDraftRequest } from '@/domain/types/api/PatchDraftRequest';
 import { type PublishDraftRequest } from '@/domain/types/api/PublishDraftRequest';
+import { type UpdateShareRequest } from '@/domain/types/api/UpdateShareRequest';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { isValidDate, isValidYearMonth } from '@/domain/YearMonth';
@@ -15,6 +18,10 @@ import { isValidDate, isValidYearMonth } from '@/domain/YearMonth';
 const MAX_DEFINITIONS = 40;
 const MAX_DAYS_IN_MONTH = 31;
 const MAX_ROW_ID_LENGTH = 64;
+const MAX_ORDER_ID_LENGTH = 64;
+const MAX_PAYMENT_KEY_LENGTH = 200;
+/** Generous upper bound for share month lists (20 years of months). */
+const MAX_VISIBLE_MONTHS = 240;
 
 const timeSchema = z.string().refine(isValidTime).nullable();
 
@@ -66,3 +73,22 @@ export const devLoginRequestSchema = z.object({
   displayName: z.string().max(200).optional(),
   returnTo: z.string().max(2000).optional(),
 }) satisfies z.ZodType<DevLoginRequest>;
+
+/** POST /api/payments. `draftId` must be a UUID; ownership is checked by the service. */
+export const createPaymentRequestSchema = z.object({
+  yearMonth: yearMonthSchema,
+  draftId: z.uuid().optional(),
+}) satisfies z.ZodType<CreatePaymentRequest>;
+
+/** POST /api/payments/confirm. The order ID format is checked by the service (non-UUID → 404). */
+export const confirmPaymentRequestSchema = z.object({
+  orderId: z.string().min(1).max(MAX_ORDER_ID_LENGTH),
+  paymentKey: z.string().min(1).max(MAX_PAYMENT_KEY_LENGTH),
+  amount: z.number().int().positive(),
+}) satisfies z.ZodType<ConfirmPaymentRequest>;
+
+/** POST /api/calendar/share. Months are de-duplicated and checked against the owner's published months. */
+export const updateShareRequestSchema = z.object({
+  displayName: displayNameSchema,
+  visibleMonths: z.array(yearMonthSchema).max(MAX_VISIBLE_MONTHS),
+}) satisfies z.ZodType<UpdateShareRequest>;

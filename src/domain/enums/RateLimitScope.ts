@@ -3,4 +3,5 @@ export enum RateLimitScope {
   UPLOAD_IP = 'upload:ip',
   UPLOAD_USER = 'upload:user',
   EXTRACT_USER = 'extract:user',
+  SHARED_VIEW_IP = 'shared:ip',
 }

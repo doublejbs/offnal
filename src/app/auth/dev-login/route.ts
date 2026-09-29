@@ -1,17 +1,24 @@
 import { type NextRequest } from 'next/server';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
-import { type DevLoginRequest } from '@/domain/types/api/DevLoginRequest';
 import { getDevAuthProvider, isDevLoginEnabled } from '@/server/auth/AuthProviderRegistry';
 import { completeLogin } from '@/server/auth/LoginService';
 import { getDb } from '@/server/db/Database';
 import { ApiError } from '@/server/errors/ApiError';
 import { buildLoginRedirect } from '@/server/http/LoginResponses';
 import { getRequestContext } from '@/server/http/RequestContext';
-import { assertSameOrigin, sanitizeReturnTo, withRoute } from '@/server/http/RouteHelpers';
+import {
+  assertSameOrigin,
+  buildLoginFailedRedirect,
+  logUnexpectedError,
+  NO_STORE,
+  sanitizeReturnTo,
+} from '@/server/http/RouteHelpers';
 import { devLoginRequestSchema } from '@/server/services/RequestSchemas';
 
 export const runtime = 'nodejs';
+
+type RawDevLoginBody = Record<string, unknown>;
 
 const readFormValue = (form: FormData, key: string): string | undefined => {
   const value = form.get(key);
@@ -19,37 +26,67 @@ const readFormValue = (form: FormData, key: string): string | undefined => {
   return typeof value === 'string' ? value : undefined;
 };
 
-const readBody = async (request: NextRequest): Promise<DevLoginRequest> => {
+/** Raw fields (unvalidated) so a failure can still redirect to the submitted returnTo. */
+const readRawBody = async (request: NextRequest): Promise<RawDevLoginBody> => {
   const contentType = request.headers.get('content-type') ?? '';
 
   try {
     if (contentType.includes('application/json')) {
-      return devLoginRequestSchema.parse(await request.json());
+      const json: unknown = await request.json();
+
+      return typeof json === 'object' && json !== null ? (json as RawDevLoginBody) : {};
     }
 
     const form = await request.formData();
 
-    return devLoginRequestSchema.parse({
-      displayName: readFormValue(form, 'displayName'),
-      returnTo: readFormValue(form, 'returnTo'),
-    });
+    return { displayName: readFormValue(form, 'displayName'), returnTo: readFormValue(form, 'returnTo') };
   } catch {
-    throw new ApiError(ApiErrorCode.VALIDATION_ERROR);
+    return {};
   }
 };
 
-/** Demo-only instant login (JSON or form). Same completion as the OAuth callback; 303 to `returnTo`. */
-export const POST = withRoute(async (request: NextRequest) => {
+const notFoundResponse = (): Response =>
+  new Response('Not Found', {
+    status: 404,
+    headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': NO_STORE },
+  });
+
+/**
+ * Demo-only instant login (JSON or form). Same completion as the OAuth callback; 303 to `returnTo`.
+ * A browser form never gets JSON back: outside demo mode plain 404, any failure → `returnTo?login=failed`.
+ */
+export const POST = async (request: NextRequest): Promise<Response> => {
   if (!isDevLoginEnabled()) {
-    throw new ApiError(ApiErrorCode.NOT_FOUND);
+    return notFoundResponse();
   }
 
-  assertSameOrigin(request);
+  let returnTo = '/';
 
-  const body = await readBody(request);
-  const profile = getDevAuthProvider().createProfile(body.displayName ?? '');
-  const db = await getDb();
-  const result = await completeLogin(db, await getRequestContext(request, db), profile);
+  try {
+    assertSameOrigin(request);
 
-  return buildLoginRedirect(result, sanitizeReturnTo(body.returnTo), 303);
-});
+    const raw = await readRawBody(request);
+
+    returnTo = sanitizeReturnTo(raw.returnTo);
+
+    const parsed = devLoginRequestSchema.safeParse(raw);
+
+    if (!parsed.success) {
+      throw new ApiError(ApiErrorCode.VALIDATION_ERROR);
+    }
+
+    const profile = getDevAuthProvider().createProfile(parsed.data.displayName ?? '');
+    const db = await getDb();
+    const result = await completeLogin(db, await getRequestContext(request, db), profile);
+
+    return buildLoginRedirect(result, returnTo, 303);
+  } catch (error: unknown) {
+    if (error instanceof ApiError) {
+      console.warn('[auth] dev login failed', { code: error.code });
+    } else {
+      logUnexpectedError(request, error);
+    }
+
+    return buildLoginFailedRedirect(returnTo, 303);
+  }
+};

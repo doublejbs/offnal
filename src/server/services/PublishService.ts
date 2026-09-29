@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, max, sql } from 'drizzle-orm';
 
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
@@ -58,6 +58,19 @@ const findPublishedRevision = async (
     .where(and(eq(calendars.ownerId, userId), eq(publishedMonths.yearMonth, yearMonth)));
 
   return row?.revision ?? 0;
+};
+
+/**
+ * Revision for a month that has no published row (first publish or re-created after deletion).
+ * Continues above every edit draft's base revision, so edit drafts copied before a deletion stay stale.
+ */
+const findInitialRevision = async (tx: DbTransaction, userId: string, yearMonth: string): Promise<number> => {
+  const [row] = await tx
+    .select({ value: max(drafts.basePublishedRevision) })
+    .from(drafts)
+    .where(and(eq(drafts.userId, userId), eq(drafts.yearMonth, yearMonth)));
+
+  return (row?.value ?? 0) + 1;
 };
 
 /** Uses the month's entitlement, else inserts a trial while free months remain, else 402. */
@@ -147,13 +160,15 @@ const runPublishTransaction = async (
     const usedTrial = await ensureEntitlement(tx, userId, draft.yearMonth);
     // 4. Calendar.
     const calendarId = await getOrCreateCalendarId(tx, userId, draft.displayName);
+    const initialRevision =
+      publishedRevision === 0 ? await findInitialRevision(tx, userId, draft.yearMonth) : 1;
     // 5. Snapshot upsert. share_visible is not in the update set, so it is preserved (new rows default to false).
     const [published] = await tx
       .insert(publishedMonths)
       .values({
         calendarId,
         yearMonth: draft.yearMonth,
-        revision: 1,
+        revision: initialRevision,
         definitions: draft.definitions,
         entries: draft.entries,
         sourceDraftId: draft.id,
@@ -176,7 +191,7 @@ const runPublishTransaction = async (
     return {
       draftId: draft.id,
       yearMonth: draft.yearMonth,
-      publishedRevision: published?.revision ?? 1,
+      publishedRevision: published?.revision ?? initialRevision,
       usedTrial,
       alreadyPublished: false,
       recognitionJobId: draft.recognitionJobId,

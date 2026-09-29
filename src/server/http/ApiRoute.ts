@@ -12,6 +12,9 @@ export type IdParams = { id: string };
 /** `[yearMonth]` segment params. */
 export type YearMonthParams = { yearMonth: string };
 
+/** `[token]` segment params (public share link). */
+export type TokenParams = { token: string };
+
 /** Routes without dynamic segments. */
 export type NoParams = Record<string, never>;
 

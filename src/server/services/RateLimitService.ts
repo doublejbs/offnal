@@ -157,3 +157,15 @@ export const assertExtractAllowed = async (db: DbExecutor, userId: string): Prom
 export const chargeExtract = async (db: DbExecutor, userId: string): Promise<void> => {
   await enforceRateLimits(db, [buildExtractRule(userId)]);
 };
+
+/** Public share link views per IP hash (GET /api/shared/:token). */
+export const enforceSharedViewLimit = async (db: DbExecutor, ipHash: string): Promise<void> => {
+  await enforceRateLimits(db, [
+    {
+      scope: RateLimitScope.SHARED_VIEW_IP,
+      subject: ipHash,
+      window: RateLimitWindow.DAILY,
+      limit: getAppConfig().rateLimitSharedIpDaily,
+    },
+  ]);
+};

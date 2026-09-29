@@ -25,6 +25,7 @@ import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { buildDraftInsert } from '@/server/services/DraftFactory';
 import { getFreeRemainingForUser } from '@/server/services/EntitlementService';
+import { resolveShareUrl } from '@/server/services/ShareTokens';
 import { requireUser } from '@/server/validation/RequestGuards';
 
 export type OwnedPublishedMonth = {
@@ -38,7 +39,7 @@ export const findCalendarForOwner = async (db: DbExecutor, userId: string): Prom
   return calendar ?? null;
 };
 
-/** Owner's published month or null. Also the lookup for ICS/PNG export (Task 2b adds the entitlement check). */
+/** Owner's published month or null. Also the lookup for ICS/PNG export (ExportService adds the entitlement check). */
 export const findOwnedPublishedMonth = async (
   db: DbExecutor,
   userId: string,
@@ -72,13 +73,10 @@ const requireOwnedPublishedMonth = async (
   return owned;
 };
 
-/**
- * Share block of GET /api/calendar. Stub until Task 2b (ShareService): always disabled.
- * Keep the shape; 2b fills `enabled`/`url` from calendars.share_enabled / share_token_ciphertext.
- */
+/** Share block of GET /api/calendar. */
 export const buildShareSummary = (calendar: CalendarRow | null): ShareSummary => ({
-  enabled: false,
-  url: null,
+  enabled: calendar?.shareEnabled ?? false,
+  url: resolveShareUrl(calendar),
   displayName: calendar?.displayName ?? null,
 });
 

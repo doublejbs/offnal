@@ -52,6 +52,7 @@ describe('dev login', () => {
     const response = await devLogin(client, '라이브');
 
     expect(response.status).toBe(404);
+    expect(response.headers.get('content-type') ?? '').not.toContain('json');
     expect(client.cookies.has('offnal_session')).toBe(false);
   });
 
@@ -71,6 +72,18 @@ describe('dev login', () => {
       expect(response.status).toBe(303);
       expect(response.headers.get('location')).toBe(`${TEST_APP_URL}/`);
     }
+  });
+
+  it('redirects invalid submissions back with login=failed instead of JSON', async () => {
+    const client = createApiTestClient();
+    const response = await client.send((await import('@/app/auth/dev-login/route')).POST, '/auth/dev-login', {
+      json: { displayName: '가'.repeat(201), returnTo: '/recognitions/abc' },
+    });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe(`${TEST_APP_URL}/recognitions/abc?login=failed`);
+    expect(response.headers.get('content-type') ?? '').not.toContain('json');
+    expect(client.cookies.has('offnal_session')).toBe(false);
   });
 
   it('accepts form submissions', async () => {

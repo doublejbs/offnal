@@ -317,6 +317,45 @@ describe('stale edit drafts', () => {
 
     expect((await publishReady(client, fresh)).status).toBe(200);
   });
+  it('continues the revision after a month is deleted so older edit drafts stay stale', async () => {
+    const client = createApiTestClient();
+    const firstJob = await createLoggedInJob(client, '재생성 사용자');
+    const original = await createReadyDraft(client, firstJob, '2026-10');
+
+    await publishReady(client, original);
+
+    const { draftId: oldEditId } = await readJson<EditPublishedMonthResponse>(
+      await client.send(editMonthRoute, '/api/calendar/2026-10/edit', {
+        method: 'POST',
+        params: { yearMonth: '2026-10' },
+      }),
+    );
+
+    expect(
+      (
+        await client.send(deleteMonthRoute, '/api/calendar/2026-10', {
+          method: 'DELETE',
+          params: { yearMonth: '2026-10' },
+        })
+      ).status,
+    ).toBe(200);
+
+    const secondJob = await uploadAndProcess(client);
+    const recreated = await createReadyDraft(client, secondJob, '2026-10');
+    const recreatedPublish = await readJson<PublishDraftResponse>(await publishReady(client, recreated));
+
+    expect(recreatedPublish.publishedRevision).toBe(2);
+
+    const oldEdit = await readDraft(client, oldEditId);
+    const response = await publishReady(client, oldEdit);
+    const body = await readJson<ApiErrorBody>(response);
+
+    expect(response.status).toBe(409);
+    expect(body.error.details).toMatchObject({
+      reason: RevisionConflictReason.STALE_BASE,
+      publishedRevision: 2,
+    });
+  });
 });
 
 describe('published calendar isolation', () => {
