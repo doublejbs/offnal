@@ -8,6 +8,7 @@ import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import { useUploadState } from '@/components/upload/UseUploadState';
 import LoginOptions from '@/components/LoginOptions';
+import LoginEmphasis from '@/domain/enums/LoginEmphasis';
 
 type UploadPanelProps = {
   isLoggedIn: boolean;
@@ -89,18 +90,18 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
           필요한 달만 구매하고, 자동 결제는 없어요.
         </p>
       </div>
-      {!isLoggedIn ? (
-        <section className="block" aria-labelledby={loginSectionId}>
-          <h2 id={loginSectionId}>이미 이용 중이신가요?</h2>
-          <p className="m-0">로그인하면 저장한 달력을 바로 볼 수 있어요.</p>
-          <LoginOptions returnTo="/" primaryLabel="로그인" />
-        </section>
-      ) : (
+      {isLoggedIn ? (
         <div className="center">
           <Link href="/calendar" className="textbutton">
             내 달력 보기
           </Link>
         </div>
+      ) : (
+        <section className="block" aria-labelledby={loginSectionId}>
+          <h2 id={loginSectionId}>이미 이용 중이신가요?</h2>
+          <p>로그인하면 저장한 달력을 바로 볼 수 있어요.</p>
+          <LoginOptions returnTo="/" primaryLabel="로그인" emphasis={LoginEmphasis.SECONDARY} />
+        </section>
       )}
     </>
   );

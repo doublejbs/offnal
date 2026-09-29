@@ -123,6 +123,12 @@ p {
   color: var(--kakao-symbol);
 }
 
+.kakao-login.compact {
+  width: auto;
+  min-height: 44px;
+  padding: 8px 16px;
+}
+
 .danger {
   background: transparent;
   color: var(--danger);

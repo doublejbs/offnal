@@ -3,10 +3,12 @@
 import { usePublicConfig } from '@/components/ConfigProvider';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import LoginEmphasis from '@/domain/enums/LoginEmphasis';
 
 type LoginOptionsProps = {
   returnTo: string;
   primaryLabel: string;
+  emphasis?: LoginEmphasis;
 };
 
 const buildKakaoHref = (returnTo: string): string =>
@@ -26,10 +28,11 @@ const KakaoSymbol = () => (
  * Kakao login (via Supabase Auth) and, in demo mode only, a clearly labelled instant login form.
  * Kakao keeps its brand label and colors; the demo form gets the primary button when it is alone.
  */
-const LoginOptions = ({ returnTo, primaryLabel }: LoginOptionsProps) => {
+const LoginOptions = ({ returnTo, primaryLabel, emphasis = LoginEmphasis.PRIMARY }: LoginOptionsProps) => {
   const { authProviders } = usePublicConfig();
   const hasKakao = authProviders.includes(AuthProviderType.KAKAO);
   const hasDev = authProviders.includes(AuthProviderType.DEV);
+  const isSecondary = emphasis === LoginEmphasis.SECONDARY;
 
   if (!hasKakao && !hasDev) {
     return <div className="warning">아직 로그인 수단이 연결되지 않았어요. 설정을 기다리고 있어요.</div>;
@@ -38,7 +41,10 @@ const LoginOptions = ({ returnTo, primaryLabel }: LoginOptionsProps) => {
   return (
     <div className="stack">
       {hasKakao && (
-        <a className="primary kakao-login" href={buildKakaoHref(returnTo)}>
+        <a
+          className={isSecondary ? 'kakao-login compact' : 'primary kakao-login'}
+          href={buildKakaoHref(returnTo)}
+        >
           <KakaoSymbol />
           카카오로 로그인
         </a>
@@ -57,7 +63,7 @@ const LoginOptions = ({ returnTo, primaryLabel }: LoginOptionsProps) => {
               autoComplete="off"
             />
           </label>
-          <button type="submit" className={hasKakao ? 'secondary' : 'primary'}>
+          <button type="submit" className={isSecondary || hasKakao ? 'secondary' : 'primary'}>
             {hasKakao ? '데모 로그인' : primaryLabel}
           </button>
         </form>
