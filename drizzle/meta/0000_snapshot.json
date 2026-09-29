@@ -1,5 +1,5 @@
 {
-  "id": "78e07b37-ab42-4dd4-b33d-e8e5fbc738c6",
+  "id": "cf0345a7-ae75-456e-841e-9f3223c29a1b",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -113,7 +113,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "auth_identities_provider_check": {
+          "name": "auth_identities_provider_check",
+          "value": "\"auth_identities\".\"provider\" in ('google', 'dev')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.calendars": {
@@ -386,7 +391,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "drafts_year_month_check": {
+          "name": "drafts_year_month_check",
+          "value": "\"drafts\".\"year_month\" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'"
+        },
+        "drafts_status_check": {
+          "name": "drafts_status_check",
+          "value": "\"drafts\".\"status\" in ('editing', 'published', 'discarded')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.entitlements": {
@@ -460,7 +474,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "entitlements_year_month_check": {
+          "name": "entitlements_year_month_check",
+          "value": "\"entitlements\".\"year_month\" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'"
+        },
+        "entitlements_source_check": {
+          "name": "entitlements_source_check",
+          "value": "\"entitlements\".\"source\" in ('trial', 'purchase')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.payment_events": {
@@ -514,7 +537,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "payment_events_provider_check": {
+          "name": "payment_events_provider_check",
+          "value": "\"payment_events\".\"provider\" in ('toss', 'mock')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.payments": {
@@ -653,7 +681,20 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "payments_year_month_check": {
+          "name": "payments_year_month_check",
+          "value": "\"payments\".\"year_month\" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'"
+        },
+        "payments_provider_check": {
+          "name": "payments_provider_check",
+          "value": "\"payments\".\"provider\" in ('toss', 'mock')"
+        },
+        "payments_status_check": {
+          "name": "payments_status_check",
+          "value": "\"payments\".\"status\" in ('pending', 'paid', 'failed', 'canceled')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.published_months": {
@@ -754,7 +795,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "published_months_year_month_check": {
+          "name": "published_months_year_month_check",
+          "value": "\"published_months\".\"year_month\" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.rate_limit_counters": {
@@ -940,7 +986,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "recognition_jobs_status_check": {
+          "name": "recognition_jobs_status_check",
+          "value": "\"recognition_jobs\".\"status\" in ('uploaded', 'processing', 'recognized', 'failed', 'expired')"
+        },
+        "recognition_jobs_error_code_check": {
+          "name": "recognition_jobs_error_code_check",
+          "value": "\"recognition_jobs\".\"error_code\" in ('no_table', 'unreadable', 'month_not_found', 'no_names', 'provider_error', 'provider_timeout', 'provider_not_configured', 'source_missing')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.sessions": {

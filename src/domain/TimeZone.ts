@@ -1,14 +1,7 @@
+import { type ZonedDateTimeParts } from '@/domain/types/ZonedDateTimeParts';
+
 /** The only place that fixes the product timezone assumption. */
 export const SEOUL_TIMEZONE = 'Asia/Seoul';
-
-export type ZonedDateTimeParts = {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-};
 
 const formatterCache = new Map<string, Intl.DateTimeFormat>();
 

@@ -16,7 +16,10 @@ export const MAX_CODE_LENGTH = 12;
 /** Raw text made only of blanks, dashes or doubt marks is treated as unreadable (never as OFF). */
 const UNREADABLE_RAW_PATTERN = /^[\s\-‐‑‒–—―ー_~?？.·•*/\\|]*$/u;
 
-export const normalizeCode = (raw: string): string => raw.trim().toUpperCase().slice(0, MAX_CODE_LENGTH);
+const DOUBT_MARK_PATTERN = /[?？]/u;
+
+/** Trims and upper-cases a code. Never truncates: over-long codes are rejected by `isValidCode`. */
+export const normalizeCode = (raw: string): string => raw.trim().toUpperCase();
 
 export const isValidCode = (code: string): boolean =>
   code.length > 0 && code.length <= MAX_CODE_LENGTH && code === normalizeCode(code);
@@ -24,13 +27,16 @@ export const isValidCode = (code: string): boolean =>
 const isUnreadableRawText = (rawText: string | null): boolean =>
   rawText === null || UNREADABLE_RAW_PATTERN.test(rawText);
 
+const hasDoubtMark = (rawText: string | null): boolean =>
+  rawText !== null && DOUBT_MARK_PATTERN.test(rawText);
+
 const normalizeDefinitions = (definitions: ShiftDefinition[]): ShiftDefinition[] => {
   const byCode = new Map<string, ShiftDefinition>();
 
   for (const definition of definitions) {
     const code = normalizeCode(definition.code);
 
-    if (code.length === 0 || byCode.has(code)) {
+    if (!isValidCode(code) || byCode.has(code)) {
       continue;
     }
 
@@ -70,6 +76,9 @@ const buildEntry = (date: string, code: string | null, reviewReasons: ShiftRevie
   confirmed: reviewReasons.length === 0 && code !== null,
 });
 
+/**
+ * `yearMonth` is authoritative (chosen by the user); `extraction.yearMonth` from the provider is ignored.
+ */
 export const normalizeExtraction = (extraction: PersonExtraction, yearMonth: string): NormalizedSchedule => {
   const dates = listDates(yearMonth);
   const cellsByDay = groupCellsByDay(extraction.cells, daysInMonth(yearMonth));
@@ -100,7 +109,7 @@ export const normalizeExtraction = (extraction: PersonExtraction, yearMonth: str
 
     const code = cell.code === null ? '' : normalizeCode(cell.code);
 
-    if (isUnreadableRawText(cell.rawText) || code.length === 0) {
+    if (isUnreadableRawText(cell.rawText) || !isValidCode(code)) {
       entries.push(buildEntry(date, null, [ShiftReviewReason.UNREADABLE]));
 
       return;
@@ -108,7 +117,7 @@ export const normalizeExtraction = (extraction: PersonExtraction, yearMonth: str
 
     const reasons: ShiftReviewReason[] = [];
 
-    if (cell.ambiguous) {
+    if (cell.ambiguous || hasDoubtMark(cell.rawText)) {
       reasons.push(ShiftReviewReason.AMBIGUOUS);
     }
 

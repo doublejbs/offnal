@@ -125,6 +125,53 @@ describe('ScheduleValidator.normalizeExtraction', () => {
     expect(entry.confirmed).toBe(false);
   });
 
+  it('marks raw text with a doubt mark as ambiguous even when the provider did not', () => {
+    const cells = buildCells(30).map((cell) => {
+      if (cell.day === 3) {
+        return { ...cell, rawText: 'D?', ambiguous: false };
+      }
+
+      if (cell.day === 4) {
+        return { ...cell, rawText: '？D', ambiguous: false };
+      }
+
+      return cell;
+    });
+    const result = normalizeExtraction(buildExtraction(cells), '2026-11');
+
+    for (const date of ['2026-11-03', '2026-11-04']) {
+      expect(findEntry(result.entries, date)).toEqual({
+        date,
+        code: 'D',
+        reviewReasons: [ShiftReviewReason.AMBIGUOUS],
+        confirmed: false,
+      });
+    }
+  });
+
+  it('treats codes longer than 12 characters as unreadable instead of truncating', () => {
+    const cells = buildCells(30).map((cell) =>
+      cell.day === 8 ? { ...cell, rawText: 'VERYLONGCODE13', code: 'VERYLONGCODE13' } : cell,
+    );
+    const result = normalizeExtraction(buildExtraction(cells), '2026-11');
+
+    expect(findEntry(result.entries, '2026-11-08')).toEqual({
+      date: '2026-11-08',
+      code: null,
+      reviewReasons: [ShiftReviewReason.UNREADABLE],
+      confirmed: false,
+    });
+    expect(result.definitions.some((definition) => definition.code.startsWith('VERYLONG'))).toBe(false);
+  });
+
+  it('uses the yearMonth argument and ignores the provider month', () => {
+    const extraction = { ...buildExtraction(buildCells(31)), yearMonth: '2026-11' };
+    const result = normalizeExtraction(extraction, '2026-12');
+
+    expect(result.entries).toHaveLength(31);
+    expect(result.entries[0]?.date).toBe('2026-12-01');
+  });
+
   it('adds undefined codes to the definition list', () => {
     const cells = buildCells(30).map((cell) =>
       cell.day === 9 ? { day: 9, rawText: 'x-ed', code: ' ed ', ambiguous: false } : cell,
@@ -170,7 +217,8 @@ describe('ScheduleValidator.normalizeExtraction', () => {
   it('normalizes codes: trim, upper case, Korean kept, max 12 chars', () => {
     expect(normalizeCode('  off ')).toBe('OFF');
     expect(normalizeCode('연차')).toBe('연차');
-    expect(normalizeCode('abcdefghijklmnop')).toBe('ABCDEFGHIJKL');
+    expect(normalizeCode('abcdefghijklmnop')).toBe('ABCDEFGHIJKLMNOP');
+    expect(isValidCode('ABCDEFGHIJKL')).toBe(true);
     expect(isValidCode('D')).toBe(true);
     expect(isValidCode('')).toBe(false);
     expect(isValidCode('ABCDEFGHIJKLM')).toBe(false);
@@ -245,6 +293,16 @@ describe('ScheduleValidator.getPublishBlockers', () => {
 
     expect(getPublishBlockers(entries, definitions)).toEqual([
       { reason: PublishBlockReason.MISSING_TIMES, codes: ['D', 'N'] },
+    ]);
+  });
+
+  it('blocks overnight shifts longer than 24 hours', () => {
+    const definitions = [
+      { code: 'D', label: '당직', startTime: '09:00', endTime: '18:00', endsNextDay: true, isOff: false },
+    ];
+
+    expect(getPublishBlockers(buildEntries(), definitions)).toEqual([
+      { reason: PublishBlockReason.MISSING_TIMES, codes: ['D'] },
     ]);
   });
 

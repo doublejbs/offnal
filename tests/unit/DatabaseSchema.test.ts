@@ -1,12 +1,19 @@
 import { eq, sql } from 'drizzle-orm';
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
-import { createTestDb, type Db, getDb, setDbForTesting } from '@/server/db/Database';
+import {
+  createDbHandleFromEnv,
+  createTestDb,
+  type Db,
+  getDb,
+  setDbForTesting,
+  type TestDb,
+} from '@/server/db/Database';
 import {
   calendars,
   drafts,
@@ -19,6 +26,34 @@ import {
 } from '@/server/db/Schema';
 
 const FAR_FUTURE = new Date('2030-01-01T00:00:00Z');
+const UNIQUE_VIOLATION = '23505';
+const CHECK_VIOLATION = '23514';
+
+const getSqlState = (error: unknown): string | undefined => {
+  let current: unknown = error;
+
+  while (current instanceof Error) {
+    const code = (current as Error & { code?: unknown }).code;
+
+    if (typeof code === 'string') {
+      return code;
+    }
+
+    current = current.cause;
+  }
+
+  return undefined;
+};
+
+const expectSqlState = async (operation: PromiseLike<unknown>, sqlState: string): Promise<void> => {
+  const error = await Promise.resolve(operation).then(
+    () => null,
+    (caught: unknown) => caught,
+  );
+
+  expect(error, 'expected the query to fail').not.toBeNull();
+  expect(getSqlState(error)).toBe(sqlState);
+};
 
 const createUser = async (db: Db, displayName = '김하루'): Promise<string> => {
   const [user] = await db.insert(users).values({ displayName }).returning({ id: users.id });
@@ -44,10 +79,16 @@ const draftValues = (userId: string, recognitionJobId: string | null, personRowI
 });
 
 describe('Database schema', () => {
+  let testDb: TestDb;
   let db: Db;
 
   beforeAll(async () => {
-    db = await createTestDb();
+    testDb = await createTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.close();
   });
 
   afterEach(() => {
@@ -58,9 +99,10 @@ describe('Database schema', () => {
     const userId = await createUser(db);
 
     await db.insert(entitlements).values({ userId, yearMonth: '2026-10', source: EntitlementSource.TRIAL });
-    await expect(
+    await expectSqlState(
       db.insert(entitlements).values({ userId, yearMonth: '2026-10', source: EntitlementSource.PURCHASE }),
-    ).rejects.toThrow();
+      UNIQUE_VIOLATION,
+    );
 
     await db.insert(entitlements).values({ userId, yearMonth: '2026-11', source: EntitlementSource.TRIAL });
 
@@ -89,7 +131,10 @@ describe('Database schema', () => {
     const ownerId = await createUser(db);
     const [calendar] = await db.insert(calendars).values({ ownerId, displayName: '김하루' }).returning();
 
-    await expect(db.insert(calendars).values({ ownerId, displayName: '다른 이름' })).rejects.toThrow();
+    await expectSqlState(
+      db.insert(calendars).values({ ownerId, displayName: '다른 이름' }),
+      UNIQUE_VIOLATION,
+    );
 
     const month = {
       calendarId: calendar!.id,
@@ -99,7 +144,7 @@ describe('Database schema', () => {
     };
 
     await db.insert(publishedMonths).values(month);
-    await expect(db.insert(publishedMonths).values(month)).rejects.toThrow();
+    await expectSqlState(db.insert(publishedMonths).values(month), UNIQUE_VIOLATION);
   });
 
   it('enforces unique share token hash', async () => {
@@ -107,9 +152,10 @@ describe('Database schema', () => {
     const second = await createUser(db);
 
     await db.insert(calendars).values({ ownerId: first, displayName: 'a', shareTokenHash: 'hash-1' });
-    await expect(
+    await expectSqlState(
       db.insert(calendars).values({ ownerId: second, displayName: 'b', shareTokenHash: 'hash-1' }),
-    ).rejects.toThrow();
+      UNIQUE_VIOLATION,
+    );
     await db.insert(calendars).values({ ownerId: second, displayName: 'b', shareTokenHash: null });
   });
 
@@ -126,7 +172,7 @@ describe('Database schema', () => {
       .returning();
 
     await db.insert(drafts).values(draftValues(userId, job!.id, 'row-1'));
-    await expect(db.insert(drafts).values(draftValues(userId, job!.id, 'row-1'))).rejects.toThrow();
+    await expectSqlState(db.insert(drafts).values(draftValues(userId, job!.id, 'row-1')), UNIQUE_VIOLATION);
     await db.insert(drafts).values(draftValues(userId, job!.id, 'row-2'));
     await db.insert(drafts).values(draftValues(userId, null, null));
     await db.insert(drafts).values(draftValues(userId, null, null));
@@ -147,16 +193,18 @@ describe('Database schema', () => {
     };
 
     await db.insert(payments).values({ ...payment, providerPaymentKey: 'mock_success_1' });
-    await expect(
+    await expectSqlState(
       db.insert(payments).values({ ...payment, providerPaymentKey: 'mock_success_1' }),
-    ).rejects.toThrow();
+      UNIQUE_VIOLATION,
+    );
     await db.insert(payments).values(payment);
     await db.insert(payments).values(payment);
 
     await db.insert(paymentEvents).values({ provider: PaymentProviderType.MOCK, eventKey: 'evt-1' });
-    await expect(
+    await expectSqlState(
       db.insert(paymentEvents).values({ provider: PaymentProviderType.MOCK, eventKey: 'evt-1' }),
-    ).rejects.toThrow();
+      UNIQUE_VIOLATION,
+    );
   });
 
   it('stores typed jsonb values', async () => {
@@ -208,7 +256,7 @@ describe('Database schema', () => {
   it('rolls back a failed transaction', async () => {
     const userId = await createUser(db);
 
-    await expect(
+    await expectSqlState(
       db.transaction(async (tx) => {
         await tx
           .insert(entitlements)
@@ -217,11 +265,99 @@ describe('Database schema', () => {
           .insert(entitlements)
           .values({ userId, yearMonth: '2027-02', source: EntitlementSource.TRIAL });
       }),
-    ).rejects.toThrow();
+      UNIQUE_VIOLATION,
+    );
 
     const rows = await db.select().from(entitlements).where(eq(entitlements.userId, userId));
 
     expect(rows).toHaveLength(0);
+  });
+
+  it('rejects malformed year_month values with a CHECK violation', async () => {
+    const userId = await createUser(db);
+
+    for (const yearMonth of ['2026-13', '2026-1', '2026-00', '202610', '2026-10-01']) {
+      await expectSqlState(
+        db.insert(entitlements).values({ userId, yearMonth, source: EntitlementSource.TRIAL }),
+        CHECK_VIOLATION,
+      );
+    }
+
+    await expectSqlState(
+      db.insert(drafts).values({ ...draftValues(userId, null, null), yearMonth: 'x' }),
+      CHECK_VIOLATION,
+    );
+  });
+
+  it('rejects values outside the enum with a CHECK violation', async () => {
+    const userId = await createUser(db);
+
+    await expectSqlState(
+      db.insert(drafts).values({ ...draftValues(userId, null, null), status: 'bogus' as DraftStatus }),
+      CHECK_VIOLATION,
+    );
+    await expectSqlState(
+      db.insert(entitlements).values({ userId, yearMonth: '2026-10', source: 'gift' as EntitlementSource }),
+      CHECK_VIOLATION,
+    );
+    await expectSqlState(
+      db.insert(recognitionJobs).values({
+        status: 'done' as RecognitionStatus,
+        sourceMime: 'image/png',
+        expiresAt: FAR_FUTURE,
+      }),
+      CHECK_VIOLATION,
+    );
+    await expectSqlState(
+      db.insert(payments).values({
+        userId,
+        yearMonth: '2026-10',
+        amount: 1900,
+        provider: 'paypal' as PaymentProviderType,
+        status: PaymentStatus.PENDING,
+      }),
+      CHECK_VIOLATION,
+    );
+  });
+
+  it('refreshes updated_at on update', async () => {
+    const userId = await createUser(db);
+    const past = new Date('2020-01-01T00:00:00Z');
+    const [draft] = await db
+      .insert(drafts)
+      .values({ ...draftValues(userId, null, null), updatedAt: past })
+      .returning();
+    const [updated] = await db
+      .update(drafts)
+      .set({ displayName: '이여름' })
+      .where(eq(drafts.id, draft!.id))
+      .returning();
+
+    expect(updated!.updatedAt.getTime()).toBeGreaterThan(past.getTime());
+  });
+
+  it('refuses PGlite outside development and test', () => {
+    expect(() => createDbHandleFromEnv({ OFFNAL_ENV: 'production', PGLITE_DIR: 'memory' })).toThrow(
+      /DATABASE_URL is required/,
+    );
+    expect(() => createDbHandleFromEnv({ OFFNAL_ENV: 'preview', PGLITE_DIR: 'memory' })).toThrow(
+      /DATABASE_URL is required/,
+    );
+    expect(() => createDbHandleFromEnv({ NODE_ENV: 'production', PGLITE_DIR: 'memory' })).toThrow(
+      /DATABASE_URL is required/,
+    );
+  });
+
+  it('uses node-postgres when DATABASE_URL is set without leaking credentials', async () => {
+    const handle = createDbHandleFromEnv({
+      OFFNAL_ENV: 'production',
+      DATABASE_URL: 'postgres://user:secret@db.example.com:5432/offnal',
+    });
+
+    expect(handle.target).toBe('db.example.com:5432/offnal');
+    expect(handle.target).not.toContain('secret');
+
+    await handle.close();
   });
 
   it('returns the overridden database from getDb', async () => {

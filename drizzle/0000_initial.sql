@@ -12,7 +12,8 @@ CREATE TABLE "auth_identities" (
 	"provider_subject" text NOT NULL,
 	"email" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "auth_identities_provider_subject_unique" UNIQUE("provider","provider_subject")
+	CONSTRAINT "auth_identities_provider_subject_unique" UNIQUE("provider","provider_subject"),
+	CONSTRAINT "auth_identities_provider_check" CHECK ("auth_identities"."provider" in ('google', 'dev'))
 );
 --> statement-breakpoint
 CREATE TABLE "calendars" (
@@ -43,7 +44,9 @@ CREATE TABLE "drafts" (
 	"revision" integer DEFAULT 1 NOT NULL,
 	"expires_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "drafts_year_month_check" CHECK ("drafts"."year_month" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+	CONSTRAINT "drafts_status_check" CHECK ("drafts"."status" in ('editing', 'published', 'discarded'))
 );
 --> statement-breakpoint
 CREATE TABLE "entitlements" (
@@ -53,7 +56,9 @@ CREATE TABLE "entitlements" (
 	"source" text NOT NULL,
 	"payment_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "entitlements_user_month_unique" UNIQUE("user_id","year_month")
+	CONSTRAINT "entitlements_user_month_unique" UNIQUE("user_id","year_month"),
+	CONSTRAINT "entitlements_year_month_check" CHECK ("entitlements"."year_month" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+	CONSTRAINT "entitlements_source_check" CHECK ("entitlements"."source" in ('trial', 'purchase'))
 );
 --> statement-breakpoint
 CREATE TABLE "payment_events" (
@@ -62,7 +67,8 @@ CREATE TABLE "payment_events" (
 	"event_key" text NOT NULL,
 	"received_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"processed_at" timestamp with time zone,
-	CONSTRAINT "payment_events_provider_event_key_unique" UNIQUE("provider","event_key")
+	CONSTRAINT "payment_events_provider_event_key_unique" UNIQUE("provider","event_key"),
+	CONSTRAINT "payment_events_provider_check" CHECK ("payment_events"."provider" in ('toss', 'mock'))
 );
 --> statement-breakpoint
 CREATE TABLE "payments" (
@@ -79,7 +85,10 @@ CREATE TABLE "payments" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"confirmed_at" timestamp with time zone,
-	CONSTRAINT "payments_provider_payment_key_unique" UNIQUE("provider_payment_key")
+	CONSTRAINT "payments_provider_payment_key_unique" UNIQUE("provider_payment_key"),
+	CONSTRAINT "payments_year_month_check" CHECK ("payments"."year_month" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+	CONSTRAINT "payments_provider_check" CHECK ("payments"."provider" in ('toss', 'mock')),
+	CONSTRAINT "payments_status_check" CHECK ("payments"."status" in ('pending', 'paid', 'failed', 'canceled'))
 );
 --> statement-breakpoint
 CREATE TABLE "published_months" (
@@ -93,7 +102,8 @@ CREATE TABLE "published_months" (
 	"source_draft_id" uuid,
 	"published_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "published_months_calendar_month_unique" UNIQUE("calendar_id","year_month")
+	CONSTRAINT "published_months_calendar_month_unique" UNIQUE("calendar_id","year_month"),
+	CONSTRAINT "published_months_year_month_check" CHECK ("published_months"."year_month" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
 );
 --> statement-breakpoint
 CREATE TABLE "rate_limit_counters" (
@@ -117,7 +127,9 @@ CREATE TABLE "recognition_jobs" (
 	"table_result" jsonb,
 	"expires_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "recognition_jobs_status_check" CHECK ("recognition_jobs"."status" in ('uploaded', 'processing', 'recognized', 'failed', 'expired')),
+	CONSTRAINT "recognition_jobs_error_code_check" CHECK ("recognition_jobs"."error_code" in ('no_table', 'unreadable', 'month_not_found', 'no_names', 'provider_error', 'provider_timeout', 'provider_not_configured', 'source_missing'))
 );
 --> statement-breakpoint
 CREATE TABLE "sessions" (

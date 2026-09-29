@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { isValidTime, toUtcRange } from '@/domain/ShiftTime';
+import { hasCompleteTimes, isValidTime, toUtcRange } from '@/domain/ShiftTime';
 import { SEOUL_TIMEZONE } from '@/domain/TimeZone';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 
@@ -23,7 +23,8 @@ const NIGHT: ShiftDefinition = {
 
 describe('ShiftTime.toUtcRange', () => {
   it('uses Asia/Seoul by default', () => {
-    expect(SEOUL_TIMEZONE).toBe('Asia/Seoul');
+    expect(toUtcRange('2026-11-01', NIGHT)).toEqual(toUtcRange('2026-11-01', NIGHT, 'Asia/Seoul'));
+    expect(toUtcRange('2026-11-01', NIGHT)).toEqual(toUtcRange('2026-11-01', NIGHT, SEOUL_TIMEZONE));
   });
 
   it('converts KST 07:00 to previous day 22:00Z', () => {
@@ -53,6 +54,22 @@ describe('ShiftTime.toUtcRange', () => {
 
     expect(feb28.end.toISOString()).toBe('2028-02-29T01:00:00.000Z');
     expect(feb29.end.toISOString()).toBe('2028-03-01T01:00:00.000Z');
+  });
+
+  it('ends the 2100-12-31 night shift on 2101-01-01 without throwing', () => {
+    const range = toUtcRange('2100-12-31', { ...NIGHT, endTime: '09:00' });
+
+    expect(range.start.toISOString()).toBe('2100-12-31T13:00:00.000Z');
+    expect(range.end.toISOString()).toBe('2101-01-01T00:00:00.000Z');
+  });
+
+  it('allows an exact 24-hour overnight shift but rejects longer ones', () => {
+    const exact = toUtcRange('2026-11-01', { ...NIGHT, startTime: '09:00', endTime: '09:00' });
+
+    expect(exact.end.getTime() - exact.start.getTime()).toBe(24 * 60 * 60 * 1000);
+    expect(() => toUtcRange('2026-11-01', { ...NIGHT, startTime: '09:00', endTime: '18:00' })).toThrow();
+    expect(hasCompleteTimes({ ...NIGHT, startTime: '09:00', endTime: '18:00' })).toBe(false);
+    expect(hasCompleteTimes(NIGHT)).toBe(true);
   });
 
   it('supports other timezones', () => {

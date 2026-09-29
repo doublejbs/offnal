@@ -88,5 +88,6 @@ describe('YearMonth', () => {
     expect(addDaysToDate('2026-12-31', 1)).toBe('2027-01-01');
     expect(addDaysToDate('2028-02-28', 1)).toBe('2028-02-29');
     expect(formatYearMonthLabel('2026-03')).toBe('2026년 3월');
+    expect(addDaysToDate('2100-12-31', 1)).toBe('2101-01-01');
   });
 });

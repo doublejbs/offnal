@@ -1,6 +1,35 @@
-process.env.OFFNAL_ENV ??= 'test';
-process.env.APP_MODE ??= 'demo';
-process.env.APP_URL ??= 'http://localhost:3100';
-process.env.APP_SECRET ??= 'test-secret-test-secret-test-secret-0123456789';
-process.env.PGLITE_DIR ??= 'memory';
-process.env.MOCK_VISION_DELAY_MS ??= '0';
+// Force an isolated test environment regardless of the developer's shell or .env files.
+const TEST_ENV: Record<string, string> = {
+  OFFNAL_ENV: 'test',
+  APP_MODE: 'demo',
+  APP_URL: 'http://localhost:3100',
+  APP_SECRET: 'test-secret-test-secret-test-secret-0123456789',
+  PGLITE_DIR: 'memory',
+  STORAGE_DRIVER: 'local',
+  LOCAL_STORAGE_DIR: '.data/storage-test',
+  AUTH_PROVIDERS: 'dev',
+  VISION_PROVIDER: 'mock',
+  PAYMENT_PROVIDER: 'mock',
+  MOCK_VISION_DELAY_MS: '0',
+  CRON_SECRET: 'test-cron-secret',
+};
+
+const CLEARED_KEYS = [
+  'DATABASE_URL',
+  'S3_ENDPOINT',
+  'S3_REGION',
+  'S3_BUCKET',
+  'S3_ACCESS_KEY_ID',
+  'S3_SECRET_ACCESS_KEY',
+  'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'ANTHROPIC_API_KEY',
+  'TOSS_CLIENT_KEY',
+  'TOSS_SECRET_KEY',
+];
+
+for (const key of CLEARED_KEYS) {
+  delete process.env[key];
+}
+
+Object.assign(process.env, TEST_ENV);

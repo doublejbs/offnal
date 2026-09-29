@@ -1,6 +1,8 @@
-import { sql } from 'drizzle-orm';
+import { type SQL, sql } from 'drizzle-orm';
 import {
+  type AnyPgColumn,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -13,26 +15,46 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { type AuthProviderType } from '@/domain/enums/AuthProviderType';
-import { type DraftStatus } from '@/domain/enums/DraftStatus';
-import { type EntitlementSource } from '@/domain/enums/EntitlementSource';
-import { type PaymentProviderType } from '@/domain/enums/PaymentProviderType';
-import { type PaymentStatus } from '@/domain/enums/PaymentStatus';
-import { type RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
-import { type RecognitionStatus } from '@/domain/enums/RecognitionStatus';
+import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import { DraftStatus } from '@/domain/enums/DraftStatus';
+import { EntitlementSource } from '@/domain/enums/EntitlementSource';
+import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
+import { PaymentStatus } from '@/domain/enums/PaymentStatus';
+import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
+import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { type SourceCell } from '@/domain/types/SourceCell';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
 
-const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
-const updatedAt = () => timestamp('updated_at', { withTimezone: true }).notNull().defaultNow();
+const YEAR_MONTH_REGEX = '^[0-9]{4}-(0[1-9]|1[0-2])$';
+
+const buildCreatedAtColumn = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+
+const buildUpdatedAtColumn = () =>
+  timestamp('updated_at', { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date());
+
+const buildYearMonthCheck = (name: string, column: AnyPgColumn) =>
+  check(name, sql`${column} ~ ${sql.raw(`'${YEAR_MONTH_REGEX}'`)}`);
+
+const buildEnumValueList = (values: Record<string, string>): SQL =>
+  sql.raw(
+    Object.values(values)
+      .map((value) => `'${value.replace(/'/g, "''")}'`)
+      .join(', '),
+  );
+
+const buildEnumCheck = (name: string, column: AnyPgColumn, values: Record<string, string>) =>
+  check(name, sql`${column} in (${buildEnumValueList(values)})`);
 
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().defaultRandom(),
   displayName: text('display_name').notNull(),
   timezone: text('timezone').notNull().default('Asia/Seoul'),
-  createdAt: createdAt(),
+  createdAt: buildCreatedAtColumn(),
 });
 
 export const authIdentities = pgTable(
@@ -45,9 +67,12 @@ export const authIdentities = pgTable(
     provider: text('provider').$type<AuthProviderType>().notNull(),
     providerSubject: text('provider_subject').notNull(),
     email: text('email'),
-    createdAt: createdAt(),
+    createdAt: buildCreatedAtColumn(),
   },
-  (table) => [unique('auth_identities_provider_subject_unique').on(table.provider, table.providerSubject)],
+  (table) => [
+    unique('auth_identities_provider_subject_unique').on(table.provider, table.providerSubject),
+    buildEnumCheck('auth_identities_provider_check', table.provider, AuthProviderType),
+  ],
 );
 
 export const sessions = pgTable(
@@ -58,7 +83,7 @@ export const sessions = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    createdAt: createdAt(),
+    createdAt: buildCreatedAtColumn(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   },
   (table) => [index('sessions_user_id_idx').on(table.userId)],
@@ -68,7 +93,7 @@ export const anonymousSessions = pgTable('anonymous_sessions', {
   /** sha256(token) hex */
   id: text('id').primaryKey(),
   ipHash: text('ip_hash'),
-  createdAt: createdAt(),
+  createdAt: buildCreatedAtColumn(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
 });
 
@@ -88,12 +113,14 @@ export const recognitionJobs = pgTable(
     /** Temporary: contains other people's names. Cleared on expiry. */
     tableResult: jsonb('table_result').$type<TableRecognition>(),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    createdAt: createdAt(),
-    updatedAt: updatedAt(),
+    createdAt: buildCreatedAtColumn(),
+    updatedAt: buildUpdatedAtColumn(),
   },
   (table) => [
     index('recognition_jobs_user_id_idx').on(table.userId),
     index('recognition_jobs_anonymous_session_id_idx').on(table.anonymousSessionId),
+    buildEnumCheck('recognition_jobs_status_check', table.status, RecognitionStatus),
+    buildEnumCheck('recognition_jobs_error_code_check', table.errorCode, RecognitionErrorCode),
   ],
 );
 
@@ -116,14 +143,16 @@ export const drafts = pgTable(
     status: text('status').$type<DraftStatus>().notNull(),
     revision: integer('revision').notNull().default(1),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-    createdAt: createdAt(),
-    updatedAt: updatedAt(),
+    createdAt: buildCreatedAtColumn(),
+    updatedAt: buildUpdatedAtColumn(),
   },
   (table) => [
     index('drafts_user_id_idx').on(table.userId),
     uniqueIndex('drafts_job_row_month_unique')
       .on(table.recognitionJobId, table.personRowId, table.yearMonth)
       .where(sql`${table.recognitionJobId} is not null`),
+    buildYearMonthCheck('drafts_year_month_check', table.yearMonth),
+    buildEnumCheck('drafts_status_check', table.status, DraftStatus),
   ],
 );
 
@@ -138,8 +167,8 @@ export const calendars = pgTable('calendars', {
   shareTokenHash: text('share_token_hash').unique('calendars_share_token_hash_unique'),
   shareTokenCiphertext: text('share_token_ciphertext'),
   shareRotatedAt: timestamp('share_rotated_at', { withTimezone: true }),
-  createdAt: createdAt(),
-  updatedAt: updatedAt(),
+  createdAt: buildCreatedAtColumn(),
+  updatedAt: buildUpdatedAtColumn(),
 });
 
 export const publishedMonths = pgTable(
@@ -157,9 +186,12 @@ export const publishedMonths = pgTable(
     entries: jsonb('entries').$type<ShiftEntry[]>().notNull(),
     sourceDraftId: uuid('source_draft_id'),
     publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: updatedAt(),
+    updatedAt: buildUpdatedAtColumn(),
   },
-  (table) => [unique('published_months_calendar_month_unique').on(table.calendarId, table.yearMonth)],
+  (table) => [
+    unique('published_months_calendar_month_unique').on(table.calendarId, table.yearMonth),
+    buildYearMonthCheck('published_months_year_month_check', table.yearMonth),
+  ],
 );
 
 export const entitlements = pgTable(
@@ -172,9 +204,13 @@ export const entitlements = pgTable(
     yearMonth: text('year_month').notNull(),
     source: text('source').$type<EntitlementSource>().notNull(),
     paymentId: uuid('payment_id'),
-    createdAt: createdAt(),
+    createdAt: buildCreatedAtColumn(),
   },
-  (table) => [unique('entitlements_user_month_unique').on(table.userId, table.yearMonth)],
+  (table) => [
+    unique('entitlements_user_month_unique').on(table.userId, table.yearMonth),
+    buildYearMonthCheck('entitlements_year_month_check', table.yearMonth),
+    buildEnumCheck('entitlements_source_check', table.source, EntitlementSource),
+  ],
 );
 
 export const payments = pgTable(
@@ -193,11 +229,16 @@ export const payments = pgTable(
     status: text('status').$type<PaymentStatus>().notNull(),
     failureCode: text('failure_code'),
     draftId: uuid('draft_id'),
-    createdAt: createdAt(),
-    updatedAt: updatedAt(),
+    createdAt: buildCreatedAtColumn(),
+    updatedAt: buildUpdatedAtColumn(),
     confirmedAt: timestamp('confirmed_at', { withTimezone: true }),
   },
-  (table) => [index('payments_user_month_idx').on(table.userId, table.yearMonth)],
+  (table) => [
+    index('payments_user_month_idx').on(table.userId, table.yearMonth),
+    buildYearMonthCheck('payments_year_month_check', table.yearMonth),
+    buildEnumCheck('payments_provider_check', table.provider, PaymentProviderType),
+    buildEnumCheck('payments_status_check', table.status, PaymentStatus),
+  ],
 );
 
 export const paymentEvents = pgTable(
@@ -209,7 +250,10 @@ export const paymentEvents = pgTable(
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
     processedAt: timestamp('processed_at', { withTimezone: true }),
   },
-  (table) => [unique('payment_events_provider_event_key_unique').on(table.provider, table.eventKey)],
+  (table) => [
+    unique('payment_events_provider_event_key_unique').on(table.provider, table.eventKey),
+    buildEnumCheck('payment_events_provider_check', table.provider, PaymentProviderType),
+  ],
 );
 
 export const rateLimitCounters = pgTable(

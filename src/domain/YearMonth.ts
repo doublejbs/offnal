@@ -1,4 +1,5 @@
 import { getZonedParts, SEOUL_TIMEZONE } from '@/domain/TimeZone';
+import { type DateParts } from '@/domain/types/DateParts';
 import { type YearMonthParts } from '@/domain/types/YearMonthParts';
 
 const YEAR_MONTH_PATTERN = /^(\d{4})-(\d{2})$/;
@@ -57,8 +58,6 @@ export const listDates = (yearMonth: string): string[] => {
   return Array.from({ length: daysInParts(year, month) }, (_, index) => toDateString(year, month, index + 1));
 };
 
-type DateParts = YearMonthParts & { day: number };
-
 export const parseDate = (value: string): DateParts | null => {
   const match = DATE_PATTERN.exec(value);
 
@@ -104,11 +103,17 @@ export const weekdayOf = (date: string): number => {
   return new Date(Date.UTC(year, month - 1, day)).getUTCDay();
 };
 
-export const addDaysToDate = (date: string, days: number): string => {
-  const { year, month, day } = requireDate(date);
-  const shifted = new Date(Date.UTC(year, month - 1, day) + days * MS_PER_DAY);
+/** Shifts calendar date parts by whole days. Only the input is range-checked by callers; the result may leave 2000–2100. */
+export const shiftDateParts = (parts: DateParts, days: number): DateParts => {
+  const shifted = new Date(Date.UTC(parts.year, parts.month - 1, parts.day) + days * MS_PER_DAY);
 
-  return toDateString(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, shifted.getUTCDate());
+  return { year: shifted.getUTCFullYear(), month: shifted.getUTCMonth() + 1, day: shifted.getUTCDate() };
+};
+
+export const addDaysToDate = (date: string, days: number): string => {
+  const { year, month, day } = shiftDateParts(requireDate(date), days);
+
+  return toDateString(year, month, day);
 };
 
 export const currentYearMonthInSeoul = (now: Date): string => {

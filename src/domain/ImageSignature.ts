@@ -1,5 +1,6 @@
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 
+// mif1/msf1 are generic HEIF brands and may also appear on some AVIF files; those are still rejected as HEIC.
 const HEIC_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1']);
 
 const matchesBytes = (bytes: Uint8Array, offset: number, expected: number[]): boolean =>

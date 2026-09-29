@@ -1,7 +1,8 @@
 import { SEOUL_TIMEZONE, zonedWallTimeToUtc } from '@/domain/TimeZone';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
+import { type TimeOfDay } from '@/domain/types/TimeOfDay';
 import { type UtcRange } from '@/domain/types/UtcRange';
-import { addDaysToDate, parseDate } from '@/domain/YearMonth';
+import { parseDate, shiftDateParts } from '@/domain/YearMonth';
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
@@ -14,7 +15,7 @@ export class ShiftTimeError extends Error {
 
 export const isValidTime = (value: string): boolean => TIME_PATTERN.test(value);
 
-const parseTime = (value: string | null, field: string): { hour: number; minute: number } => {
+const parseTime = (value: string | null, field: string): TimeOfDay => {
   const match = value === null ? null : TIME_PATTERN.exec(value);
 
   if (!match) {
@@ -24,7 +25,16 @@ const parseTime = (value: string | null, field: string): { hour: number; minute:
   return { hour: Number(match[1]), minute: Number(match[2]) };
 };
 
-const toMinutes = (time: { hour: number; minute: number }): number => time.hour * 60 + time.minute;
+const toMinutes = (time: TimeOfDay): number => time.hour * 60 + time.minute;
+
+/** Same-day shifts must end after they start; overnight shifts may last at most 24 hours. */
+const isValidTimeOrder = (startTime: TimeOfDay, endTime: TimeOfDay, endsNextDay: boolean): boolean => {
+  if (endsNextDay) {
+    return toMinutes(endTime) <= toMinutes(startTime);
+  }
+
+  return toMinutes(endTime) > toMinutes(startTime);
+};
 
 /** Whether a non-off definition has complete and consistent times. */
 export const hasCompleteTimes = (definition: ShiftDefinition): boolean => {
@@ -32,22 +42,17 @@ export const hasCompleteTimes = (definition: ShiftDefinition): boolean => {
     return true;
   }
 
-  if (definition.endsNextDay === null || definition.startTime === null || definition.endTime === null) {
+  const { startTime, endTime, endsNextDay } = definition;
+
+  if (endsNextDay === null || startTime === null || endTime === null) {
     return false;
   }
 
-  if (!isValidTime(definition.startTime) || !isValidTime(definition.endTime)) {
+  if (!isValidTime(startTime) || !isValidTime(endTime)) {
     return false;
   }
 
-  if (definition.endsNextDay) {
-    return true;
-  }
-
-  return (
-    toMinutes(parseTime(definition.endTime, 'endTime')) >
-    toMinutes(parseTime(definition.startTime, 'startTime'))
-  );
+  return isValidTimeOrder(parseTime(startTime, 'startTime'), parseTime(endTime, 'endTime'), endsNextDay);
 };
 
 export const toUtcRange = (
@@ -72,16 +77,12 @@ export const toUtcRange = (
   const startTime = parseTime(definition.startTime, 'startTime');
   const endTime = parseTime(definition.endTime, 'endTime');
 
-  if (!definition.endsNextDay && toMinutes(endTime) <= toMinutes(startTime)) {
-    throw new ShiftTimeError(`End must be after start on the same day: ${definition.code}`);
+  if (!isValidTimeOrder(startTime, endTime, definition.endsNextDay)) {
+    throw new ShiftTimeError(`Invalid shift time order: ${definition.code}`);
   }
 
-  const endDate = parseDate(definition.endsNextDay ? addDaysToDate(date, 1) : date);
-
-  if (!endDate) {
-    throw new ShiftTimeError(`Invalid end date for: ${date}`);
-  }
-
+  // Only the input date is range-checked; the computed end date may be 2101-01-01.
+  const endDate = definition.endsNextDay ? shiftDateParts(startDate, 1) : startDate;
   const start = zonedWallTimeToUtc({ ...startDate, ...startTime }, timezone);
   const end = zonedWallTimeToUtc({ ...endDate, ...endTime }, timezone);
 

@@ -50,9 +50,31 @@ describe('IcsBuilder.buildIcs', () => {
     const ics = unfold(buildIcs(buildInput()));
 
     expect(ics).toContain('BEGIN:VCALENDAR');
-    expect(ics).toContain('PRODID:offnal');
+    expect(ics).toContain('PRODID:-//Offnal//Offnal MVP//KO\r\n');
     expect(ics).toContain('DTSTAMP:20260929T030405Z');
-    expect(ics).toContain('X-WR-CALNAME:');
+    expect(ics).toContain('X-WR-CALNAME:오프날 · 김하루 2026년 10월\r\n');
+  });
+
+  it('omits X-PUBLISHED-TTL and declares the Seoul timezone once in the header', () => {
+    const ics = unfold(buildIcs(buildInput()));
+    const header = ics.slice(0, ics.indexOf('BEGIN:VEVENT'));
+
+    expect(ics).not.toContain('X-PUBLISHED-TTL');
+    expect(header).toContain('X-WR-TIMEZONE:Asia/Seoul\r\n');
+    expect(ics.match(/X-WR-TIMEZONE/g)).toHaveLength(1);
+  });
+
+  it('keeps the timezone header for an empty calendar', () => {
+    const ics = unfold(buildIcs(buildInput({ entries: [] })));
+
+    expect(ics).toContain('X-WR-TIMEZONE:Asia/Seoul\r\nEND:VCALENDAR');
+    expect(ics).not.toContain('X-PUBLISHED-TTL');
+  });
+
+  it('escapes commas, semicolons and backslashes in the calendar name', () => {
+    const ics = unfold(buildIcs(buildInput({ displayName: 'Kim, Haru; A\\B' })));
+
+    expect(ics).toContain('X-WR-CALNAME:오프날 · Kim\\, Haru\\; A\\\\B 2026년 10월\r\n');
   });
 
   it('excludes off days by default', () => {
@@ -130,6 +152,15 @@ describe('IcsBuilder.buildIcs', () => {
     const ics = unfold(buildIcs(buildInput({ entries: [entry('2026-10-05', 'S')] })));
 
     expect(ics).toContain('SUMMARY:Day\\, early\\; shift (S)');
+  });
+
+  it('writes the 2100-12-31 off day with an exclusive end on 2101-01-01', () => {
+    const ics = unfold(
+      buildIcs(buildInput({ yearMonth: '2100-12', includeOff: true, entries: [entry('2100-12-31', 'OFF')] })),
+    );
+
+    expect(ics).toContain('DTSTART;VALUE=DATE:21001231');
+    expect(ics).toContain('DTEND;VALUE=DATE:21010101');
   });
 
   it('skips entries without a code or definition', () => {

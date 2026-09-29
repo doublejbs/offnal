@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -10,6 +11,7 @@ import { type ExtractTablesWithRelations } from 'drizzle-orm/relations';
 import { Pool } from 'pg';
 
 import { DbDriver } from '@/domain/enums/DbDriver';
+import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import * as schema from '@/server/db/Schema';
 
 export type DbSchema = typeof schema;
@@ -22,25 +24,41 @@ export type DbTransaction = PgTransaction<PgQueryResultHKT, DbSchema, ExtractTab
 /** Either the root database or an open transaction. */
 export type DbExecutor = Db | DbTransaction;
 
-type DbHandle = {
+export type DbHandle = {
   db: Db;
   driver: DbDriver;
+  /** Human-readable target without credentials (host/database or PGlite directory). */
+  target: string;
   migrate: () => Promise<void>;
   close: () => Promise<void>;
 };
 
 const MEMORY_PGLITE_DIR = 'memory';
 const DEFAULT_PGLITE_DIR = '.data/pglite';
+const PGLITE_ALLOWED_ENVS = new Set<string>([OffnalEnv.DEVELOPMENT, OffnalEnv.TEST]);
 
 const getMigrationsFolder = (): string => path.join(process.cwd(), 'drizzle');
 
+const createPgliteClient = (dataDir: string | null): PGlite => {
+  if (dataDir === null) {
+    return new PGlite();
+  }
+
+  const resolvedDir = path.resolve(process.cwd(), dataDir);
+
+  mkdirSync(path.dirname(resolvedDir), { recursive: true });
+
+  return new PGlite(resolvedDir);
+};
+
 const createPgliteHandle = (dataDir: string | null): DbHandle => {
-  const client = dataDir === null ? new PGlite() : new PGlite(path.resolve(process.cwd(), dataDir));
+  const client = createPgliteClient(dataDir);
   const db = drizzlePglite({ client, schema });
 
   return {
     db,
     driver: DbDriver.PGLITE,
+    target: dataDir ?? MEMORY_PGLITE_DIR,
     migrate: async () => {
       await migratePglite(db, { migrationsFolder: getMigrationsFolder() });
     },
@@ -50,6 +68,16 @@ const createPgliteHandle = (dataDir: string | null): DbHandle => {
   };
 };
 
+const describeConnectionTarget = (connectionString: string): string => {
+  try {
+    const url = new URL(connectionString);
+
+    return `${url.hostname}${url.port ? `:${url.port}` : ''}${url.pathname}`;
+  } catch {
+    return 'unparsable DATABASE_URL';
+  }
+};
+
 const createNodePgHandle = (connectionString: string): DbHandle => {
   const pool = new Pool({ connectionString, max: 5 });
   const db = drizzleNodePg({ client: pool, schema });
@@ -57,6 +85,7 @@ const createNodePgHandle = (connectionString: string): DbHandle => {
   return {
     db,
     driver: DbDriver.NODE_POSTGRES,
+    target: describeConnectionTarget(connectionString),
     migrate: async () => {
       await migrateNodePg(db, { migrationsFolder: getMigrationsFolder() });
     },
@@ -67,11 +96,21 @@ const createNodePgHandle = (connectionString: string): DbHandle => {
 };
 
 /** Creates a database handle from environment variables without applying migrations. */
-export const createDbHandleFromEnv = (env: NodeJS.ProcessEnv = process.env): DbHandle => {
+export const createDbHandleFromEnv = (env: Record<string, string | undefined> = process.env): DbHandle => {
   const databaseUrl = env.DATABASE_URL?.trim();
 
   if (databaseUrl) {
     return createNodePgHandle(databaseUrl);
+  }
+
+  // Unset OFFNAL_ENV falls back to NODE_ENV so a production build never silently uses PGlite.
+  const offnalEnv =
+    env.OFFNAL_ENV?.trim() || (env.NODE_ENV === 'production' ? OffnalEnv.PRODUCTION : OffnalEnv.DEVELOPMENT);
+
+  if (!PGLITE_ALLOWED_ENVS.has(offnalEnv)) {
+    throw new Error(
+      `DATABASE_URL is required when OFFNAL_ENV=${offnalEnv}; PGlite is only allowed in development or test.`,
+    );
   }
 
   const pgliteDir = env.PGLITE_DIR?.trim() || DEFAULT_PGLITE_DIR;
@@ -118,11 +157,16 @@ export const setDbForTesting = (db: Db | null): void => {
   dbGlobal.__offnalDbOverride = db;
 };
 
-/** Fresh in-memory PGlite database with all migrations applied. */
-export const createTestDb = async (): Promise<Db> => {
+export type TestDb = {
+  db: Db;
+  close: () => Promise<void>;
+};
+
+/** Fresh in-memory PGlite database with all migrations applied. Call `close` in `afterAll`. */
+export const createTestDb = async (): Promise<TestDb> => {
   const handle = createPgliteHandle(null);
 
   await handle.migrate();
 
-  return handle.db;
+  return { db: handle.db, close: handle.close };
 };
