@@ -1,7 +1,5 @@
-const HomePage = () => (
-  <main>
-    <h1>오프날</h1>
-  </main>
-);
+import UploadPanel from '@/components/upload/UploadPanel';
+
+const HomePage = () => <UploadPanel />;
 
 export default HomePage;
