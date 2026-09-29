@@ -107,7 +107,7 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 - Storage → New bucket: 이름(예: `offnal-sources`), **Public bucket 끔**, 정책(Policies)은 추가하지 않습니다 → `S3_BUCKET`
 - Storage → S3 Configuration(대시보드 표기: Project Settings → Storage → S3 Connection): Endpoint → `S3_ENDPOINT`(`https://<project-ref>.storage.supabase.co/storage/v1/s3`), Region → `S3_REGION`, **New access key** → `S3_ACCESS_KEY_ID`·`S3_SECRET_ACCESS_KEY`(비밀 키는 발급 때 한 번만 보임). S3 키는 RLS를 우회하는 서버 전용 키입니다. path-style 주소는 코드에서 항상 켭니다.
 - `pnpm storage:check`로 검사 객체 올리기·읽기·삭제를 확인합니다.
-- 원본은 저장 확정 직후 삭제되고, 방치된 원본은 `SOURCE_TTL_HOURS`(24시간) 뒤 정리 작업이 지웁니다. 처리업체(스토리지·AI) 쪽 보관 설정은 출시 전 별도 확인이 필요합니다.
+- 원본은 저장 확정 직후 삭제되고, 방치된 원본은 `SOURCE_TTL_HOURS`(24시간) 뒤 정리 작업이 지웁니다(Hobby 플랜의 하루 1회 cron이면 최대 약 48시간). 처리업체(스토리지·AI) 쪽 보관 설정은 출시 전 별도 확인이 필요합니다.
 
 **5. Auth → URL Configuration**
 
@@ -154,7 +154,7 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 
 ### 정리 작업 (cron)
 
-`CRON_SECRET`(32자 이상). `vercel.json`이 매시 `/api/cron/cleanup`을 호출하며 Vercel Cron은 `Authorization: Bearer $CRON_SECRET`을 자동으로 붙입니다. **Vercel Hobby 플랜은 하루 1회 cron만 허용**하므로 Pro 플랜이 아니면 `schedule`을 `0 3 * * *` 등으로 바꾸세요. 다른 호스팅에서는 같은 헤더로 주기 호출하면 됩니다.
+`CRON_SECRET`(32자 이상). `vercel.json`이 **매일 03:00 KST(`0 18 * * *`, UTC 기준)** `/api/cron/cleanup`을 호출하며 Vercel Cron은 `Authorization: Bearer $CRON_SECRET`을 자동으로 붙입니다. 현재 프로젝트가 **Vercel Hobby 플랜**이라 하루 1회만 허용되기 때문입니다. 그래서 만료된 원본 사진은 TTL 24시간 + 하루 1회 정리로 **최대 약 48시간까지** 남을 수 있습니다. 매시 정리(`0 * * * *`)로 24시간을 지키려면 Pro 플랜이 필요합니다. 다른 호스팅에서는 같은 헤더로 주기 호출하면 됩니다.
 
 ### 배포 (Vercel 기준)
 

@@ -262,7 +262,7 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 
 ### 7.6 정리 작업
 
-- `GET /api/cron/cleanup` (`Authorization: Bearer ${CRON_SECRET}`): 만료 작업 원본 삭제·`table_result` 제거·`expired` 처리, 발행 완료 작업 원본 삭제 누락분 재시도, 만료 draft 삭제, 오래된 rate_limit 카운터 삭제. `vercel.json` cron 등록(1시간).
+- `GET /api/cron/cleanup` (`Authorization: Bearer ${CRON_SECRET}`): 만료 작업 원본 삭제·`table_result` 제거·`expired` 처리, 발행 완료 작업 원본 삭제 누락분 재시도, 만료 draft 삭제, 오래된 rate_limit 카운터 삭제. `vercel.json` cron 등록: Vercel Hobby 플랜은 하루 1회만 허용하므로 매일 `0 18 * * *`(03:00 KST). 이때 원본은 TTL 24시간 + 하루 1회 정리로 **최대 약 48시간** 남을 수 있다. 매시 정리(`0 * * * *`)는 Pro 플랜 필요.
 - TTL 초기 제안값: 원본·임시 작업 24시간(`SOURCE_TTL_HOURS`), 개인 초안 30일(`DRAFT_TTL_DAYS`). 원본이 만료돼도 로그인해 만든 개인 draft는 남는다.
 
 ---
