@@ -1,7 +1,9 @@
+import { GeminiTier } from '@/domain/enums/GeminiTier';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
 import { createAnthropicVisionProvider } from '@/server/vision/AnthropicVisionProvider';
+import { createGeminiVisionProvider } from '@/server/vision/GeminiVisionProvider';
 import { createMockVisionProvider } from '@/server/vision/MockVisionProvider';
 import { type VisionProvider } from '@/server/vision/VisionProvider';
 
@@ -21,6 +23,19 @@ const createVisionProviderFromConfig = (config: AppConfig): VisionProvider => {
     }
 
     return createMockVisionProvider({ delayMs: config.mockVisionDelayMs });
+  }
+
+  if (config.visionProvider === VisionProviderType.GEMINI) {
+    // AppConfig refuses a free-tier key in production (inputs may be used for training).
+    if (config.offnalEnv === OffnalEnv.PRODUCTION && config.geminiTier !== GeminiTier.PAID) {
+      throw new Error('Gemini vision provider requires GEMINI_TIER=paid in production');
+    }
+
+    return createGeminiVisionProvider({
+      apiKey: config.geminiApiKey,
+      model: config.visionModel,
+      timeoutMs: config.visionTimeoutMs,
+    });
   }
 
   return createAnthropicVisionProvider({

@@ -4,26 +4,26 @@ import {
   type BetaOutputConfig,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 
-import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
-import { VisionTableOutcome } from '@/domain/enums/VisionTableOutcome';
-import { type PersonExtraction } from '@/domain/types/PersonExtraction';
-import { type TableRecognitionResult } from '@/domain/types/TableRecognitionResult';
+import { parsePersonOutput, parseTableOutput } from '@/server/vision/VisionOutputParser';
 import {
   buildPersonUserPrompt,
   PERSON_JSON_SCHEMA,
-  personOutputSchema,
-  sanitizeDefinition,
-  sanitizeYearMonth,
   TABLE_JSON_SCHEMA,
   TABLE_USER_PROMPT,
-  tableOutputSchema,
   VISION_SYSTEM_PROMPT,
 } from '@/server/vision/VisionPrompts';
-import { type VisionImage, type VisionProvider, VisionProviderError } from '@/server/vision/VisionProvider';
+import {
+  type VisionImage,
+  type VisionPersonResult,
+  type VisionProvider,
+  VisionProviderError,
+  type VisionTableResult,
+  type VisionUsage,
+} from '@/server/vision/VisionProvider';
 
 const MAX_TOKENS = 16000;
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
@@ -39,11 +39,9 @@ const EFFORT_BY_SETTING: Record<VisionEffort, Effort> = {
   [VisionEffort.MAX]: 'max',
 };
 
-const FAILURE_BY_OUTCOME: Record<VisionTableOutcome, RecognitionErrorCode | null> = {
-  [VisionTableOutcome.OK]: null,
-  [VisionTableOutcome.NO_TABLE]: RecognitionErrorCode.NO_TABLE,
-  [VisionTableOutcome.UNREADABLE]: RecognitionErrorCode.UNREADABLE,
-  [VisionTableOutcome.NO_NAMES]: RecognitionErrorCode.NO_NAMES,
+type ModelCallResult = {
+  output: unknown;
+  usage: VisionUsage;
 };
 
 export type AnthropicVisionConfig = {
@@ -76,11 +74,11 @@ const mapProviderError = (error: unknown, signal: AbortSignal): VisionProviderEr
     error instanceof Anthropic.APIUserAbortError ||
     error instanceof Anthropic.APIConnectionTimeoutError
   ) {
-    return new VisionProviderError(RecognitionErrorCode.PROVIDER_TIMEOUT);
+    return new VisionProviderError(RecognitionErrorCode.PROVIDER_TIMEOUT, { cause: error });
   }
 
   // Anthropic.APIError subclasses (auth, rate limit, overloaded, …), JSON/zod failures and anything else.
-  return new VisionProviderError(RecognitionErrorCode.PROVIDER_ERROR);
+  return new VisionProviderError(RecognitionErrorCode.PROVIDER_ERROR, { cause: error });
 };
 
 /** Claude vision adapter. Never logs image data or recognized names. */
@@ -93,7 +91,7 @@ export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): Vi
     text: string,
     schema: Record<string, unknown>,
     signal: AbortSignal,
-  ): Promise<unknown> => {
+  ): Promise<ModelCallResult> => {
     if (!client) {
       throw new VisionProviderError(RecognitionErrorCode.PROVIDER_NOT_CONFIGURED);
     }
@@ -137,7 +135,15 @@ export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): Vi
 
       const output = message.content.flatMap((block) => (block.type === 'text' ? [block.text] : [])).join('');
 
-      return JSON.parse(output) as unknown;
+      return {
+        output: JSON.parse(output) as unknown,
+        // Anthropic bills thinking as output and does not report it separately.
+        usage: {
+          inputTokens: message.usage.input_tokens,
+          outputTokens: message.usage.output_tokens,
+          thinkingTokens: null,
+        },
+      };
     } catch (error: unknown) {
       throw mapProviderError(error, signal);
     }
@@ -145,63 +151,20 @@ export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): Vi
 
   return {
     kind: VisionProviderType.ANTHROPIC,
-    recognizeTable: async (image, signal): Promise<TableRecognitionResult> => {
-      const raw = await callModel(image, TABLE_USER_PROMPT, TABLE_JSON_SCHEMA, signal);
-      const parsed = tableOutputSchema.safeParse(raw);
+    recognizeTable: async (image, signal): Promise<VisionTableResult> => {
+      const { output, usage } = await callModel(image, TABLE_USER_PROMPT, TABLE_JSON_SCHEMA, signal);
 
-      if (!parsed.success) {
-        throw new VisionProviderError(RecognitionErrorCode.PROVIDER_ERROR);
-      }
-
-      const failure = FAILURE_BY_OUTCOME[parsed.data.outcome];
-
-      if (failure) {
-        return { ok: false, errorCode: failure };
-      }
-
-      const seenRowIds = new Set<string>();
-      const candidates = parsed.data.candidates.flatMap((candidate) => {
-        const rowId = candidate.rowId.trim();
-        const name = candidate.name.trim().slice(0, MAX_DISPLAY_NAME_LENGTH);
-
-        if (!rowId || !name || seenRowIds.has(rowId)) {
-          return [];
-        }
-
-        seenRowIds.add(rowId);
-
-        return [{ rowId, name }];
-      });
-
-      if (candidates.length === 0) {
-        return { ok: false, errorCode: RecognitionErrorCode.NO_NAMES };
-      }
-
-      return {
-        ok: true,
-        value: {
-          yearMonth: sanitizeYearMonth(parsed.data.yearMonth),
-          candidates,
-          definitions: parsed.data.definitions.map(sanitizeDefinition),
-          dayHeaders: parsed.data.dayHeaders.filter((header) => header.day >= 1 && header.day <= 31),
-        },
-      };
+      return { ...parseTableOutput(output), usage };
     },
-    extractPerson: async (image, input, signal): Promise<PersonExtraction> => {
-      const raw = await callModel(image, buildPersonUserPrompt(input), PERSON_JSON_SCHEMA, signal);
-      const parsed = personOutputSchema.safeParse(raw);
+    extractPerson: async (image, input, signal): Promise<VisionPersonResult> => {
+      const { output, usage } = await callModel(
+        image,
+        buildPersonUserPrompt(input),
+        PERSON_JSON_SCHEMA,
+        signal,
+      );
 
-      if (!parsed.success) {
-        throw new VisionProviderError(RecognitionErrorCode.PROVIDER_ERROR);
-      }
-
-      return {
-        yearMonth: input.yearMonth,
-        rowId: input.rowId,
-        displayName: input.name,
-        definitions: parsed.data.definitions.map(sanitizeDefinition),
-        cells: parsed.data.cells,
-      };
+      return { ...parsePersonOutput(output, input), usage };
     },
   };
 };

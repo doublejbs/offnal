@@ -14,7 +14,7 @@
 | DB | Supabase Postgres + Drizzle ORM (서버가 `DATABASE_URL`로 직접 연결, 모든 테이블 RLS + 정책 없음) | 로컬 개발도 개발용 클라우드 Supabase 프로젝트. 자동 테스트·키 없는 데모만 PGlite |
 | 원본 저장 | Supabase Storage 비공개 버킷(S3 호환 엔드포인트) / 로컬 파일(테스트·데모) | 공개 URL 없음 |
 | 로그인 | Supabase Auth(`@supabase/ssr`, PKCE, `sb-*` 세션 쿠키) + **카카오** / 데모 로그인(자체 세션, 데모 모드 전용) | 아래 “로그인 수단” 참고 |
-| 인식 | Anthropic Claude (`claude-opus-5-5`, 이미지 입력 + JSON 스키마 구조화 출력) / mock | 모델·effort는 환경 변수로 교체 |
+| 인식 | Anthropic Claude (`claude-opus-5-5`) / Google Gemini (`@google/genai`) / mock — 이미지 입력 + JSON 스키마 구조화 출력 | 제공자·모델·effort는 환경 변수로 교체 |
 | 결제 | 토스페이먼츠 결제위젯 + 서버 승인·재조회 / mock 테스트 결제 | 단건 결제, 자동 결제 없음 |
 | 캘린더 | `ics` 라이브러리로 일회성 가져오기 파일 | 자동 동기화 아님 |
 | 이미지 | 브라우저 Canvas로 PNG 생성 | 권한 확인 API 데이터만 사용 |
@@ -143,6 +143,13 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 - 사진 속 글자는 데이터로만 다루도록 시스템 프롬프트와 JSON 스키마로 제한하고, 응답은 zod로 재검증합니다.
 - **인식 정확도는 검증되지 않았습니다.** 동의받은 실제 근무표로 한 사람 한 달 전체 일치율·수정 칸 수·처리 시간·비용을 측정해야 합니다.
 - 업로드 전 외부 AI 처리 사실을 화면에 고지합니다.
+
+### 근무표 인식 (Gemini, 선택)
+
+`VISION_PROVIDER=gemini`, `GEMINI_API_KEY`(Google AI Studio 키, 서버 전용), `GEMINI_TIER`(`free` | `paid`, 기본 `free`), 선택: `VISION_MODEL`(기본 `gemini-3.7-flash`), `VISION_TIMEOUT_MS`.
+
+- 공식 `@google/genai` SDK의 `models.generateContent`로 이미지(inline base64)와 JSON 스키마(`responseMimeType: 'application/json'` + `responseJsonSchema`)를 보냅니다. 프롬프트·스키마·zod 재검증·오류 매핑은 Anthropic과 같고, nullable 표현만 Gemini 형식(`type: [T, 'null']`)으로 한곳에서 변환합니다. thinking은 모델 기본값을 씁니다.
+- **무료 티어 키는 입력(사진·프롬프트)이 Google 제품 개선(학습)에 쓰일 수 있습니다.** 실제 사용자 근무표에는 반드시 결제가 연결된 **유료 티어 키**를 쓰고 `GEMINI_TIER=paid`로 명시하세요. `OFFNAL_ENV=production`에서 `GEMINI_TIER=paid`가 없으면 기동 단계에서 차단됩니다. 무료 티어는 가상·동의받은 평가 이미지에만 씁니다.
 
 ### 결제 (토스페이먼츠)
 

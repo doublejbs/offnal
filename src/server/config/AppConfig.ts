@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import { GeminiTier } from '@/domain/enums/GeminiTier';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
@@ -33,6 +34,9 @@ export type AppConfig = {
   supabasePublishableKey: string | null;
   visionProvider: VisionProviderType;
   anthropicApiKey: string | null;
+  geminiApiKey: string | null;
+  /** Billing tier of the Gemini key. Production refuses Gemini unless this is `paid`. */
+  geminiTier: GeminiTier;
   visionModel: string;
   visionEffort: VisionEffort;
   visionTimeoutMs: number;
@@ -67,6 +71,7 @@ export const CRON_SECRET_PLACEHOLDER = 'change-me-cron-secret';
 const DEFAULT_APP_URL = 'http://localhost:3000';
 const DEVELOPMENT_APP_SECRET = 'offnal-development-only-secret-do-not-use-in-production';
 const DEFAULT_VISION_MODEL = 'claude-opus-5-5';
+const DEFAULT_GEMINI_VISION_MODEL = 'gemini-3.7-flash';
 
 export const DEFAULT_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 
@@ -104,7 +109,10 @@ const envSchema = z.object({
   NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalText,
   VISION_PROVIDER: z.enum(VisionProviderType).optional(),
   ANTHROPIC_API_KEY: optionalText,
-  VISION_MODEL: z.string().default(DEFAULT_VISION_MODEL),
+  GEMINI_API_KEY: optionalText,
+  GEMINI_TIER: z.enum(GeminiTier).default(GeminiTier.FREE),
+  /** Default depends on the provider (Claude or Gemini model id). */
+  VISION_MODEL: optionalText,
   VISION_EFFORT: z.enum(VisionEffort).default(VisionEffort.MEDIUM),
   VISION_TIMEOUT_MS: positiveInt(240_000),
   MOCK_VISION_DELAY_MS: nonNegativeInt(1200),
@@ -184,6 +192,11 @@ const collectProductionViolations = (
     violations.push('VISION_PROVIDER=mock');
   }
 
+  // Free-tier Gemini keys may use prompts and images to improve Google products: never for real users.
+  if (visionProvider === VisionProviderType.GEMINI && parsed.GEMINI_TIER !== GeminiTier.PAID) {
+    violations.push('VISION_PROVIDER=gemini requires GEMINI_TIER=paid');
+  }
+
   if (paymentProvider === PaymentProviderType.MOCK) {
     violations.push('PAYMENT_PROVIDER=mock');
   }
@@ -255,6 +268,10 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
 
   const defaultAuthProviders = isDemo ? [AuthProviderType.DEV] : [AuthProviderType.KAKAO];
   const authProviders = resolveAuthProviders(parsed.AUTH_PROVIDERS ?? defaultAuthProviders, appMode);
+  const visionProvider =
+    parsed.VISION_PROVIDER ?? (isDemo ? VisionProviderType.MOCK : VisionProviderType.ANTHROPIC);
+  const defaultVisionModel =
+    visionProvider === VisionProviderType.GEMINI ? DEFAULT_GEMINI_VISION_MODEL : DEFAULT_VISION_MODEL;
 
   if (isProduction) {
     const violations = collectProductionViolations(parsed, appMode, storageDriver, authProviders);
@@ -281,10 +298,11 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     authProviders,
     supabaseUrl: parsed.NEXT_PUBLIC_SUPABASE_URL ? new URL(parsed.NEXT_PUBLIC_SUPABASE_URL).origin : null,
     supabasePublishableKey: readSupabasePublishableKey(parsed),
-    visionProvider:
-      parsed.VISION_PROVIDER ?? (isDemo ? VisionProviderType.MOCK : VisionProviderType.ANTHROPIC),
+    visionProvider,
     anthropicApiKey: parsed.ANTHROPIC_API_KEY ?? null,
-    visionModel: parsed.VISION_MODEL,
+    geminiApiKey: parsed.GEMINI_API_KEY ?? null,
+    geminiTier: parsed.GEMINI_TIER,
+    visionModel: parsed.VISION_MODEL ?? defaultVisionModel,
     visionEffort: parsed.VISION_EFFORT,
     visionTimeoutMs: parsed.VISION_TIMEOUT_MS,
     mockVisionDelayMs: parsed.MOCK_VISION_DELAY_MS,

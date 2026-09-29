@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import { GeminiTier } from '@/domain/enums/GeminiTier';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
@@ -201,6 +202,37 @@ describe('parseAppConfig', () => {
     expect(() => parseAppConfig(withOverrides({ PAYMENT_PROVIDER: 'mock' }))).toThrow(
       /PAYMENT_PROVIDER=mock/,
     );
+  });
+
+  it('refuses Gemini in production unless the key is declared paid tier', () => {
+    expect(() => parseAppConfig(withOverrides({ VISION_PROVIDER: 'gemini' }))).toThrow(
+      /VISION_PROVIDER=gemini requires GEMINI_TIER=paid/,
+    );
+    expect(() => parseAppConfig(withOverrides({ VISION_PROVIDER: 'gemini', GEMINI_TIER: 'free' }))).toThrow(
+      /GEMINI_TIER=paid/,
+    );
+
+    const config = parseAppConfig(
+      withOverrides({ VISION_PROVIDER: 'gemini', GEMINI_TIER: 'paid', GEMINI_API_KEY: 'test-gemini-key' }),
+    );
+
+    expect(config).toMatchObject({
+      visionProvider: VisionProviderType.GEMINI,
+      geminiTier: GeminiTier.PAID,
+      geminiApiKey: 'test-gemini-key',
+      visionModel: 'gemini-3.7-flash',
+    });
+  });
+
+  it('allows a free-tier Gemini key outside production and keeps an explicit model', () => {
+    const config = parseAppConfig({
+      OFFNAL_ENV: 'development',
+      VISION_PROVIDER: 'gemini',
+      VISION_MODEL: 'gemini-3.8-flash',
+    });
+
+    expect(config).toMatchObject({ geminiTier: GeminiTier.FREE, visionModel: 'gemini-3.8-flash' });
+    expect(() => parseAppConfig({ OFFNAL_ENV: 'development', GEMINI_TIER: 'trial' })).toThrow();
   });
 
   it('defaults live deployments to the S3 bucket and demo/test to local files', () => {
