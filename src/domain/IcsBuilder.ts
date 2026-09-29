@@ -2,15 +2,17 @@ import { createEvents, type DateArray, type EventAttributes } from 'ics';
 
 import { toUtcRange } from '@/domain/ShiftTime';
 import { SEOUL_TIMEZONE } from '@/domain/TimeZone';
+import { type DateParts } from '@/domain/types/DateParts';
 import { type IcsBuildInput } from '@/domain/types/IcsBuildInput';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
-import { type DateParts } from '@/domain/types/DateParts';
 import { formatYearMonthLabel, parseDate, shiftDateParts } from '@/domain/YearMonth';
 
 const PRODUCT_ID = '-//Offnal//Offnal MVP//KO';
 // The ics library always writes this header line; it implies a subscription refresh interval, which a one-time import is not.
-const PUBLISHED_TTL_LINE = 'X-PUBLISHED-TTL:PT1H\r\n';
-const TIMEZONE_LINE = `X-WR-TIMEZONE:${SEOUL_TIMEZONE}\r\n`;
+const PUBLISHED_TTL_PREFIX = 'X-PUBLISHED-TTL:';
+const TIMEZONE_LINE = `X-WR-TIMEZONE:${SEOUL_TIMEZONE}`;
+const CRLF = '\r\n';
+const HEADER_END_LINES = new Set(['BEGIN:VEVENT', 'END:VCALENDAR']);
 const EVENT_DESCRIPTION = '오프날에서 가져온 일정 · 이후 변경은 자동 반영되지 않아요';
 
 // `timestamp` (DTSTAMP) is supported by the ics schema but missing from its type definitions.
@@ -32,16 +34,48 @@ const toDateArray = (parts: DateParts): DateArray => [parts.year, parts.month, p
 const escapeIcsText = (value: string): string =>
   value.replace(/\\/g, '\\\\').replace(/\r?\n/g, '\\n').replace(/;/g, '\\;').replace(/,/g, '\\,');
 
-/** Replaces the library's X-PUBLISHED-TTL header line with X-WR-TIMEZONE (header only, never inside events). */
-const rewriteCalendarHeader = (ics: string): string => {
-  const headerEnd = ics.indexOf('BEGIN:VEVENT');
-  const splitAt = headerEnd === -1 ? ics.indexOf('END:VCALENDAR') : headerEnd;
-  const header = ics.slice(0, splitAt);
-  const rewritten = header.includes(PUBLISHED_TTL_LINE)
-    ? header.replace(PUBLISHED_TTL_LINE, TIMEZONE_LINE)
-    : `${header}${TIMEZONE_LINE}`;
+/** Groups physical CRLF lines into logical content lines (RFC 5545 folding: continuations start with space/tab). */
+const splitContentLines = (ics: string): string[][] => {
+  const contentLines: string[][] = [];
 
-  return `${rewritten}${ics.slice(splitAt)}`;
+  for (const line of ics.split(CRLF)) {
+    const current = contentLines.at(-1);
+
+    if (current && (line.startsWith(' ') || line.startsWith('\t'))) {
+      current.push(line);
+    } else {
+      contentLines.push([line]);
+    }
+  }
+
+  return contentLines;
+};
+
+/**
+ * Replaces the library's X-PUBLISHED-TTL header line with X-WR-TIMEZONE. Works on whole content lines and
+ * only looks before the first line that is exactly BEGIN:VEVENT (or END:VCALENDAR), so user text cannot move it.
+ */
+const rewriteCalendarHeader = (ics: string): string => {
+  const contentLines = splitContentLines(ics);
+  const headerEnd = contentLines.findIndex(
+    (lines) => lines.length === 1 && HEADER_END_LINES.has(lines[0] ?? ''),
+  );
+
+  if (headerEnd === -1) {
+    throw new Error('ICS generation failed: calendar header not found');
+  }
+
+  const ttlIndex = contentLines
+    .slice(0, headerEnd)
+    .findIndex((lines) => (lines[0] ?? '').startsWith(PUBLISHED_TTL_PREFIX));
+
+  if (ttlIndex === -1) {
+    contentLines.splice(headerEnd, 0, [TIMEZONE_LINE]);
+  } else {
+    contentLines.splice(ttlIndex, 1, [TIMEZONE_LINE]);
+  }
+
+  return contentLines.map((lines) => lines.join(CRLF)).join(CRLF);
 };
 
 const toUtcDateTimeArray = (instant: Date): DateArray => [

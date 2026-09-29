@@ -27,7 +27,7 @@ import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { type SourceCell } from '@/domain/types/SourceCell';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
 
-const YEAR_MONTH_REGEX = '^[0-9]{4}-(0[1-9]|1[0-2])$';
+const YEAR_MONTH_REGEX = '^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$';
 
 const buildCreatedAtColumn = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
 

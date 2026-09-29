@@ -45,7 +45,7 @@ CREATE TABLE "drafts" (
 	"expires_at" timestamp with time zone NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "drafts_year_month_check" CHECK ("drafts"."year_month" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+	CONSTRAINT "drafts_year_month_check" CHECK ("drafts"."year_month" ~ '^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$'),
 	CONSTRAINT "drafts_status_check" CHECK ("drafts"."status" in ('editing', 'published', 'discarded'))
 );
 --> statement-breakpoint
@@ -57,7 +57,7 @@ CREATE TABLE "entitlements" (
 	"payment_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "entitlements_user_month_unique" UNIQUE("user_id","year_month"),
-	CONSTRAINT "entitlements_year_month_check" CHECK ("entitlements"."year_month" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+	CONSTRAINT "entitlements_year_month_check" CHECK ("entitlements"."year_month" ~ '^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$'),
 	CONSTRAINT "entitlements_source_check" CHECK ("entitlements"."source" in ('trial', 'purchase'))
 );
 --> statement-breakpoint
@@ -86,7 +86,7 @@ CREATE TABLE "payments" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"confirmed_at" timestamp with time zone,
 	CONSTRAINT "payments_provider_payment_key_unique" UNIQUE("provider_payment_key"),
-	CONSTRAINT "payments_year_month_check" CHECK ("payments"."year_month" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'),
+	CONSTRAINT "payments_year_month_check" CHECK ("payments"."year_month" ~ '^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$'),
 	CONSTRAINT "payments_provider_check" CHECK ("payments"."provider" in ('toss', 'mock')),
 	CONSTRAINT "payments_status_check" CHECK ("payments"."status" in ('pending', 'paid', 'failed', 'canceled'))
 );
@@ -103,7 +103,7 @@ CREATE TABLE "published_months" (
 	"published_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "published_months_calendar_month_unique" UNIQUE("calendar_id","year_month"),
-	CONSTRAINT "published_months_year_month_check" CHECK ("published_months"."year_month" ~ '^[0-9]{4}-(0[1-9]|1[0-2])$')
+	CONSTRAINT "published_months_year_month_check" CHECK ("published_months"."year_month" ~ '^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$')
 );
 --> statement-breakpoint
 CREATE TABLE "rate_limit_counters" (

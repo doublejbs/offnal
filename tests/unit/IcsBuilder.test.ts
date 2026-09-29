@@ -154,6 +154,43 @@ describe('IcsBuilder.buildIcs', () => {
     expect(ics).toContain('SUMMARY:Day\\, early\\; shift (S)');
   });
 
+  const assertWellFormed = (raw: string, expectedEvents: number): void => {
+    const lines = unfold(raw).split('\r\n');
+    const headerEnd = lines.findIndex((line) => line === 'BEGIN:VEVENT' || line === 'END:VCALENDAR');
+    const header = lines.slice(0, headerEnd);
+
+    expect(lines.filter((line) => line === 'BEGIN:VCALENDAR')).toHaveLength(1);
+    expect(lines.filter((line) => line === 'END:VCALENDAR')).toHaveLength(1);
+    expect(lines[0]).toBe('BEGIN:VCALENDAR');
+    expect(lines.filter((line) => line === 'BEGIN:VEVENT')).toHaveLength(expectedEvents);
+    expect(lines.filter((line) => line === 'END:VEVENT')).toHaveLength(expectedEvents);
+    expect(header.filter((line) => line.startsWith('X-PUBLISHED-TTL:'))).toHaveLength(0);
+    expect(header.filter((line) => line === 'X-WR-TIMEZONE:Asia/Seoul')).toHaveLength(1);
+    expect(lines.filter((line) => line.startsWith('X-PUBLISHED-TTL:'))).toHaveLength(0);
+  };
+
+  it('stays well-formed when the display name contains BEGIN:VEVENT', () => {
+    const ics = buildIcs(buildInput({ displayName: 'BEGIN:VEVENT' }));
+
+    assertWellFormed(ics, 2);
+    expect(unfold(ics)).toContain('X-WR-CALNAME:오프날 · BEGIN:VEVENT 2026년 10월\r\n');
+  });
+
+  it('stays well-formed when the display name or a label contains X-PUBLISHED-TTL:PT1H', () => {
+    const definitions = [{ ...DEFINITIONS[0]!, label: 'X-PUBLISHED-TTL:PT1H' }, ...DEFINITIONS.slice(1)];
+    const ics = buildIcs(buildInput({ displayName: 'X-PUBLISHED-TTL:PT1H', definitions }));
+
+    assertWellFormed(ics, 2);
+    expect(unfold(ics)).toContain('SUMMARY:X-PUBLISHED-TTL:PT1H (D)');
+    expect(unfold(ics)).toContain('X-WR-CALNAME:오프날 · X-PUBLISHED-TTL:PT1H 2026년 10월');
+  });
+
+  it('stays well-formed with a long display name that gets folded', () => {
+    const ics = buildIcs(buildInput({ displayName: `${'BEGIN:VEVENT '.repeat(10)}X-PUBLISHED-TTL:PT1H` }));
+
+    assertWellFormed(ics, 2);
+  });
+
   it('writes the 2100-12-31 off day with an exclusive end on 2101-01-01', () => {
     const ics = unfold(
       buildIcs(buildInput({ yearMonth: '2100-12', includeOff: true, entries: [entry('2100-12-31', 'OFF')] })),

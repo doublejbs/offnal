@@ -276,7 +276,16 @@ describe('Database schema', () => {
   it('rejects malformed year_month values with a CHECK violation', async () => {
     const userId = await createUser(db);
 
-    for (const yearMonth of ['2026-13', '2026-1', '2026-00', '202610', '2026-10-01']) {
+    for (const yearMonth of [
+      '2026-13',
+      '2026-1',
+      '2026-00',
+      '202610',
+      '2026-10-01',
+      '1999-12',
+      '2101-01',
+      '3000-01',
+    ]) {
       await expectSqlState(
         db.insert(entitlements).values({ userId, yearMonth, source: EntitlementSource.TRIAL }),
         CHECK_VIOLATION,
