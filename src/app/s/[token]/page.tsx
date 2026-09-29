@@ -1,14 +1,12 @@
 import { type Metadata } from 'next';
 
 import SharedCalendarView from '@/components/shared/SharedCalendarView';
+import { SHARED_PAGE_METADATA } from '@/server/metadata/SiteMetadata';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: '함께 보는 근무표 · 오프날',
-  robots: { index: false, follow: false, nocache: true },
-  referrer: 'no-referrer',
-};
+/** Static on purpose: previews must not carry the display name, month or shifts (Spec §14). */
+export const metadata: Metadata = SHARED_PAGE_METADATA;
 
 type SharedPageProps = {
   params: Promise<{ token: string }>;

@@ -179,6 +179,13 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 4. 업로드 한도 4MB는 Vercel 함수 요청 본문 한도(약 4.5MB) 때문이며, 화면이 업로드 전에 사진을 줄입니다.
 5. IP 기준 한도는 신뢰할 수 있는 프록시(Vercel)가 `x-forwarded-for`를 설정한다고 가정합니다. 다른 환경에서는 `src/server/http/ClientIp.ts`를 맞춰야 합니다.
 
+## 공유 미리보기(OG)
+
+- 카카오톡·메신저 미리보기는 루트 레이아웃(`src/server/metadata/SiteMetadata.ts`)의 og/twitter 태그를 읽습니다. 이미지·링크 주소는 `APP_URL` 기준 절대 URL이 되므로 배포 환경의 `APP_URL`이 실제 도메인이어야 합니다.
+- 공유 링크(`/s/:token`)는 표시 이름·월·근무 없이 고정 문구(`공유받은 근무표`)만 내보냅니다. 개인 화면(`/recognitions`·`/drafts`·`/calendar`·`/checkout`)은 noindex입니다.
+- 이미지 다시 만들기: `pnpm exec tsx scripts/GenerateBrandImages.ts` → `public/og-image.png`(1200×630), `src/app/icon.png`(512), `src/app/apple-icon.png`(180). 한국어 글꼴이 필요하므로 macOS(Apple SD Gothic Neo)에서 실행하고, 결과 PNG와 가운데 630×630 영역(카카오가 1:1로 자를 수 있음)을 눈으로 확인한 뒤 커밋합니다.
+- 카카오는 미리보기를 캐시합니다. 이미지·문구를 바꾼 뒤에는 [카카오 개발자 도구](https://developers.kakao.com/tool/debugger/sharing) '공유 디버거'에서 해당 URL의 캐시를 초기화하세요.
+
 ## 구현 상태
 
 ### 실제 구현 (키만 넣으면 동작하는 코드)

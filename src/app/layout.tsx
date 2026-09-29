@@ -7,7 +7,10 @@ import { type ReactNode } from 'react';
 import { getEnvironmentBannerText } from '@/client/EnvironmentBanner';
 import AppShell from '@/components/AppShell';
 import ConfigProvider from '@/components/ConfigProvider';
+import { getAppConfig } from '@/server/config/AppConfig';
+import { getPricing } from '@/server/config/PricingConfig';
 import { buildPublicConfig } from '@/server/config/PublicConfig';
+import { buildSiteMetadata } from '@/server/metadata/SiteMetadata';
 
 /** Every screen is per-user and reads runtime config; nothing is prerendered at build time. */
 export const dynamic = 'force-dynamic';
@@ -19,9 +22,16 @@ const notoSansKr = Noto_Sans_KR({
   variable: '--font-noto-sans-kr',
 });
 
-export const metadata: Metadata = {
-  title: '오프날',
-  description: '근무표 사진으로 만드는 내 근무 달력',
+/** Reads APP_URL and pricing at request time so og:image and the description follow runtime config. */
+export const generateMetadata = (): Metadata => {
+  const config = getAppConfig();
+  const pricing = getPricing(config);
+
+  return buildSiteMetadata({
+    appUrl: config.appUrl,
+    priceKrw: pricing.priceKrw,
+    freeMonthLimit: pricing.freeMonthLimit,
+  });
 };
 
 export const viewport: Viewport = {
