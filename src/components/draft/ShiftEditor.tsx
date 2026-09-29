@@ -11,10 +11,11 @@ import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 
 type ShiftEditorProps = {
   entry: ShiftEntry;
-  /** undefined = no source row for this draft (manual/edit drafts). */
+  /** undefined = no source row for this draft (manual/edit drafts) or date not found in source cells. */
   rawText: string | null | undefined;
   definitions: ShiftDefinition[];
   disabled: boolean;
+  hasSourceCells: boolean;
   sectionRef: RefObject<HTMLElement | null>;
   onSelectCode: (code: string | null) => void;
   onAddCode: (code: string, label: string) => string | null;
@@ -26,6 +27,7 @@ const ShiftEditor = ({
   rawText,
   definitions,
   disabled,
+  hasSourceCells,
   sectionRef,
   onSelectCode,
   onAddCode,
@@ -51,7 +53,7 @@ const ShiftEditor = ({
         <strong id={titleId}>{formatDayLabel(entry.date)}</strong>
         <span className="tiny">{isUnconfirmed ? '확인 필요' : '근무 수정'}</span>
       </div>
-      {rawText !== undefined && <div className="tiny mb-8">원본: {formatRawText(rawText)}</div>}
+      {hasSourceCells && <div className="tiny mb-8">원본: {formatRawText(rawText)}</div>}
       {isUnconfirmed && entry.reviewReasons.length > 0 && (
         <div className="status-line mb-10" data-tone="warn">
           {entry.reviewReasons.map(describeReviewReason).join(' · ')}
@@ -90,6 +92,7 @@ const ShiftEditor = ({
       {isAdding && (
         <AddCodeForm
           submitLabel="추가하고 이 날짜에 적용"
+          disabled={disabled}
           onAdd={handleAdd}
           onCancel={() => setIsAdding(false)}
         />

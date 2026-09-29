@@ -9,11 +9,12 @@ type AddCodeFormProps = {
   submitLabel: string;
   /** Returns an error message, or null when the code was added. */
   onAdd: (code: string, label: string) => string | null;
+  disabled?: boolean;
   onCancel?: () => void;
 };
 
 /** Custom code (hospital-specific shifts, leave, training…). Times are set afterwards in the time editor. */
-const AddCodeForm = ({ submitLabel, onAdd, onCancel }: AddCodeFormProps) => {
+const AddCodeForm = ({ submitLabel, onAdd, disabled, onCancel }: AddCodeFormProps) => {
   const [code, setCode] = useState('');
   const [label, setLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +27,7 @@ const AddCodeForm = ({ submitLabel, onAdd, onCancel }: AddCodeFormProps) => {
 
     setError(message);
 
-    if (!message) {
+    if (!message && !disabled) {
       setCode('');
       setLabel('');
     }
@@ -40,6 +41,7 @@ const AddCodeForm = ({ submitLabel, onAdd, onCancel }: AddCodeFormProps) => {
           <input
             value={code}
             maxLength={MAX_CODE_LENGTH}
+            disabled={disabled}
             onChange={(event) => setCode(event.target.value)}
             placeholder="예: VAC"
             aria-describedby={error ? errorId : undefined}
@@ -51,6 +53,7 @@ const AddCodeForm = ({ submitLabel, onAdd, onCancel }: AddCodeFormProps) => {
           <input
             value={label}
             maxLength={MAX_LABEL_LENGTH}
+            disabled={disabled}
             onChange={(event) => setLabel(event.target.value)}
             placeholder="예: 휴가"
           />
@@ -63,11 +66,11 @@ const AddCodeForm = ({ submitLabel, onAdd, onCancel }: AddCodeFormProps) => {
       )}
       <div className={onCancel ? 'actionrow' : undefined}>
         {onCancel && (
-          <button type="button" className="secondary" onClick={onCancel}>
+          <button type="button" className="secondary" disabled={disabled} onClick={onCancel}>
             취소
           </button>
         )}
-        <button type="submit" className="primary">
+        <button type="submit" className="primary" disabled={disabled}>
           {submitLabel}
         </button>
       </div>

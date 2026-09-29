@@ -117,9 +117,10 @@ const DraftEditorView = ({ state, server, local }: DraftEditorViewProps) => {
       {selectedEntry && (
         <ShiftEditor
           entry={selectedEntry}
-          rawText={server.sourceCells.length > 0 ? (sourceByDate.get(selectedEntry.date) ?? null) : undefined}
+          rawText={server.sourceCells.length > 0 ? (sourceByDate.has(selectedEntry.date) ? sourceByDate.get(selectedEntry.date) : undefined) : undefined}
           definitions={local.definitions}
           disabled={state.isLocked}
+          hasSourceCells={server.sourceCells.length > 0}
           sectionRef={editorRef}
           onSelectCode={state.handleSelectCode}
           onAddCode={(code, label) => state.handleAddCode(code, label, true)}

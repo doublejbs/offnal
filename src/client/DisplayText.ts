@@ -129,8 +129,12 @@ const RECOGNITION_ERROR_MESSAGES: Record<RecognitionErrorCode, string> = {
 export const recognitionErrorMessage = (code: RecognitionErrorCode | null): string =>
   code ? RECOGNITION_ERROR_MESSAGES[code] : '근무표를 읽지 못했어요. 다시 시도해 주세요.';
 
-/** Source cell text: null = the model could not read it; an empty string = the cell was blank. */
-export const formatRawText = (rawText: string | null): string => {
+/** Source cell text: undefined = no source cell; null = the model could not read it; empty string = the cell was blank. */
+export const formatRawText = (rawText: string | null | undefined): string => {
+  if (rawText === undefined) {
+    return '원본에서 찾지 못함';
+  }
+
   if (rawText === null) {
     return '읽지 못함';
   }

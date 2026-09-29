@@ -89,7 +89,8 @@ describe('DisplayText', () => {
     expect(formatShiftTime(undefined)).toBe('등록되지 않은 코드예요');
   });
 
-  it('distinguishes unreadable source cells from blank ones', () => {
+  it('distinguishes missing source cells, unreadable cells, and blank cells', () => {
+    expect(formatRawText(undefined)).toBe('원본에서 찾지 못함');
     expect(formatRawText(null)).toBe('읽지 못함');
     expect(formatRawText('')).toBe('빈칸');
     expect(formatRawText('  ')).toBe('빈칸');

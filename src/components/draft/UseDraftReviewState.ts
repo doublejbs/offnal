@@ -32,6 +32,8 @@ export const useDraftReviewState = (draftId: string) => {
   const [isTimeEditorOpen, setIsTimeEditorOpen] = useState(false);
   const [isTimeConfirmed, setIsTimeConfirmed] = useState(false);
   const localRef = useRef<LocalDraft | null>(null);
+  const prevDefinitionsRef = useRef<LocalDraft['definitions'] | null>(null);
+  const prevYearMonthRef = useRef<string | null>(null);
   const autosave = useDraftAutosave(draftId, setServer);
   const publish = useDraftPublish({ draftId, autosave, getLocal: () => localRef.current, server });
   const isConflict = autosave.saveState === DraftSaveState.CONFLICT;
@@ -74,6 +76,24 @@ export const useDraftReviewState = (draftId: string) => {
 
     return () => controller.abort();
   }, [attempt, draftId, replaceLocal, reset]);
+
+  useEffect(() => {
+    const currentLocal = localRef.current;
+
+    if (!currentLocal) {
+      return;
+    }
+
+    const definitionsChanged = prevDefinitionsRef.current !== currentLocal.definitions;
+    const monthChanged = prevYearMonthRef.current !== currentLocal.yearMonth;
+
+    prevDefinitionsRef.current = currentLocal.definitions;
+    prevYearMonthRef.current = currentLocal.yearMonth;
+
+    if (definitionsChanged || monthChanged) {
+      setIsTimeConfirmed(false);
+    }
+  }, [editing]);
 
   const { local } = editing;
   const blockers = useMemo<PublishBlocker[]>(

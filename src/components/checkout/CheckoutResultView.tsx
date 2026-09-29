@@ -21,9 +21,9 @@ const CheckoutResultView = ({ query }: CheckoutResultViewProps) => {
   const { outcome, draftId, handleRetryConfirm, handleRetryPublish } = useCheckoutResultState(query);
   const draftHref = draftId ? `/drafts/${draftId}` : '/calendar';
   const retryCheckoutHref = buildCheckoutHref(query.yearMonth, draftId);
-  const errorBox = outcome.message && (
+  const errorBox = (outcome.message || outcome.providerCode) && (
     <div className="warning" role="alert">
-      {outcome.message}
+      {outcome.message || '결제가 완료되지 않았어요.'}
       {outcome.providerCode && <div className="tiny mt-8">오류 코드: {outcome.providerCode}</div>}
     </div>
   );

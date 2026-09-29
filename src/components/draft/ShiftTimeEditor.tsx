@@ -58,7 +58,7 @@ const ShiftTimeEditor = ({
             onRemove={onRemove}
           />
         ))}
-        <AddCodeForm submitLabel="코드 추가" onAdd={onAdd} />
+        <AddCodeForm submitLabel="코드 추가" disabled={disabled} onAdd={onAdd} />
       </div>
     </details>
     {requiresConfirmation && (
