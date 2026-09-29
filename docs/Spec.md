@@ -358,3 +358,15 @@ interface PaymentProvider {
 `OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, DATABASE_MIGRATION_URL(db:migrate 전용, 세션 풀러/직접 연결), DATABASE_SSL_ROOT_CERT(선택, 기본은 저장소의 Supabase Root 2021 CA로 검증), AUTH_PROVIDERS(kakao,dev), NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY(또는 레거시 NEXT_PUBLIC_SUPABASE_ANON_KEY, 공개 가능; JWT 검증은 getClaims가 프로젝트 JWKS로 하므로 별도 issuer 값 불필요), VISION_PROVIDER(anthropic|mock), ANTHROPIC_API_KEY, VISION_MODEL(기본 claude-opus-5-5), VISION_EFFORT, VISION_TIMEOUT_MS, MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(1900), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
 
 한도·TTL 숫자는 모두 **초기 제안값**이며 README에 그렇게 명시한다.
+
+---
+
+## 13. 인식 모델 비교 평가 (2026-09-29 추가)
+
+목표: “실제 근무표를 기준 정확도 이상으로 읽는 가장 저렴한 모델”을 고른다. 고객 요청으로 Claude 외 제공자도 비교한다.
+
+- `VisionProviderType`에 `GEMINI` 추가. `src/server/vision/GeminiVisionProvider.ts`: 공식 `@google/genai` SDK, 이미지 입력 + JSON 스키마 구조화 출력, 모델은 `VISION_MODEL`(예: `gemini-3.7-flash`), 키 `GEMINI_API_KEY`(서버 전용). 기존 `VisionPrompts`(사진 속 글자는 데이터, null 유지, OFF 추측 금지)와 zod 재검증·오류 매핑을 그대로 사용. 운영(`OFFNAL_ENV=production`)에서 Gemini를 쓰려면 **유료 티어 키**여야 한다(무료 티어는 입력을 학습에 사용) — `GEMINI_TIER=paid` 명시 없으면 production 기동 차단.
+- 평가 스크립트 `pnpm vision:eval -- --dir .data/eval --models gemini-3.8-flash,gemini-2.5-flash-lite,...`: 각 샘플 폴더의 `image.jpg` + `truth.json`(연월, 전체 이름, 코드 정의·시간, 사람별 날짜→코드)을 읽어 실제 서비스와 같은 2단계(1차 표 인식 → 사람별 2차 추출)를 모델마다 실행하고 채점한다.
+  - 지표: 연월 일치, 이름 후보 재현율, 코드 정의·시간 일치, 사람별 날짜 일치 수(/31)·**한 달 전체 일치 여부**·틀린 칸 목록, null(확인 필요)로 남긴 칸 수(틀린 값과 구분), 미정의 코드(W) 처리, 처리 시간, 토큰 사용량과 **유료 단가 기준 추정 비용**(단가표는 스크립트 설정 파일에서 관리, 출처 날짜 명시).
+  - 결과: 콘솔 표 + `.data/eval/results/<timestamp>.json`. 평가 이미지·정답·결과는 Git에 올리지 않는다(`.data/`).
+  - 무료 티어 호출 한도(429)는 재시도·대기로 처리하고, 실패는 실패로 기록한다(성공으로 채점하지 않음).
