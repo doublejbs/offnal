@@ -217,6 +217,8 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 
 ### 7.3 결제
 
+> 요청·응답 타입 계약(7.3·7.4 공유/내보내기): `src/domain/types/api/`의 `CreatePaymentRequest`, `CreatePaymentResponse`, `ConfirmPaymentRequest`, `ConfirmPaymentResponse`, `UpdateShareRequest`, `ShareSettingsResponse`(`GET /api/calendar/share` 포함), `SharedCalendarResponse`, `ExportDataResponse`와 enum `PaymentClientMode`. 서버·UI 모두 이 파일을 기준으로 한다.
+
 | API | 동작 |
 |---|---|
 | `POST /api/payments` `{ yearMonth, draftId? }` | 로그인. 해당 월 entitlement 있으면 409 `ALREADY_ENTITLED`. 같은 사용자·월의 `pending` 결제가 있으면 재사용(중복 주문 방지). 금액은 서버 `PricingConfig.PRICE_KRW`. 응답 `{ orderId, amount, currency, orderName:'오프날 YYYY년 M월 이용권', provider, clientConfig }` |
