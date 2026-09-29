@@ -306,7 +306,7 @@ interface PaymentProvider {
 | 라우트 | 컴포넌트 | 핵심 |
 |---|---|---|
 | `/` (홈) | 서버 분기 | **로그인 + 저장한 달 있음 → `/calendar/:ym`로 redirect**(이번 달이 저장돼 있으면 이번 달, 아니면 가장 최근 달 — `/calendar`와 같은 규칙). 비로그인 또는 저장한 달 없음 → `UploadPanel` |
-| `/upload` (및 위 조건의 `/`) | `UploadPanel` | “처음 두 달은 무료” 라벨, 파일 선택(`accept="image/jpeg,image/png,image/webp"`), 크기·형식 오류 안내, AI 처리·원본 삭제 고지, 가격 블록(가격은 서버 설정값). 업로드 후 `/recognitions/:id` |
+| `/upload` (및 위 조건의 `/`) | `UploadPanel` | “처음 두 달은 무료” 라벨, 파일 선택(`accept="image/jpeg,image/png,image/webp"`), 크기·형식 오류 안내, AI 처리·원본 삭제 고지, 가격 블록(가격은 서버 설정값). 업로드 후 `/recognitions/:id`. 하단 보조 영역: 비로그인이면 “이미 이용 중이신가요?” + `LoginOptions`(returnTo `/`), 로그인 상태면 “내 달력 보기”(`/calendar`) 링크. 주 버튼은 ‘사진 선택’ 하나로 유지 |
 | `/recognitions/:id` | `RecognitionProgress`, `BlurredPreviewGate`, `RecoverableError` | 진입 시 `process` 호출 + 2초 폴링. 단계 문구(“사진 확인 중 → 표 읽는 중”), 지연 시(15초+) 안내, 허위 진행률 금지. 실패 → 원인·재시도·다른 사진. 성공+익명 → 블러 게이트(“근무표를 읽었어요. 내 달력을 확인해 보세요.”, 고정 플레이스홀더, `aria-hidden`, 로그인 버튼, 두 달 무료 안내, 사진 재업로드 불필요 안내). `?login=failed` → 재시도 안내. 성공+로그인 → claim 후 `/select`로 이동. 만료 → 재업로드 안내 |
 | `/recognitions/:id/select` | `PersonMonthSelector` | 월 입력(`type=month`, 제한 없음, 인식값 기본), 이름 라디오(긴 이름 줄바꿈), “이름이 없어요” → 직접 입력 + 원본 보기(`SourcePreview` 확대) → 수동 draft |
 | `/drafts/:id` | `SourcePreview`, `MonthGrid`, `ShiftEditor`, `ShiftTimeEditor` | 원본 비교(선택 행 날짜 머리글+rawText 표, 원본 이미지 확대 보기), “확인 필요 N일” 경고(날짜 나열), 달력에서 날짜 선택 → 하단 편집(코드 버튼 + 사용자 정의 코드 추가 + 미확인), 근무 시간 편집(시작·종료·다음 날·휴무 여부, 코드 추가/삭제), 이름·월 수정, 저장 버튼(차단 사유 표시, 권한 문구: “첫 번째 무료 월로 저장돼요” / “이미 등록한 달이라 추가 비용 없이 저장돼요” / “1,900원 구매 후 저장”). 402 → `/checkout/:ym?draftId=`. 409 → 최신 내용 불러오기 안내 |
