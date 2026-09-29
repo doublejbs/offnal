@@ -1,10 +1,15 @@
+import { type Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
 import UploadPanel from '@/components/upload/UploadPanel';
 import { pickLandingMonth } from '@/domain/CalendarLanding';
 import { getDb } from '@/server/db/Database';
 import { getServerComponentContext } from '@/server/http/RequestContext';
+import { buildEntryPageMetadata, readSiteMetadataSource } from '@/server/metadata/SiteMetadata';
 import { getCalendarSummary } from '@/server/services/CalendarService';
+
+/** Own og:url for link previews; the root layout leaves it unset so other pages don't inherit it. */
+export const generateMetadata = (): Metadata => buildEntryPageMetadata(readSiteMetadataSource(), '/');
 
 const HomePage = async () => {
   const context = await getServerComponentContext();

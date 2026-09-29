@@ -1,6 +1,8 @@
 import { type Metadata } from 'next';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
+import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
+import { getPricing } from '@/server/config/PricingConfig';
 
 export const SITE_NAME = '오프날';
 export const DEFAULT_TITLE = '오프날 — 근무표 한 장으로 내 근무 달력';
@@ -31,6 +33,27 @@ export const buildSiteDescription = ({ priceKrw, freeMonthLimit }: SiteMetadataS
   '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. ' +
   `처음 ${formatMonthCount(freeMonthLimit)} 무료, 이후 한 달분 ${formatPrice(priceKrw)}.`;
 
+/** Pricing and APP_URL for metadata, read from runtime config on each request. */
+export const readSiteMetadataSource = (config: AppConfig = getAppConfig()): SiteMetadataSource => {
+  const pricing = getPricing(config);
+
+  return { appUrl: config.appUrl, priceKrw: pricing.priceKrw, freeMonthLimit: pricing.freeMonthLimit };
+};
+
+/**
+ * Site-wide og tags. `url` is set only by pages whose own address it is: a child segment's
+ * openGraph replaces the parent's, and an inherited og:url would point previews at the wrong page.
+ */
+export const buildSiteOpenGraph = (source: SiteMetadataSource, url?: string): NonNullable<Metadata['openGraph']> => ({
+  type: 'website',
+  siteName: SITE_NAME,
+  locale: 'ko_KR',
+  ...(url ? { url } : {}),
+  title: DEFAULT_TITLE,
+  description: buildSiteDescription(source),
+  images: [OG_IMAGE],
+});
+
 /** Root metadata: KakaoTalk and other link previews read these og/twitter tags. */
 export const buildSiteMetadata = (source: SiteMetadataSource): Metadata => {
   const description = buildSiteDescription(source);
@@ -40,15 +63,7 @@ export const buildSiteMetadata = (source: SiteMetadataSource): Metadata => {
     applicationName: SITE_NAME,
     title: { default: DEFAULT_TITLE, template: `%s · ${SITE_NAME}` },
     description,
-    openGraph: {
-      type: 'website',
-      siteName: SITE_NAME,
-      locale: 'ko_KR',
-      url: '/',
-      title: DEFAULT_TITLE,
-      description,
-      images: [OG_IMAGE],
-    },
+    openGraph: buildSiteOpenGraph(source),
     twitter: {
       card: 'summary_large_image',
       title: DEFAULT_TITLE,
@@ -57,6 +72,11 @@ export const buildSiteMetadata = (source: SiteMetadataSource): Metadata => {
     },
   };
 };
+
+/** For indexable entry pages (`/`, `/upload`): the site og tags plus their own og:url. */
+export const buildEntryPageMetadata = (source: SiteMetadataSource, url: string): Metadata => ({
+  openGraph: buildSiteOpenGraph(source, url),
+});
 
 /**
  * /s/:token preview is fixed text only: no display name, month or shifts,

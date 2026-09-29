@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildEntryPageMetadata,
   buildSiteMetadata,
   OG_IMAGE_PATH,
   PRIVATE_ROBOTS,
@@ -42,6 +43,24 @@ describe('buildSiteMetadata', () => {
     });
     expect(metadata.twitter).toMatchObject({ card: 'summary_large_image' });
   });
+
+  it('leaves og:url unset so child pages do not inherit the home URL', () => {
+    expect(buildSiteMetadata(SOURCE).openGraph).not.toHaveProperty('url');
+  });
+});
+
+describe('buildEntryPageMetadata', () => {
+  it('keeps the site og tags and adds the page own og:url', () => {
+    const { openGraph } = buildEntryPageMetadata(SOURCE, '/upload');
+
+    expect(openGraph).toMatchObject({
+      url: '/upload',
+      locale: 'ko_KR',
+      title: '오프날 — 근무표 한 장으로 내 근무 달력',
+      description: buildSiteMetadata(SOURCE).description,
+      images: [{ url: OG_IMAGE_PATH, width: 1200, height: 630 }],
+    });
+  });
 });
 
 describe('SHARED_PAGE_METADATA', () => {
@@ -53,6 +72,7 @@ describe('SHARED_PAGE_METADATA', () => {
       description: SHARED_PAGE_DESCRIPTION,
       images: [{ url: OG_IMAGE_PATH }],
     });
+    expect(SHARED_PAGE_METADATA.openGraph).not.toHaveProperty('url');
     expect(SHARED_PAGE_METADATA.robots).toMatchObject(PRIVATE_ROBOTS);
   });
 });
