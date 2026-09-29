@@ -18,11 +18,11 @@ import {
 } from '@/server/vision/VisionPrompts';
 import {
   type VisionImage,
+  type VisionModelCallResult,
   type VisionPersonResult,
   type VisionProvider,
   VisionProviderError,
   type VisionTableResult,
-  type VisionUsage,
 } from '@/server/vision/VisionProvider';
 
 const MAX_TOKENS = 16000;
@@ -37,11 +37,6 @@ const EFFORT_BY_SETTING: Record<VisionEffort, Effort> = {
   [VisionEffort.HIGH]: 'high',
   [VisionEffort.XHIGH]: 'xhigh',
   [VisionEffort.MAX]: 'max',
-};
-
-type ModelCallResult = {
-  output: unknown;
-  usage: VisionUsage;
 };
 
 export type AnthropicVisionConfig = {
@@ -91,7 +86,7 @@ export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): Vi
     text: string,
     schema: Record<string, unknown>,
     signal: AbortSignal,
-  ): Promise<ModelCallResult> => {
+  ): Promise<VisionModelCallResult> => {
     if (!client) {
       throw new VisionProviderError(RecognitionErrorCode.PROVIDER_NOT_CONFIGURED);
     }

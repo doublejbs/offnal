@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { parseArgs } from 'node:util';
 
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
@@ -64,4 +65,19 @@ export const parseEvalArgs = (argv: string[]): EvalArgs => {
   }
 
   return { dir: values.dir, models, people: people.length > 0 ? people : null, repeat };
+};
+
+/** Directory that must contain eval results: they hold names and shifts, and `.data/` is not in Git. */
+export const EVAL_DATA_ROOT = '.data';
+
+/** `<dir>/results`, refused unless it resolves inside `<cwd>/.data/`. */
+export const resolveResultsDir = (dir: string, cwd: string): string => {
+  const resultsDir = path.resolve(cwd, dir, 'results');
+  const relative = path.relative(path.resolve(cwd, EVAL_DATA_ROOT), resultsDir);
+
+  if (relative.startsWith('..') || path.isAbsolute(relative)) {
+    throw new Error(`Results must be written under ${EVAL_DATA_ROOT}/ (not in Git): ${resultsDir}`);
+  }
+
+  return resultsDir;
 };

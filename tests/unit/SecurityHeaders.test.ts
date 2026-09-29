@@ -57,4 +57,15 @@ describe('next.config security headers', () => {
       rules.findIndex((rule) => rule.source === '/:path*'),
     );
   });
+
+  it('renders metadata in <head> for KakaoTalk and the default link-preview bots', () => {
+    const bots = nextConfig.htmlLimitedBots;
+
+    expect(bots).toBeInstanceOf(RegExp);
+    expect(bots?.test('facebookexternalhit/1.1 kakaotalk-scrap/1.0; +https://devtalk.kakao.com/')).toBe(true);
+    expect(bots?.test('kakaotalk-scrap/1.0')).toBe(true);
+    expect(bots?.test('Twitterbot/1.0')).toBe(true);
+    expect(bots?.test('Slackbot-LinkExpanding 1.0')).toBe(true);
+    expect(bots?.test('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) KAKAOTALK 10.8.0')).toBe(false);
+  });
 });

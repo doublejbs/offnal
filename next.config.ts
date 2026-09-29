@@ -1,5 +1,6 @@
 import type { NextConfig } from 'next';
 
+import { HTML_LIMITED_BOTS } from './src/server/http/HtmlLimitedBots';
 import { PUBLIC_SHARE_HEADERS } from './src/server/http/PublicShareHeaders';
 
 const toHeaderList = (headers: Readonly<Record<string, string>>) =>
@@ -25,6 +26,8 @@ const nextConfig: NextConfig = {
     '/**': ['./drizzle/**/*', './src/server/db/certs/*.crt'],
   },
   poweredByHeader: false,
+  // Metadata must be in <head> for link-preview scrapers, including KakaoTalk's.
+  htmlLimitedBots: HTML_LIMITED_BOTS,
   // `next dev` would otherwise (re)write an agent-rules block into CLAUDE.md/AGENTS.md.
   agentRules: false,
   headers: async () => [

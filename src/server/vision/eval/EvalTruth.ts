@@ -17,8 +17,11 @@ export const evalTruthSchema = z.object({
   definitions: z.record(z.string(), truthDefinitionSchema),
   /** Codes used in the table but missing from the legend; they must be kept, never guessed. */
   undefinedCodesInTable: z.array(z.string()).default([]),
-  /** Scored people: name → { YYYY-MM-DD → code }. */
-  people: z.record(z.string(), z.record(z.string(), z.string())),
+  /**
+   * Scored people: name → { YYYY-MM-DD → code }. `null` means the cell is blank/unreadable in the photo:
+   * only a null result is correct there, any code is a guess.
+   */
+  people: z.record(z.string(), z.record(z.string(), z.string().nullable())),
   notes: z.string().optional(),
 });
 

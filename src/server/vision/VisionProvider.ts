@@ -27,6 +27,12 @@ export type VisionUsage = {
   thinkingTokens: number | null;
 };
 
+/** Parsed JSON output of one real model call plus its usage (shared by the Anthropic and Gemini adapters). */
+export type VisionModelCallResult = {
+  output: unknown;
+  usage: VisionUsage;
+};
+
 /** `usage` sits beside `value`, so storing `result.value` never persists it. */
 export type VisionTableResult = TableRecognitionResult & { usage?: VisionUsage };
 

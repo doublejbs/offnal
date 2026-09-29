@@ -26,7 +26,14 @@ export type TableScore = {
 
 export type WrongCell = {
   date: string;
-  expected: string;
+  /** null = the truth cell is blank/unreadable (only reachable when no schedule came back). */
+  expected: string | null;
+  got: string;
+};
+
+/** A code returned where the truth cell is blank/unreadable: the model invented a value. */
+export type GuessedCell = {
+  date: string;
   got: string;
 };
 
@@ -47,9 +54,11 @@ export type PersonScore = {
   correctDays: number;
   totalDays: number;
   fullMonthMatch: boolean;
-  /** Non-null codes that differ from the truth. */
+  /** Non-null codes that differ from a non-null truth code. */
   wrongCells: WrongCell[];
-  /** Dates left null (needs confirmation) — not counted as wrong values. */
+  /** Codes returned for truth cells that are blank/unreadable (추측). Not correct, listed separately. */
+  guessedCells: GuessedCell[];
+  /** Dates with a truth code that came back null (needs confirmation) — not counted as wrong values. */
   nullDates: string[];
   /** Correct, non-null codes that were still flagged for review (ambiguous/undefined). */
   flaggedCorrectDays: number;
@@ -114,15 +123,37 @@ export const scorePerson = (
   const entryByDate = new Map((schedule?.entries ?? []).map((entry) => [entry.date, entry]));
   const undefinedCodes = new Set(truth.undefinedCodesInTable.map(normalizeCode));
   const wrongCells: WrongCell[] = [];
+  const guessedCells: GuessedCell[] = [];
   const nullDates: string[] = [];
   const undefinedCodeCells: UndefinedCodeCell[] = [];
   let correctDays = 0;
   let flaggedCorrectDays = 0;
 
   for (const [date, rawExpected] of expectedByDate) {
-    const expected = normalizeCode(rawExpected);
+    const expected = rawExpected === null ? null : normalizeCode(rawExpected);
     const entry = entryByDate.get(date);
     const got = entry?.code ?? null;
+
+    if (schedule === null) {
+      // Name not found / call failed: every day counts as wrong, blank truth cells included.
+      wrongCells.push({ date, expected, got: '(none)' });
+
+      if (expected !== null && undefinedCodes.has(expected)) {
+        undefinedCodeCells.push({ date, expected, got: null, kept: false, flagged: false });
+      }
+
+      continue;
+    }
+
+    if (expected === null) {
+      if (got === null) {
+        correctDays += 1;
+      } else {
+        guessedCells.push({ date, got });
+      }
+
+      continue;
+    }
 
     if (undefinedCodes.has(expected)) {
       undefinedCodeCells.push({
@@ -135,13 +166,9 @@ export const scorePerson = (
       });
     }
 
+    // A null result asks the user to confirm: not correct, but not a wrong value either.
     if (got === null) {
-      // Missing schedule (name not found / call failed) counts as wrong; a null cell asks the user instead.
-      if (schedule === null) {
-        wrongCells.push({ date, expected, got: '(none)' });
-      } else {
-        nullDates.push(date);
-      }
+      nullDates.push(date);
 
       continue;
     }
@@ -170,6 +197,7 @@ export const scorePerson = (
     totalDays: expectedByDate.length,
     fullMonthMatch: expectedByDate.length > 0 && correctDays === expectedByDate.length,
     wrongCells,
+    guessedCells,
     nullDates,
     flaggedCorrectDays,
     undefinedCodeCells,

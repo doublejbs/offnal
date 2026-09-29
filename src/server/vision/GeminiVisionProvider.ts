@@ -17,6 +17,7 @@ import {
 } from '@/server/vision/VisionPrompts';
 import {
   type VisionImage,
+  type VisionModelCallResult,
   type VisionPersonResult,
   type VisionProvider,
   VisionProviderError,
@@ -31,11 +32,6 @@ export type GeminiVisionConfig = {
   apiKey: string | null;
   model: string;
   timeoutMs: number;
-};
-
-type ModelCallResult = {
-  output: unknown;
-  usage: VisionUsage;
 };
 
 type JsonSchemaNode = Record<string, unknown>;
@@ -127,7 +123,7 @@ export const createGeminiVisionProvider = (config: GeminiVisionConfig): VisionPr
     text: string,
     schema: unknown,
     signal: AbortSignal,
-  ): Promise<ModelCallResult> => {
+  ): Promise<VisionModelCallResult> => {
     if (!client) {
       throw new VisionProviderError(RecognitionErrorCode.PROVIDER_NOT_CONFIGURED);
     }

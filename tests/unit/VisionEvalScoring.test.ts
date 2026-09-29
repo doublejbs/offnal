@@ -4,7 +4,7 @@ import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { type ExtractedCell } from '@/domain/types/ExtractedCell';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
-import { parseEvalArgs } from '@/server/vision/eval/EvalArgs';
+import { parseEvalArgs, resolveResultsDir } from '@/server/vision/eval/EvalArgs';
 import { findCandidateRowId, scorePerson, scoreTable } from '@/server/vision/eval/EvalScoring';
 import { type EvalTruth, evalTruthSchema } from '@/server/vision/eval/EvalTruth';
 import { estimateCostUsd } from '@/server/vision/eval/ModelPrices';
@@ -158,5 +158,44 @@ describe('vision eval scoring', () => {
     });
     expect(() => parseEvalArgs(['--models', 'a', '--repeat', '0'])).toThrow(/--repeat/);
     expect(() => parseEvalArgs([])).toThrow(/--models/);
+  });
+
+  it('accepts null truth cells: null is correct there, a code is listed as a guess', () => {
+    const truth = evalTruthSchema.parse({
+      ...TRUTH,
+      people: { 가상하나: { '2026-02-01': 'D', '2026-02-02': null, '2026-02-03': null } },
+    });
+    const schedule = normalizeExtraction(
+      {
+        yearMonth: truth.yearMonth,
+        rowId: 'r1',
+        displayName: '가상하나',
+        definitions: DEFINITIONS,
+        cells: [cell(1, 'D'), { day: 2, rawText: '-', code: null, ambiguous: false }, cell(3, 'OFF')],
+      },
+      truth.yearMonth,
+    );
+    const score = scorePerson(truth, '가상하나', 'r1', schedule);
+
+    expect(score).toMatchObject({
+      correctDays: 2,
+      totalDays: 3,
+      fullMonthMatch: false,
+      wrongCells: [],
+      guessedCells: [{ date: '2026-02-03', got: 'OFF' }],
+      nullDates: [],
+    });
+    expect(scorePerson(truth, '가상하나', null, null).wrongCells).toEqual([
+      { date: '2026-02-01', expected: 'D', got: '(none)' },
+      { date: '2026-02-02', expected: null, got: '(none)' },
+      { date: '2026-02-03', expected: null, got: '(none)' },
+    ]);
+  });
+
+  it('only writes results under .data/', () => {
+    expect(resolveResultsDir('.data/eval', '/repo')).toBe('/repo/.data/eval/results');
+    expect(() => resolveResultsDir('eval', '/repo')).toThrow(/\.data\//);
+    expect(() => resolveResultsDir('../elsewhere/.data', '/repo')).toThrow(/\.data\//);
+    expect(() => resolveResultsDir('/tmp/eval', '/repo')).toThrow(/\.data\//);
   });
 });

@@ -375,7 +375,7 @@ interface PaymentProvider {
 
 ## 14. 공유 미리보기(OG)·아이콘 (2026-09-30 추가)
 
-- 전역 메타데이터(`src/app/layout.tsx`의 `generateMetadata`): `metadataBase = APP_URL`, title 템플릿 `%s · 오프날`, 기본 title `오프날 — 근무표 한 장으로 내 근무 달력`, description `근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. 처음 두 달 무료.`(가격·무료 개월 수는 설정값 사용), `openGraph`(type website, siteName 오프날, locale ko_KR, url, images 1200×630 `/og-image.png` + alt), `twitter`(summary_large_image). 카카오톡 미리보기는 같은 og 태그를 읽는다: 이미지 800×400 이상, 핵심 요소는 가운데 안전 영역(가로 중앙 630px 정사각형 안)에 둔다(카카오가 1:1로 잘라 보여줄 수 있음).
+- 전역 메타데이터(`src/app/layout.tsx`의 `generateMetadata`): `metadataBase = APP_URL`, title 템플릿 `%s · 오프날`, 기본 title `오프날 — 근무표 한 장으로 내 근무 달력`, description `근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. 처음 두 달 무료, 이후 한 달분 1,900원.`(끝 문장의 무료 개월 수·가격은 설정값 `FREE_MONTH_LIMIT`·`PRICE_KRW`로 만든다), `openGraph`(type website, siteName 오프날, locale ko_KR, images 1200×630 `/og-image.png` + alt). **og:url은 `/`와 `/upload`에서만** 각 페이지 주소로 설정한다(`buildEntryPageMetadata`) — 하위 세그먼트의 openGraph는 부모를 통째로 대체하므로, 전역에 url을 두면 다른 화면 미리보기가 잘못된 주소를 가리킨다, `twitter`(summary_large_image). 카카오톡 미리보기는 같은 og 태그를 읽는다: 이미지 800×400 이상, 핵심 요소는 가운데 안전 영역(가로 중앙 630px 정사각형 안)에 둔다(카카오가 1:1로 잘라 보여줄 수 있음).
 - `public/og-image.png`(1200×630, 밝은 배경 #ffffff/#f4f6fb, 파란 강조 #3155e7, 워드마크 “오프날”, 헤드라인 “근무표 한 장이면 이번 달 준비 끝.”, 미니 달력 일러스트(가상 코드 배지 D/E/N/OFF 색상), 한국어 글꼴 렌더링 확인)와 아이콘(`src/app/icon.png` 512, `src/app/apple-icon.png` 180) — 스크립트로 생성해 커밋.
 - `/s/:token`: **개인정보 없는 고정 미리보기** — title `공유받은 근무표`, description `오프날로 공유된 근무 달력이에요. 로그인 없이 볼 수 있어요.` 표시 이름·월·근무를 og에 넣지 않는다(카카오 등 미리보기 캐시가 링크 중지 후에도 남기 때문). noindex 유지.
 - 로그인 사용자 전용·개인 화면(`/recognitions/*`, `/drafts/*`, `/calendar/*`, `/checkout/*`)은 `robots: { index: false, follow: false }`. `/`·`/upload`만 색인 허용.

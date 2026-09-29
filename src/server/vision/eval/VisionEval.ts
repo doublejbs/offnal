@@ -6,11 +6,12 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { GeminiTier } from '@/domain/enums/GeminiTier';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
 import { VisionEvalStatus } from '@/domain/enums/VisionEvalStatus';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { createAnthropicVisionProvider } from '@/server/vision/AnthropicVisionProvider';
-import { type EvalModelTarget, parseEvalArgs } from '@/server/vision/eval/EvalArgs';
+import { type EvalModelTarget, parseEvalArgs, resolveResultsDir } from '@/server/vision/eval/EvalArgs';
 import {
   formatCellErrors,
   formatPersonTable,
@@ -92,11 +93,12 @@ const runModel = async (
   }
 
   const runs: EvalRun[] = [];
+  const context = { target, log, state: { calls: 0 } };
 
   try {
     for (let index = 1; index <= repeat; index += 1) {
       for (const { sample, image, people } of samples) {
-        runs.push(await runSample({ target, provider, sample, image, people, repeat: index, log }));
+        runs.push(await runSample({ context, provider, sample, image, people, repeat: index }));
       }
     }
   } catch (error: unknown) {
@@ -127,6 +129,18 @@ const prepareSamples = async (
 
 const main = async (): Promise<void> => {
   const args = parseEvalArgs(process.argv.slice(2));
+  // Fail before any paid/quota-limited call if results would land outside .data/.
+  const resultsDir = resolveResultsDir(args.dir, process.cwd());
+
+  if (
+    args.models.some((target) => target.provider === VisionProviderType.GEMINI) &&
+    readEnv('GEMINI_TIER') !== GeminiTier.PAID
+  ) {
+    log(
+      'WARNING: GEMINI_TIER is not paid — free-tier inputs may be used for training. Use only fictional or consented images, never real names/photos.',
+    );
+  }
+
   const samples = await loadEvalSamples(args.dir);
 
   if (samples.length === 0) {
@@ -155,23 +169,26 @@ const main = async (): Promise<void> => {
     ),
   );
 
-  console.log(`\n## Models (sorted by accuracy, then paid cost; prices as of ${MODEL_PRICES_AS_OF})\n`);
+  console.log(
+    `\n## Models (sorted by e2e accuracy, then paid cost; model failures score 0, infra failures excluded; prices as of ${MODEL_PRICES_AS_OF})\n`,
+  );
   console.log(formatSummaryTable(summaries));
-  console.log('\n## Correct days per person (one value per OK run)\n');
+  console.log('\n## Correct days per person (one value per fully successful run)\n');
   console.log(formatPersonTable(summaries, people, totalDays));
-  console.log('\n## Wrong / null cells (date: expected→got)\n');
+  console.log('\n## Wrong / 추측 / null cells (date: expected→got)\n');
   console.log(formatCellErrors(runs) || '(none)');
 
   const failedRuns = runs.filter((run) => run.status === VisionEvalStatus.FAILED);
 
   if (failedRuns.length > 0) {
-    console.log('\n## Failed runs (excluded from accuracy)\n');
+    console.log('\n## Failed runs (model = scored 0 in e2e, infra = excluded)\n');
     console.log(
-      failedRuns.map((run) => `[${run.model} #${run.repeat}] ${run.sampleId}: ${run.error}`).join('\n'),
+      failedRuns
+        .map((run) => `[${run.model} #${run.repeat}] ${run.sampleId}: (${run.failureKind}) ${run.error}`)
+        .join('\n'),
     );
   }
 
-  const resultsDir = path.join(args.dir, 'results');
   const resultPath = path.join(resultsDir, `${startedAt.toISOString().replace(/[:.]/gu, '-')}.json`);
 
   await mkdir(resultsDir, { recursive: true });
