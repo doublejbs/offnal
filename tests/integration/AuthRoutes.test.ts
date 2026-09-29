@@ -7,7 +7,6 @@ import { GET as loginRoute } from '@/app/auth/login/route';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
-import { resetAppConfigForTesting } from '@/server/config/AppConfig';
 import {
   createApiTestClient,
   type IntegrationEnvironment,
@@ -15,6 +14,7 @@ import {
   setupIntegrationEnvironment,
   TEST_APP_URL,
 } from '../helpers/ApiTestClient';
+import { createEnvSandbox } from '../helpers/EnvSandbox';
 import { createLoggedInJob, devLogin } from '../helpers/OffnalFlows';
 
 const LIVE_GOOGLE_ENV: Record<string, string> = {
@@ -30,12 +30,10 @@ beforeAll(async () => {
   env = await setupIntegrationEnvironment();
 });
 
+const envSandbox = createEnvSandbox();
+
 afterEach(() => {
-  process.env.APP_MODE = 'demo';
-  process.env.AUTH_PROVIDERS = 'dev';
-  delete process.env.GOOGLE_CLIENT_ID;
-  delete process.env.GOOGLE_CLIENT_SECRET;
-  resetAppConfigForTesting();
+  envSandbox.restore();
 });
 
 afterAll(async () => {
@@ -43,14 +41,12 @@ afterAll(async () => {
 });
 
 const useLiveGoogle = (): void => {
-  Object.assign(process.env, LIVE_GOOGLE_ENV);
-  resetAppConfigForTesting();
+  envSandbox.set(LIVE_GOOGLE_ENV);
 };
 
 describe('dev login', () => {
   it('is 404 outside demo mode', async () => {
-    process.env.APP_MODE = 'live';
-    resetAppConfigForTesting();
+    envSandbox.set({ APP_MODE: 'live' });
 
     const client = createApiTestClient();
     const response = await devLogin(client, '라이브');
@@ -62,7 +58,14 @@ describe('dev login', () => {
   it('only redirects to relative paths', async () => {
     const client = createApiTestClient();
 
-    for (const returnTo of ['//evil.example/x', 'https://evil.example', '/\\evil.example', 'relative']) {
+    for (const returnTo of [
+      '//evil.example/x',
+      'https://evil.example',
+      '/\\evil.example',
+      'relative',
+      '/.//evil.example',
+      '/a/..//evil.example',
+    ]) {
       const response = await devLogin(client, '리다이렉트', returnTo);
 
       expect(response.status).toBe(303);
@@ -94,7 +97,7 @@ describe('dev login', () => {
 
     const secondToken = client.cookies.get('offnal_session');
 
-    expect(secondToken).toBeTruthy();
+    expect(secondToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(secondToken).not.toBe(firstToken);
 
     client.cookies.set('offnal_session', firstToken ?? '');
@@ -108,11 +111,20 @@ describe('dev login', () => {
 });
 
 describe('OAuth login', () => {
-  it('is 404 for a provider that is not enabled', async () => {
+  it('redirects back with login=failed (never JSON) for a provider that is not enabled or not configured', async () => {
     const client = createApiTestClient();
-    const response = await client.send(loginRoute, '/auth/login?provider=google&returnTo=/');
+    const disabled = await client.send(loginRoute, '/auth/login?provider=google&returnTo=/recognitions/x');
 
-    expect(response.status).toBe(404);
+    expect(disabled.status).toBe(302);
+    expect(disabled.headers.get('location')).toBe(`${TEST_APP_URL}/recognitions/x?login=failed`);
+    expect(disabled.headers.get('content-type')).toBeNull();
+
+    envSandbox.set({ APP_MODE: 'live', AUTH_PROVIDERS: 'google', GOOGLE_CLIENT_ID: undefined });
+
+    const unconfigured = await client.send(loginRoute, '/auth/login?provider=google&returnTo=//evil.example');
+
+    expect(unconfigured.status).toBe(302);
+    expect(unconfigured.headers.get('location')).toBe(`${TEST_APP_URL}/?login=failed`);
   });
 
   it('redirects to Google with state and PKCE, then maps cancel and state mismatch to login=failed', async () => {

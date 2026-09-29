@@ -18,6 +18,7 @@ import {
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
+import { type ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
@@ -106,7 +107,7 @@ export const recognitionJobs = pgTable(
     status: text('status').$type<RecognitionStatus>().notNull(),
     errorCode: text('error_code').$type<RecognitionErrorCode>(),
     sourceObjectKey: text('source_object_key'),
-    sourceMime: text('source_mime').notNull(),
+    sourceMime: text('source_mime').$type<ImageMimeType>().notNull(),
     sourceDeletedAt: timestamp('source_deleted_at', { withTimezone: true }),
     attemptCount: integer('attempt_count').notNull().default(0),
     leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
@@ -142,6 +143,8 @@ export const drafts = pgTable(
     sourceCells: jsonb('source_cells').$type<SourceCell[]>().notNull().default([]),
     status: text('status').$type<DraftStatus>().notNull(),
     revision: integer('revision').notNull().default(1),
+    /** published_months.revision this draft was copied from (edit drafts only); guards stale overwrites. */
+    basePublishedRevision: integer('base_published_revision'),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     createdAt: buildCreatedAtColumn(),
     updatedAt: buildUpdatedAtColumn(),

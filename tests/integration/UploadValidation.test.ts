@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
-import { resetAppConfigForTesting } from '@/server/config/AppConfig';
+import { anonymousSessions } from '@/server/db/Schema';
 import {
   createApiTestClient,
   createPngFixture,
@@ -11,6 +11,7 @@ import {
   readJson,
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
+import { createEnvSandbox } from '../helpers/EnvSandbox';
 import { uploadImage } from '../helpers/OffnalFlows';
 
 let env: IntegrationEnvironment;
@@ -19,11 +20,10 @@ beforeAll(async () => {
   env = await setupIntegrationEnvironment();
 });
 
+const envSandbox = createEnvSandbox();
+
 afterEach(() => {
-  delete process.env.UPLOAD_MAX_BYTES;
-  delete process.env.RATE_LIMIT_ANON_DAILY;
-  delete process.env.RATE_LIMIT_IP_DAILY;
-  resetAppConfigForTesting();
+  envSandbox.restore();
 });
 
 afterAll(async () => {
@@ -62,8 +62,7 @@ describe('upload validation', () => {
   });
 
   it('rejects files over UPLOAD_MAX_BYTES with 413', async () => {
-    process.env.UPLOAD_MAX_BYTES = '1000';
-    resetAppConfigForTesting();
+    envSandbox.set({ UPLOAD_MAX_BYTES: '1000' });
 
     const client = createApiTestClient();
     const bytes = await createTablePng();
@@ -94,8 +93,7 @@ describe('upload validation', () => {
   });
 
   it('limits uploads per anonymous session with 429', async () => {
-    process.env.RATE_LIMIT_ANON_DAILY = '2';
-    resetAppConfigForTesting();
+    envSandbox.set({ RATE_LIMIT_ANON_DAILY: '2' });
 
     const client = createApiTestClient();
     const bytes = await createTablePng();
@@ -106,8 +104,7 @@ describe('upload validation', () => {
   });
 
   it('limits uploads per IP across anonymous sessions', async () => {
-    process.env.RATE_LIMIT_IP_DAILY = '1';
-    resetAppConfigForTesting();
+    envSandbox.set({ RATE_LIMIT_IP_DAILY: '1' });
 
     const client = createApiTestClient();
     const bytes = await createTablePng();
@@ -115,5 +112,31 @@ describe('upload validation', () => {
     expect((await uploadImage(client, bytes)).status).toBe(201);
     client.cookies.clear();
     await expectError(await uploadImage(client, bytes), 429, ApiErrorCode.RATE_LIMITED);
+  });
+
+  it('counts uploads that fail validation toward the limit', async () => {
+    envSandbox.set({ RATE_LIMIT_IP_DAILY: '2' });
+
+    const client = createApiTestClient();
+
+    expect((await uploadImage(client, Buffer.from('not an image'))).status).toBe(415);
+    expect((await uploadImage(client, buildHeicBytes())).status).toBe(415);
+    await expectError(await uploadImage(client, await createTablePng()), 429, ApiErrorCode.RATE_LIMITED);
+  });
+
+  it('does not create an anonymous session when the upload is rate limited', async () => {
+    envSandbox.set({ RATE_LIMIT_IP_DAILY: '1' });
+
+    const client = createApiTestClient();
+    const bytes = await createTablePng();
+
+    expect((await uploadImage(client, bytes)).status).toBe(201);
+
+    const sessionsBefore = (await env.db.select().from(anonymousSessions)).length;
+
+    client.cookies.clear();
+    await expectError(await uploadImage(client, bytes), 429, ApiErrorCode.RATE_LIMITED);
+    expect(client.cookies.has('offnal_anon')).toBe(false);
+    expect((await env.db.select().from(anonymousSessions)).length).toBe(sessionsBefore);
   });
 });

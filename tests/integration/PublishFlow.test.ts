@@ -12,6 +12,7 @@ import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
 import { PublishBlockReason } from '@/domain/enums/PublishBlockReason';
+import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { type CalendarMonthResponse } from '@/domain/types/api/CalendarMonthResponse';
 import { type CalendarSummaryResponse } from '@/domain/types/api/CalendarSummaryResponse';
@@ -148,6 +149,8 @@ describe('publish blockers', () => {
     expect(stale.status).toBe(409);
     expect(body.error.code).toBe(ApiErrorCode.REVISION_CONFLICT);
     expect(current.draft).toMatchObject({ revision: 2, displayName: '새 이름' });
+    expect(body.error.details?.reason).toBe(RevisionConflictReason.STALE_REVISION);
+    expect(body.error.details?.currentRevision).toBe(2);
   });
 
   it('remaps entries when the month changes', async () => {
@@ -215,6 +218,8 @@ describe('entitlements', () => {
     expect((await readDraft(client, third.draft.id)).draft.status).toBe(DraftStatus.EDITING);
   });
 
+  // On PGlite (one connection) these transactions are serialized anyway; the `FOR UPDATE` on the user
+  // row is what guarantees this on real Postgres — run `pnpm test:pg` with TEST_DATABASE_URL to verify.
   it('grants at most two trials when three different months are published concurrently', async () => {
     const client = createApiTestClient();
     const jobId = await createLoggedInJob(client, '동시 사용자');
@@ -264,6 +269,53 @@ describe('entitlements', () => {
 
     expect(editAfterDelete.status).toBe(404);
     expect(again.access.monthAccess).toBe(MonthAccess.TRIAL_AVAILABLE);
+  });
+});
+
+describe('stale edit drafts', () => {
+  it('does not reuse an edit draft copied from an older revision and refuses to publish it', async () => {
+    const client = createApiTestClient();
+    const firstJob = await createLoggedInJob(client, '오래된 초안 사용자');
+    const original = await createReadyDraft(client, firstJob, '2026-10');
+
+    await publishReady(client, original);
+
+    const openEdit = async (): Promise<string> =>
+      (
+        await readJson<EditPublishedMonthResponse>(
+          await client.send(editMonthRoute, '/api/calendar/2026-10/edit', {
+            method: 'POST',
+            params: { yearMonth: '2026-10' },
+          }),
+        )
+      ).draftId;
+    const staleDraftId = await openEdit();
+    const secondJob = await uploadAndProcess(client);
+    const newer = await createReadyDraft(client, secondJob, '2026-10');
+
+    expect((await publishReady(client, newer)).status).toBe(200);
+    expect((await readJson<CalendarMonthResponse>(await getMonth(client, '2026-10'))).revision).toBe(2);
+
+    const freshDraftId = await openEdit();
+
+    expect(freshDraftId).not.toBe(staleDraftId);
+
+    const stale = await readDraft(client, staleDraftId);
+    const response = await publishReady(client, stale);
+    const body = await readJson<ApiErrorBody>(response);
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.REVISION_CONFLICT);
+    expect(body.error.details).toEqual({
+      reason: RevisionConflictReason.STALE_BASE,
+      currentRevision: stale.draft.revision,
+      publishedRevision: 2,
+    });
+    expect((await readJson<CalendarMonthResponse>(await getMonth(client, '2026-10'))).revision).toBe(2);
+
+    const fresh = await readDraft(client, freshDraftId);
+
+    expect((await publishReady(client, fresh)).status).toBe(200);
   });
 });
 
@@ -358,7 +410,7 @@ describe('published calendar isolation', () => {
     const draft = await createReadyDraft(client, jobId, '2026-10');
     const [before] = await env.db.select().from(recognitionJobs).where(eq(recognitionJobs.id, jobId));
 
-    expect(before?.sourceObjectKey).toBeTruthy();
+    expect(before?.sourceObjectKey).toBe(`sources/${jobId}`);
     expect(await env.storage.exists(before?.sourceObjectKey ?? '')).toBe(true);
 
     await publishReady(client, draft);

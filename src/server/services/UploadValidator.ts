@@ -3,7 +3,7 @@ import sharp, { type Metadata } from 'sharp';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { detectImageSignature } from '@/domain/ImageSignature';
-import { ApiError } from '@/server/http/ApiError';
+import { ApiError } from '@/server/errors/ApiError';
 
 export const MIN_IMAGE_SIDE_PX = 200;
 

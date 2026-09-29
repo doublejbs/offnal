@@ -1,12 +1,12 @@
 import { decodeIdToken, Google } from 'arctic';
 import { z } from 'zod';
 
+import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { type AuthProfile, type OAuthAuthProvider } from '@/server/auth/AuthProvider';
 
 const GOOGLE_SCOPES = ['openid', 'profile', 'email'];
 const FALLBACK_DISPLAY_NAME = '오프날 사용자';
-const MAX_DISPLAY_NAME_LENGTH = 40;
 
 const idTokenClaimsSchema = z.object({
   sub: z.string().min(1),

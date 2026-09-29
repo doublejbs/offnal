@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -163,8 +164,50 @@ export type TestDb = {
   close: () => Promise<void>;
 };
 
-/** Fresh in-memory PGlite database with all migrations applied. Call `close` in `afterAll`. */
+const TEST_DATABASE_PREFIX = 'offnal_test_';
+
+/** Throwaway database on a real Postgres server (TEST_DATABASE_URL): created, migrated, dropped on close. */
+const createPostgresTestDb = async (baseUrl: string): Promise<TestDb> => {
+  const databaseName = `${TEST_DATABASE_PREFIX}${randomUUID().replace(/-/g, '')}`;
+  const adminPool = new Pool({ connectionString: baseUrl, max: 1 });
+
+  await adminPool.query(`CREATE DATABASE "${databaseName}"`);
+
+  const url = new URL(baseUrl);
+
+  url.pathname = `/${databaseName}`;
+
+  const handle = createNodePgHandle(url.toString());
+
+  await handle.migrate();
+
+  return {
+    db: handle.db,
+    close: async () => {
+      await handle.close();
+      await adminPool.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+      await adminPool.end();
+    },
+  };
+};
+
+/**
+ * Fresh database with all migrations applied. Call `close` in `afterAll`.
+ * Default: in-memory PGlite (single connection, so concurrent transactions are serialized anyway).
+ * With TEST_DATABASE_URL: a new database per call on that Postgres server, so row locks
+ * (`FOR UPDATE`) and concurrent transactions are exercised for real (`pnpm test:pg`).
+ */
 export const createTestDb = async (): Promise<TestDb> => {
+  const postgresUrl = process.env.TEST_DATABASE_URL?.trim();
+
+  if (postgresUrl) {
+    return createPostgresTestDb(postgresUrl);
+  }
+
+  if (process.env.OFFNAL_REQUIRE_TEST_PG === '1') {
+    throw new Error('TEST_DATABASE_URL is required for pnpm test:pg');
+  }
+
   const handle = createPgliteHandle(null);
 
   await handle.migrate();

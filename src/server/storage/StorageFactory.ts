@@ -1,21 +1,20 @@
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
-import { getAppConfig } from '@/server/config/AppConfig';
-import { ApiError } from '@/server/http/ApiError';
+import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
+import { ApiError } from '@/server/errors/ApiError';
 import { createLocalObjectStorage } from '@/server/storage/LocalObjectStorage';
 import { type ObjectStorage } from '@/server/storage/ObjectStorage';
 import { createS3ObjectStorage } from '@/server/storage/S3ObjectStorage';
 
 type StorageGlobal = typeof globalThis & {
-  __offnalObjectStorage?: ObjectStorage;
+  /** Cached per AppConfig instance, so `resetAppConfigForTesting` also resets the storage. */
+  __offnalObjectStorage?: { config: AppConfig; storage: ObjectStorage };
   __offnalObjectStorageOverride?: ObjectStorage | null;
 };
 
 const storageGlobal = globalThis as StorageGlobal;
 
-const createObjectStorageFromConfig = (): ObjectStorage => {
-  const config = getAppConfig();
-
+const createObjectStorageFromConfig = (config: AppConfig): ObjectStorage => {
   if (config.storageDriver === StorageDriver.LOCAL) {
     return createLocalObjectStorage(config.localStorageDir);
   }
@@ -40,11 +39,18 @@ export const getObjectStorage = (): ObjectStorage => {
     return storageGlobal.__offnalObjectStorageOverride;
   }
 
-  if (!storageGlobal.__offnalObjectStorage) {
-    storageGlobal.__offnalObjectStorage = createObjectStorageFromConfig();
+  const config = getAppConfig();
+  const cached = storageGlobal.__offnalObjectStorage;
+
+  if (cached?.config === config) {
+    return cached.storage;
   }
 
-  return storageGlobal.__offnalObjectStorage;
+  const storage = createObjectStorageFromConfig(config);
+
+  storageGlobal.__offnalObjectStorage = { config, storage };
+
+  return storage;
 };
 
 /** Overrides the storage returned by `getObjectStorage` (null clears). Tests only. */

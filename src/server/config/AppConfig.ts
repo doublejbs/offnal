@@ -57,6 +57,8 @@ const DEFAULT_APP_URL = 'http://localhost:3000';
 const DEVELOPMENT_APP_SECRET = 'offnal-development-only-secret-do-not-use-in-production';
 const DEFAULT_VISION_MODEL = 'claude-opus-5-5';
 
+export const DEFAULT_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+
 const optionalText = z.string().optional();
 const positiveInt = (defaultValue: number) => z.coerce.number().int().positive().default(defaultValue);
 const nonNegativeInt = (defaultValue: number) => z.coerce.number().int().nonnegative().default(defaultValue);
@@ -98,7 +100,8 @@ const envSchema = z.object({
   TOSS_SECRET_KEY: optionalText,
   PRICE_KRW: positiveInt(DEFAULT_PRICE_KRW),
   FREE_MONTH_LIMIT: nonNegativeInt(DEFAULT_FREE_MONTH_LIMIT),
-  UPLOAD_MAX_BYTES: positiveInt(10 * 1024 * 1024),
+  // Vercel function request bodies are limited to ~4.5MB; the UI downscales photos before upload.
+  UPLOAD_MAX_BYTES: positiveInt(DEFAULT_UPLOAD_MAX_BYTES),
   UPLOAD_MAX_PIXELS: positiveInt(40_000_000),
   RATE_LIMIT_ANON_DAILY: positiveInt(5),
   RATE_LIMIT_IP_DAILY: positiveInt(20),
@@ -181,6 +184,8 @@ const collectProductionViolations = (
 
   if (!parsed.APP_URL) {
     violations.push('APP_URL is required');
+  } else if (new URL(parsed.APP_URL).protocol !== 'https:') {
+    violations.push('APP_URL must use https://');
   }
 
   return violations;

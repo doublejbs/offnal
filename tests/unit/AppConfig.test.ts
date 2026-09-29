@@ -46,6 +46,7 @@ describe('parseAppConfig', () => {
       priceKrw: DEFAULT_PRICE_KRW,
       freeMonthLimit: DEFAULT_FREE_MONTH_LIMIT,
       sourceTtlHours: 24,
+      uploadMaxBytes: 4194304,
       draftTtlDays: 30,
     });
   });
@@ -60,6 +61,7 @@ describe('parseAppConfig', () => {
     ['missing APP_SECRET', { APP_SECRET: undefined }],
     ['short APP_SECRET', { APP_SECRET: 'short-secret' }],
     ['missing APP_URL', { APP_URL: undefined }],
+    ['http APP_URL', { APP_URL: 'http://offnal.example' }],
   ])('throws in production with %s', (_label, overrides) => {
     expect(() => parseAppConfig(withOverrides(overrides))).toThrow();
   });

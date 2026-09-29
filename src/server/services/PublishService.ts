@@ -1,23 +1,29 @@
-import { and, count, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
-import { EntitlementSource } from '@/domain/enums/EntitlementSource';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
+import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
 import { decideMonthAccess } from '@/domain/EntitlementPolicy';
 import { getPublishBlockers } from '@/domain/ScheduleValidator';
 import { type PublishDraftResponse } from '@/domain/types/api/PublishDraftResponse';
+import { type RevisionConflictDetails } from '@/domain/types/api/RevisionConflictDetails';
 import { track } from '@/server/analytics/Analytics';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { getPricing } from '@/server/config/PricingConfig';
 import { type Db, type DbTransaction } from '@/server/db/Database';
-import { calendars, drafts, entitlements, publishedMonths, recognitionJobs, users } from '@/server/db/Schema';
-import { ApiError } from '@/server/http/ApiError';
-import { type RequestContext, requireUser } from '@/server/http/RequestContext';
-import { requireUuid } from '@/server/http/RouteHelpers';
+import { calendars, drafts, publishedMonths, recognitionJobs, users } from '@/server/db/Schema';
+import { ApiError, DRAFT_EXPIRED_MESSAGE } from '@/server/errors/ApiError';
+import { type RequestContext } from '@/server/http/RequestContext';
 import { isDraftExpired } from '@/server/services/DraftService';
+import {
+  countTrialEntitlements,
+  hasEntitlement,
+  insertTrialEntitlement,
+} from '@/server/services/EntitlementService';
 import { getObjectStorage } from '@/server/storage/StorageFactory';
+import { requireUser, requireUuid } from '@/server/validation/RequestGuards';
 
 type PublishOutcome = PublishDraftResponse & { recognitionJobId: string | null };
 
@@ -56,23 +62,14 @@ const findPublishedRevision = async (
 
 /** Uses the month's entitlement, else inserts a trial while free months remain, else 402. */
 const ensureEntitlement = async (tx: DbTransaction, userId: string, yearMonth: string): Promise<boolean> => {
-  const [existing] = await tx
-    .select({ id: entitlements.id })
-    .from(entitlements)
-    .where(and(eq(entitlements.userId, userId), eq(entitlements.yearMonth, yearMonth)));
-
-  if (existing) {
+  if (await hasEntitlement(tx, userId, yearMonth)) {
     return false;
   }
 
   const pricing = getPricing(getAppConfig());
-  const [trials] = await tx
-    .select({ value: count() })
-    .from(entitlements)
-    .where(and(eq(entitlements.userId, userId), eq(entitlements.source, EntitlementSource.TRIAL)));
   const access = decideMonthAccess({
     hasEntitlementForMonth: false,
-    trialUsedCount: trials?.value ?? 0,
+    trialUsedCount: await countTrialEntitlements(tx, userId),
     freeMonthLimit: pricing.freeMonthLimit,
   });
 
@@ -80,9 +77,13 @@ const ensureEntitlement = async (tx: DbTransaction, userId: string, yearMonth: s
     throw new ApiError(ApiErrorCode.PAYMENT_REQUIRED, { details: { yearMonth, priceKrw: pricing.priceKrw } });
   }
 
-  await tx.insert(entitlements).values({ userId, yearMonth, source: EntitlementSource.TRIAL });
+  await insertTrialEntitlement(tx, userId, yearMonth);
 
   return true;
+};
+
+const throwConflict = (details: RevisionConflictDetails): never => {
+  throw new ApiError(ApiErrorCode.REVISION_CONFLICT, { details });
 };
 
 const runPublishTransaction = async (
@@ -117,12 +118,23 @@ const runPublishTransaction = async (
     }
 
     if (isDraftExpired(draft)) {
-      throw new ApiError(ApiErrorCode.EXPIRED, { message: '초안 보관 기간이 지났어요.' });
+      throw new ApiError(ApiErrorCode.EXPIRED, { message: DRAFT_EXPIRED_MESSAGE });
     }
 
     // 2. Revision and blockers.
     if (draft.revision !== revision) {
-      throw new ApiError(ApiErrorCode.REVISION_CONFLICT, { details: { currentRevision: draft.revision } });
+      throwConflict({ reason: RevisionConflictReason.STALE_REVISION, currentRevision: draft.revision });
+    }
+
+    // An edit draft copied from an older snapshot must not silently revert a newer publish.
+    const publishedRevision = await findPublishedRevision(tx, userId, draft.yearMonth);
+
+    if (draft.basePublishedRevision !== null && draft.basePublishedRevision < publishedRevision) {
+      throwConflict({
+        reason: RevisionConflictReason.STALE_BASE,
+        currentRevision: draft.revision,
+        publishedRevision,
+      });
     }
 
     const blockers = getPublishBlockers(draft.entries, draft.definitions);

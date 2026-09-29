@@ -11,7 +11,10 @@
 pnpm dev            # 개발 서버 (.env.local 필요, 데모: APP_MODE=demo)
 pnpm lint           # ESLint
 pnpm typecheck      # tsc --noEmit
-pnpm test           # Vitest 단위·통합
+pnpm test           # Vitest 단위·통합 (PGlite 메모리 DB)
+TEST_DATABASE_URL=postgres://user:pass@localhost:5432/postgres pnpm test:pg
+                    # 통합 테스트를 실제 Postgres에서 실행 (파일마다 임시 DB 생성·삭제, CREATEDB 권한 필요).
+                    # PGlite는 연결이 하나라 동시 트랜잭션이 직렬화되므로 FOR UPDATE 보장은 이 명령으로 확인한다
 pnpm test:e2e       # Playwright E2E
 pnpm build          # 프로덕션 빌드
 pnpm db:generate    # Drizzle 마이그레이션 생성

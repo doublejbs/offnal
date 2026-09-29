@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { MAX_LABEL_LENGTH } from '@/domain/DomainLimits';
 import { VisionTableOutcome } from '@/domain/enums/VisionTableOutcome';
 import { isValidTime } from '@/domain/ShiftTime';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
@@ -120,8 +121,6 @@ export const personOutputSchema = z.object({
   ),
   definitions: z.array(definitionOutputSchema),
 });
-
-const MAX_LABEL_LENGTH = 20;
 
 /** Drops malformed times instead of trusting them. Validation of codes happens in ScheduleValidator. */
 export const sanitizeDefinition = (definition: z.infer<typeof definitionOutputSchema>): ShiftDefinition => {

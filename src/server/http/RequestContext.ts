@@ -1,17 +1,10 @@
 import { type NextRequest } from 'next/server';
 
-import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
-import {
-  ANONYMOUS_COOKIE_NAME,
-  hashIp,
-  resolveAnonymousSessionId,
-  resolveUserFromSessionToken,
-  SESSION_COOKIE_NAME,
-} from '@/server/auth/SessionService';
+import { hashIp, resolveAnonymousSessionId, resolveUserFromSessionToken } from '@/server/auth/SessionService';
 import { type DbExecutor, getDb } from '@/server/db/Database';
 import { type UserRow } from '@/server/db/Schema';
-import { ApiError } from '@/server/http/ApiError';
-import { getClientIp } from '@/server/http/RouteHelpers';
+import { getClientIpFromHeaders } from '@/server/http/ClientIp';
+import { ANONYMOUS_COOKIE_NAME, SESSION_COOKIE_NAME } from '@/server/http/SessionCookies';
 
 export type RequestContext = {
   user: UserRow | null;
@@ -48,22 +41,17 @@ const resolveContext = async (
 
 /** API routes: reads cookies from the NextRequest only (never next/headers). */
 export const getRequestContext = async (request: NextRequest, db: DbExecutor): Promise<RequestContext> =>
-  resolveContext(db, (name) => request.cookies.get(name)?.value, getClientIp(request));
+  resolveContext(db, (name) => request.cookies.get(name)?.value, getClientIpFromHeaders(request.headers));
 
-/** Server components: same resolution logic, reading cookies via next/headers. */
+/** Server components: same resolution logic, reading cookies and headers via next/headers. */
 export const getServerComponentContext = async (): Promise<RequestContext> => {
   const { cookies, headers } = await import('next/headers');
   const cookieStore = await cookies();
   const headerStore = await headers();
-  const ip = headerStore.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
 
-  return resolveContext(await getDb(), (name) => cookieStore.get(name)?.value, ip);
-};
-
-export const requireUser = (context: RequestContext): LoggedInContext => {
-  if (!context.user) {
-    throw new ApiError(ApiErrorCode.AUTH_REQUIRED);
-  }
-
-  return { ...context, user: context.user };
+  return resolveContext(
+    await getDb(),
+    (name) => cookieStore.get(name)?.value,
+    getClientIpFromHeaders(headerStore),
+  );
 };

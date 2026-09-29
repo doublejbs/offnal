@@ -4,6 +4,7 @@ import {
   type BetaOutputConfig,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 
+import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
@@ -26,7 +27,6 @@ import { type VisionImage, type VisionProvider, VisionProviderError } from '@/se
 
 const MAX_TOKENS = 16000;
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
-const MAX_NAME_LENGTH = 40;
 
 type MediaType = BetaBase64ImageSource['media_type'];
 type Effort = NonNullable<BetaOutputConfig['effort']>;
@@ -85,17 +85,18 @@ const mapProviderError = (error: unknown, signal: AbortSignal): VisionProviderEr
 
 /** Claude vision adapter. Never logs image data or recognized names. */
 export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): VisionProvider => {
+  // One client per provider instance (the provider itself is cached by VisionFactory).
+  const client = config.apiKey ? new Anthropic({ apiKey: config.apiKey }) : null;
+
   const callModel = async (
     image: VisionImage,
     text: string,
     schema: Record<string, unknown>,
     signal: AbortSignal,
   ): Promise<unknown> => {
-    if (!config.apiKey) {
+    if (!client) {
       throw new VisionProviderError(RecognitionErrorCode.PROVIDER_NOT_CONFIGURED);
     }
-
-    const client = new Anthropic({ apiKey: config.apiKey });
 
     try {
       const message = await client.beta.messages.create(
@@ -161,7 +162,7 @@ export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): Vi
       const seenRowIds = new Set<string>();
       const candidates = parsed.data.candidates.flatMap((candidate) => {
         const rowId = candidate.rowId.trim();
-        const name = candidate.name.trim().slice(0, MAX_NAME_LENGTH);
+        const name = candidate.name.trim().slice(0, MAX_DISPLAY_NAME_LENGTH);
 
         if (!rowId || !name || seenRowIds.has(rowId)) {
           return [];

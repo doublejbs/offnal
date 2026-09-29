@@ -5,18 +5,15 @@ import { type OAuthAuthProvider } from '@/server/auth/AuthProvider';
 import { createDevAuthProvider, type DevAuthProvider } from '@/server/auth/DevAuthProvider';
 import { createGoogleAuthProvider } from '@/server/auth/GoogleAuthProvider';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { ApiError } from '@/server/http/ApiError';
+import { ApiError } from '@/server/errors/ApiError';
 
 export const OAUTH_CALLBACK_PATH = '/auth/callback';
-
-const isAuthProviderType = (value: string): value is AuthProviderType =>
-  (Object.values(AuthProviderType) as string[]).includes(value);
 
 /** Redirect-based provider by name. Not enabled → 404; enabled without keys → 503 PROVIDER_NOT_CONFIGURED. */
 export const getOAuthProvider = (name: string): OAuthAuthProvider => {
   const config = getAppConfig();
 
-  if (!isAuthProviderType(name) || name !== AuthProviderType.GOOGLE || !config.authProviders.includes(name)) {
+  if (name !== AuthProviderType.GOOGLE || !config.authProviders.includes(AuthProviderType.GOOGLE)) {
     throw new ApiError(ApiErrorCode.NOT_FOUND);
   }
 

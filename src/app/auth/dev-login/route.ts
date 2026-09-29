@@ -5,7 +5,8 @@ import { type DevLoginRequest } from '@/domain/types/api/DevLoginRequest';
 import { getDevAuthProvider, isDevLoginEnabled } from '@/server/auth/AuthProviderRegistry';
 import { completeLogin } from '@/server/auth/LoginService';
 import { getDb } from '@/server/db/Database';
-import { ApiError } from '@/server/http/ApiError';
+import { ApiError } from '@/server/errors/ApiError';
+import { buildLoginRedirect } from '@/server/http/LoginResponses';
 import { getRequestContext } from '@/server/http/RequestContext';
 import { assertSameOrigin, sanitizeReturnTo, withRoute } from '@/server/http/RouteHelpers';
 import { devLoginRequestSchema } from '@/server/services/RequestSchemas';
@@ -48,7 +49,7 @@ export const POST = withRoute(async (request: NextRequest) => {
   const body = await readBody(request);
   const profile = getDevAuthProvider().createProfile(body.displayName ?? '');
   const db = await getDb();
-  const context = await getRequestContext(request, db);
+  const result = await completeLogin(db, await getRequestContext(request, db), profile);
 
-  return completeLogin(db, context, profile, sanitizeReturnTo(body.returnTo), 303);
+  return buildLoginRedirect(result, sanitizeReturnTo(body.returnTo), 303);
 });

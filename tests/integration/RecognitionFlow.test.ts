@@ -1,4 +1,9 @@
 import { eq } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
+import path from 'node:path';
+
+import sharp from 'sharp';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { GET as calendarRoute } from '@/app/api/calendar/route';
@@ -10,7 +15,10 @@ import { GET as statusRoute } from '@/app/api/recognitions/[id]/status/route';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
+import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
+import { RateLimitScope } from '@/domain/enums/RateLimitScope';
+import { RateLimitWindow } from '@/domain/enums/RateLimitWindow';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
@@ -23,13 +31,16 @@ import { type ExtractRecognitionResponse } from '@/domain/types/api/ExtractRecog
 import { type PublishDraftResponse } from '@/domain/types/api/PublishDraftResponse';
 import { type RecognitionStatusResponse } from '@/domain/types/api/RecognitionStatusResponse';
 import { currentYearMonthInSeoul, nextYearMonth } from '@/domain/YearMonth';
-import { entitlements, recognitionJobs } from '@/server/db/Schema';
+import { drafts, entitlements, rateLimitCounters, recognitionJobs, users } from '@/server/db/Schema';
+import { buildRateLimitKey } from '@/server/services/RateLimitService';
+import { createRecognitionJob } from '@/server/services/RecognitionProcessService';
 import { createMockVisionProvider, MOCK_CANDIDATE_NAMES } from '@/server/vision/MockVisionProvider';
 import { type VisionProvider } from '@/server/vision/VisionProvider';
 import { setVisionProviderForTesting } from '@/server/vision/VisionFactory';
 import {
   createApiTestClient,
   createNarrowPng,
+  createPngFixture,
   createTablePng,
   type IntegrationEnvironment,
   readJson,
@@ -231,6 +242,8 @@ describe('recognition failure', () => {
 });
 
 describe('processing lease', () => {
+  // PGlite has a single connection, so the two lease UPDATEs are serialized either way; the atomic
+  // conditional UPDATE is what matters on real Postgres (`pnpm test:pg`).
   it('invokes the provider only once for concurrent process calls', async () => {
     const mock = createMockVisionProvider({ delayMs: 30 });
     let recognizeCalls = 0;
@@ -361,5 +374,128 @@ describe('extract idempotency and expiry', () => {
     });
 
     expect(sourceResponse.status).toBe(410);
+  });
+});
+
+describe('provider image preparation', () => {
+  it('downscales large photos to a JPEG copy with a long edge of at most 2576px', async () => {
+    const mock = createMockVisionProvider({ delayMs: 0 });
+    const seen: { width: number; height: number; format: string; mime: string }[] = [];
+    const record = async (bytes: Buffer, mime: string): Promise<void> => {
+      const metadata = await sharp(bytes).metadata();
+
+      seen.push({
+        width: metadata.width ?? 0,
+        height: metadata.height ?? 0,
+        format: metadata.format ?? '',
+        mime,
+      });
+    };
+
+    setVisionProviderForTesting({
+      kind: mock.kind,
+      recognizeTable: async (image, signal) => {
+        await record(image.bytes, image.mime);
+
+        return mock.recognizeTable(image, signal);
+      },
+      extractPerson: async (image, input, signal) => {
+        await record(image.bytes, image.mime);
+
+        return mock.extractPerson(image, input, signal);
+      },
+    });
+
+    try {
+      const client = createApiTestClient();
+      const original = await createPngFixture(3600, 2400);
+      const jobId = await uploadAndProcess(client, original);
+
+      await devLogin(client, '큰 사진 사용자');
+      await extractRow(client, jobId, '2026-11');
+
+      expect(seen).toEqual([
+        { width: 2576, height: 1717, format: 'jpeg', mime: 'image/jpeg' },
+        { width: 2576, height: 1717, format: 'jpeg', mime: 'image/jpeg' },
+      ]);
+
+      const stored = await env.storage.get(`sources/${jobId}`);
+
+      expect(stored?.equals(original)).toBe(true);
+    } finally {
+      setVisionProviderForTesting(null);
+    }
+  });
+});
+
+describe('concurrent extract', () => {
+  it('creates one draft, calls the provider once and charges the monthly limit once', async () => {
+    const mock = createMockVisionProvider({ delayMs: 20 });
+    let extractCalls = 0;
+
+    setVisionProviderForTesting({
+      kind: mock.kind,
+      recognizeTable: mock.recognizeTable,
+      extractPerson: async (image, input, signal) => {
+        extractCalls += 1;
+
+        return mock.extractPerson(image, input, signal);
+      },
+    });
+
+    try {
+      const client = createApiTestClient();
+      const jobId = await uploadAndProcess(client);
+
+      await devLogin(client, '동시 추출 사용자');
+
+      const [first, second] = await Promise.all([
+        extractRow(client, jobId, '2026-11'),
+        extractRow(client, jobId, '2026-11'),
+      ]);
+      const [user] = await env.db.select().from(users).where(eq(users.displayName, '동시 추출 사용자'));
+      const rows = await env.db.select().from(drafts).where(eq(drafts.recognitionJobId, jobId));
+      const [counter] = await env.db
+        .select()
+        .from(rateLimitCounters)
+        .where(
+          eq(
+            rateLimitCounters.key,
+            buildRateLimitKey({
+              scope: RateLimitScope.EXTRACT_USER,
+              subject: user?.id ?? '',
+              window: RateLimitWindow.MONTHLY,
+              limit: 0,
+            }),
+          ),
+        );
+
+      expect(second).toBe(first);
+      expect(rows).toHaveLength(1);
+      expect(extractCalls).toBe(1);
+      expect(counter?.count).toBe(1);
+    } finally {
+      setVisionProviderForTesting(null);
+    }
+  });
+});
+
+describe('upload compensation', () => {
+  it('deletes the stored source when the job insert fails', async () => {
+    const sourcesDir = path.join(env.storageDir, 'sources');
+    const listSources = async (): Promise<string[]> => readdir(sourcesDir).catch(() => []);
+    const before = await listSources();
+
+    await expect(
+      createRecognitionJob(env.db, {
+        // Unknown user → foreign key violation on insert, after the object was stored.
+        userId: randomUUID(),
+        anonymousSessionId: null,
+        ipHash: 'ip-hash',
+        bytes: await createTablePng(),
+        mime: ImageMimeType.PNG,
+      }),
+    ).rejects.toThrow();
+    expect(await listSources()).toEqual(before);
   });
 });

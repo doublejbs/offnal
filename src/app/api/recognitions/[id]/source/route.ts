@@ -1,22 +1,21 @@
-import { type NextRequest } from 'next/server';
-
-import { getDb } from '@/server/db/Database';
-import { getRequestContext } from '@/server/http/RequestContext';
-import { NO_STORE, withRoute } from '@/server/http/RouteHelpers';
-import { readSourceImage } from '@/server/services/RecognitionService';
+import { apiRoute, type IdParams } from '@/server/http/ApiRoute';
+import { NO_STORE } from '@/server/http/RouteHelpers';
+import { readSourceImage } from '@/server/services/RecognitionExtractService';
 
 export const runtime = 'nodejs';
 
-type IdRouteContext = { params: Promise<{ id: string }> };
-
 /** Original photo for the logged-in owner only; never cached, never a public URL. */
-export const GET = withRoute(async (request: NextRequest, { params }: IdRouteContext) => {
-  const { id } = await params;
-  const db = await getDb();
-  const context = await getRequestContext(request, db);
-  const source = await readSourceImage(db, context, id);
+export const GET = apiRoute<IdParams>({ mutating: false }, async ({ db, context, params }) => {
+  const source = await readSourceImage(db, context, params.id);
 
-  return new Response(new Uint8Array(source.bytes), {
+  // Zero-copy view of the Buffer (BodyInit requires an ArrayBuffer-backed view).
+  const body = new Uint8Array(
+    source.bytes.buffer as ArrayBuffer,
+    source.bytes.byteOffset,
+    source.bytes.byteLength,
+  );
+
+  return new Response(body, {
     status: 200,
     headers: {
       'Content-Type': source.mime,

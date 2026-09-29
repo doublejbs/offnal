@@ -2,22 +2,24 @@ import { and, eq } from 'drizzle-orm';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
+import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
 import { remapDraftMonth } from '@/domain/DraftMonthRemapper';
 import { getPublishBlockers, hasExactDateSet, summarizeReview } from '@/domain/ScheduleValidator';
 import { type DraftDto } from '@/domain/types/api/DraftDto';
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
 import { type OkResponse } from '@/domain/types/api/OkResponse';
 import { type PatchDraftRequest } from '@/domain/types/api/PatchDraftRequest';
+import { type RevisionConflictDetails } from '@/domain/types/api/RevisionConflictDetails';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { type DbExecutor } from '@/server/db/Database';
 import { isUniqueViolation } from '@/server/db/DbErrors';
 import { type DraftRow, drafts, recognitionJobs } from '@/server/db/Schema';
-import { ApiError } from '@/server/http/ApiError';
-import { type RequestContext, requireUser } from '@/server/http/RequestContext';
-import { requireUuid } from '@/server/http/RouteHelpers';
+import { ApiError, DRAFT_EXPIRED_MESSAGE } from '@/server/errors/ApiError';
+import { type RequestContext } from '@/server/http/RequestContext';
 import { getMonthAccessInfo } from '@/server/services/EntitlementService';
-import { isSourceAvailable } from '@/server/services/RecognitionService';
+import { isSourceAvailable } from '@/server/services/RecognitionOwnership';
+import { requireUser, requireUuid } from '@/server/validation/RequestGuards';
 
 const toDraftDto = (draft: DraftRow): DraftDto => ({
   id: draft.id,
@@ -74,7 +76,7 @@ export const getDraft = async (
   const draft = await findOwnedDraft(db, user.id, draftId);
 
   if (isDraftExpired(draft)) {
-    throw new ApiError(ApiErrorCode.EXPIRED, { message: '초안 보관 기간이 지났어요.' });
+    throw new ApiError(ApiErrorCode.EXPIRED, { message: DRAFT_EXPIRED_MESSAGE });
   }
 
   return buildDraftResponse(db, draft);
@@ -82,10 +84,13 @@ export const getDraft = async (
 
 const throwRevisionConflict = async (db: DbExecutor, userId: string, draftId: string): Promise<never> => {
   const current = await findOwnedDraft(db, userId, draftId);
+  const details: RevisionConflictDetails = {
+    reason: RevisionConflictReason.STALE_REVISION,
+    currentRevision: current.revision,
+    draft: await buildDraftResponse(db, current),
+  };
 
-  throw new ApiError(ApiErrorCode.REVISION_CONFLICT, {
-    details: { draft: await buildDraftResponse(db, current) },
-  });
+  throw new ApiError(ApiErrorCode.REVISION_CONFLICT, { details });
 };
 
 /** Off codes carry no times; entries without a code can never be confirmed. */
@@ -140,7 +145,7 @@ export const patchDraft = async (
   }
 
   if (isDraftExpired(draft)) {
-    throw new ApiError(ApiErrorCode.EXPIRED, { message: '초안 보관 기간이 지났어요.' });
+    throw new ApiError(ApiErrorCode.EXPIRED, { message: DRAFT_EXPIRED_MESSAGE });
   }
 
   if (body.revision !== draft.revision) {

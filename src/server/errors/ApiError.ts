@@ -72,3 +72,6 @@ export class ApiError extends Error {
 }
 
 export const getStatusForCode = (code: ApiErrorCode): number => STATUS_BY_CODE[code];
+
+export const DRAFT_EXPIRED_MESSAGE = '초안 보관 기간이 지났어요.';
+export const SOURCE_GONE_MESSAGE = '원본 사진이 삭제되었거나 보관 기간이 지났어요.';

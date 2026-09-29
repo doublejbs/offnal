@@ -2,14 +2,13 @@ import { and, asc, eq, gt, isNull } from 'drizzle-orm';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
+import { countWorkAndOff } from '@/domain/ScheduleStats';
 import { type CalendarMonthResponse } from '@/domain/types/api/CalendarMonthResponse';
 import { type CalendarMonthSummary } from '@/domain/types/api/CalendarMonthSummary';
 import { type CalendarSummaryResponse } from '@/domain/types/api/CalendarSummaryResponse';
 import { type EditPublishedMonthResponse } from '@/domain/types/api/EditPublishedMonthResponse';
 import { type OkResponse } from '@/domain/types/api/OkResponse';
 import { type ShareSummary } from '@/domain/types/api/ShareSummary';
-import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
-import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { isValidYearMonth } from '@/domain/YearMonth';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { getPricing } from '@/server/config/PricingConfig';
@@ -22,11 +21,11 @@ import {
   publishedMonths,
   users,
 } from '@/server/db/Schema';
-import { ApiError } from '@/server/http/ApiError';
-import { type RequestContext, requireUser } from '@/server/http/RequestContext';
+import { ApiError } from '@/server/errors/ApiError';
+import { type RequestContext } from '@/server/http/RequestContext';
+import { buildDraftInsert } from '@/server/services/DraftFactory';
 import { getFreeRemainingForUser } from '@/server/services/EntitlementService';
-
-const MS_PER_DAY = 86_400_000;
+import { requireUser } from '@/server/validation/RequestGuards';
 
 export type OwnedPublishedMonth = {
   calendar: CalendarRow;
@@ -82,31 +81,6 @@ export const buildShareSummary = (calendar: CalendarRow | null): ShareSummary =>
   url: null,
   displayName: calendar?.displayName ?? null,
 });
-
-export const countWorkAndOff = (
-  entries: ShiftEntry[],
-  definitions: ShiftDefinition[],
-): { workCount: number; offCount: number } => {
-  const definitionByCode = new Map(definitions.map((definition) => [definition.code, definition]));
-  let workCount = 0;
-  let offCount = 0;
-
-  for (const entry of entries) {
-    const definition = entry.code === null ? undefined : definitionByCode.get(entry.code);
-
-    if (!definition) {
-      continue;
-    }
-
-    if (definition.isOff) {
-      offCount += 1;
-    } else {
-      workCount += 1;
-    }
-  }
-
-  return { workCount, offCount };
-};
 
 const toMonthSummary = (month: PublishedMonthRow): CalendarMonthSummary => ({
   yearMonth: month.yearMonth,
@@ -172,7 +146,10 @@ export const deletePublishedMonth = async (
   return { ok: true };
 };
 
-/** New editing draft from the published snapshot (no recognition job); reuses an open one for the month. */
+/**
+ * New editing draft from the published snapshot (no recognition job). Reuses an open edit draft only
+ * when it was copied from the current published revision; older ones are left for publish to reject.
+ */
 export const createEditDraftFromPublished = async (
   db: Db,
   context: RequestContext,
@@ -194,6 +171,7 @@ export const createEditDraftFromPublished = async (
           eq(drafts.yearMonth, month.yearMonth),
           eq(drafts.status, DraftStatus.EDITING),
           isNull(drafts.recognitionJobId),
+          eq(drafts.basePublishedRevision, month.revision),
           gt(drafts.expiresAt, now),
         ),
       )
@@ -205,18 +183,22 @@ export const createEditDraftFromPublished = async (
 
     const [inserted] = await tx
       .insert(drafts)
-      .values({
-        userId: user.id,
-        recognitionJobId: null,
-        personRowId: null,
-        yearMonth: month.yearMonth,
-        displayName: calendar.displayName,
-        definitions: month.definitions,
-        entries: month.entries,
-        sourceCells: [],
-        status: DraftStatus.EDITING,
-        expiresAt: new Date(now.getTime() + getAppConfig().draftTtlDays * MS_PER_DAY),
-      })
+      .values(
+        buildDraftInsert(
+          {
+            userId: user.id,
+            recognitionJobId: null,
+            personRowId: null,
+            basePublishedRevision: month.revision,
+            yearMonth: month.yearMonth,
+            displayName: calendar.displayName,
+            definitions: month.definitions,
+            entries: month.entries,
+            sourceCells: [],
+          },
+          now,
+        ),
+      )
       .returning({ id: drafts.id });
 
     if (!inserted) {

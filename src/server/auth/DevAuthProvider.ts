@@ -1,10 +1,9 @@
+import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { type AuthProfile, type AuthProvider } from '@/server/auth/AuthProvider';
 import { hashSha256Hex } from '@/server/crypto/TokenCrypto';
 
 export const DEFAULT_DEV_DISPLAY_NAME = '데모 사용자';
-
-const MAX_DISPLAY_NAME_LENGTH = 40;
 
 export type DevAuthProvider = AuthProvider & {
   /** Same display name → same demo account. */

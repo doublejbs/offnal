@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 
-import { clearSessionCookie, destroySessionToken } from '@/server/auth/SessionService';
+import { destroySessionToken } from '@/server/auth/SessionService';
 import { getDb } from '@/server/db/Database';
 import { getRequestContext } from '@/server/http/RequestContext';
 import {
@@ -10,6 +10,7 @@ import {
   sanitizeReturnTo,
   withRoute,
 } from '@/server/http/RouteHelpers';
+import { clearSessionCookie } from '@/server/http/SessionCookies';
 
 export const runtime = 'nodejs';
 

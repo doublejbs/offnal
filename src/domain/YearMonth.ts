@@ -1,3 +1,4 @@
+import { MS_PER_DAY } from '@/domain/DomainLimits';
 import { getZonedParts, SEOUL_TIMEZONE } from '@/domain/TimeZone';
 import { type DateParts } from '@/domain/types/DateParts';
 import { type YearMonthParts } from '@/domain/types/YearMonthParts';
@@ -6,7 +7,6 @@ const YEAR_MONTH_PATTERN = /^(\d{4})-(\d{2})$/;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MIN_YEAR = 2000;
 const MAX_YEAR = 2100;
-const MS_PER_DAY = 86_400_000;
 
 const pad2 = (value: number): string => String(value).padStart(2, '0');
 

@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
+import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
@@ -166,7 +167,7 @@ describe('Database schema', () => {
       .values({
         userId,
         status: RecognitionStatus.RECOGNIZED,
-        sourceMime: 'image/png',
+        sourceMime: ImageMimeType.PNG,
         expiresAt: FAR_FUTURE,
       })
       .returning();
@@ -312,7 +313,7 @@ describe('Database schema', () => {
     await expectSqlState(
       db.insert(recognitionJobs).values({
         status: 'done' as RecognitionStatus,
-        sourceMime: 'image/png',
+        sourceMime: ImageMimeType.PNG,
         expiresAt: FAR_FUTURE,
       }),
       CHECK_VIOLATION,

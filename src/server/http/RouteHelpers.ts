@@ -1,17 +1,19 @@
 import { type NextRequest, NextResponse } from 'next/server';
-import { z, ZodError } from 'zod';
+import { type z, ZodError } from 'zod';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { ApiError } from '@/server/http/ApiError';
+import { ApiError } from '@/server/errors/ApiError';
+import { getClientIpFromHeaders } from '@/server/http/ClientIp';
 
 export const NO_STORE = 'no-store, max-age=0';
 
 const DEFAULT_RETURN_TO = '/';
-const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f\\]/u;
-const UUID_SCHEMA = z.uuid();
+const UNSAFE_RETURN_TO_PATTERN = /[\u0000-\u001f\u007f\\]/u;
+/** Base for parsing relative paths only; never part of an output URL. */
+const PATH_PARSE_BASE = 'http://path.invalid';
 
 export const jsonResponse = <T>(body: T, status = 200, headers: Record<string, string> = {}): NextResponse =>
   NextResponse.json(body, { status, headers: { 'Cache-Control': NO_STORE, ...headers } });
@@ -35,7 +37,7 @@ const readErrorCode = (error: unknown): string | undefined => {
 };
 
 /** Logs unexpected errors without request data. Full details only outside production. */
-const logUnexpectedError = (request: NextRequest, error: unknown): void => {
+export const logUnexpectedError = (request: NextRequest, error: unknown): void => {
   const summary = {
     method: request.method,
     path: request.nextUrl.pathname,
@@ -68,7 +70,7 @@ export const toErrorResponse = (request: NextRequest, error: unknown): NextRespo
   return errorResponse(new ApiError(ApiErrorCode.INTERNAL_ERROR));
 };
 
-/** Wraps a route handler: maps ApiError/ZodError to JSON errors and hides unexpected failures. */
+/** Wraps a JSON route handler: maps ApiError/ZodError to JSON errors and hides unexpected failures. */
 export const withRoute =
   <TArgs extends [NextRequest, ...unknown[]]>(handler: (...args: TArgs) => Promise<Response>) =>
   async (...args: TArgs): Promise<Response> => {
@@ -103,47 +105,74 @@ export const parseJsonBody = async <T extends z.ZodType>(
   return schema.parse(body);
 };
 
-/** Route IDs are UUIDs; anything else is reported as not found (no existence leak, no DB error). */
-export const requireUuid = (value: string): string => {
-  if (!UUID_SCHEMA.safeParse(value).success) {
-    throw new ApiError(ApiErrorCode.NOT_FOUND);
-  }
+/**
+ * Builds an absolute app URL from a path. The origin always comes from APP_URL: only pathname,
+ * search and hash are taken from the input, so protocol-relative input cannot change the host.
+ */
+export const buildAppUrl = (pathWithQuery: string): URL => {
+  const parsed = new URL(pathWithQuery, PATH_PARSE_BASE);
+  const url = new URL(getAppConfig().appUrl);
 
-  return value;
+  url.pathname = parsed.pathname;
+  url.search = parsed.search;
+  url.hash = parsed.hash;
+
+  return url;
 };
 
-export const buildAppUrl = (pathWithQuery: string): URL => new URL(pathWithQuery, getAppConfig().appUrl);
-
-/** Accepts only same-origin relative paths ("/x", not "//x", "https://…" or backslashes). */
+/**
+ * Accepts only same-origin relative paths. Rejects "//x", absolute URLs, backslashes, control
+ * characters, and paths whose normalized form starts with "//" (e.g. "/.//x", "/a/..//x").
+ */
 export const sanitizeReturnTo = (value: unknown): string => {
   if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')) {
     return DEFAULT_RETURN_TO;
   }
 
-  if (CONTROL_CHARACTER_PATTERN.test(value)) {
+  if (UNSAFE_RETURN_TO_PATTERN.test(value)) {
     return DEFAULT_RETURN_TO;
   }
 
-  const url = buildAppUrl(value);
+  const parsed = new URL(value, PATH_PARSE_BASE);
 
-  if (url.origin !== getAppConfig().appUrl) {
+  if (parsed.origin !== PATH_PARSE_BASE || parsed.pathname.startsWith('//')) {
     return DEFAULT_RETURN_TO;
   }
 
-  return `${url.pathname}${url.search}${url.hash}`;
+  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
 };
 
 export const buildLoginFailedUrl = (returnTo: string): URL => {
-  const url = buildAppUrl(returnTo);
+  const url = buildAppUrl(sanitizeReturnTo(returnTo));
 
   url.searchParams.set('login', 'failed');
 
   return url;
 };
 
-/** Client IP from the platform proxy header (first hop), or 'unknown'. */
-export const getClientIp = (request: NextRequest): string => {
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+/**
+ * Wraps a browser-navigation route (login/callback): never answers with JSON. Any failure is
+ * logged and redirected to `returnTo?login=failed`.
+ */
+export const withRedirectRoute =
+  (handler: (request: NextRequest) => Promise<Response>, resolveReturnTo: (request: NextRequest) => string) =>
+  async (request: NextRequest): Promise<Response> => {
+    try {
+      return await handler(request);
+    } catch (error: unknown) {
+      if (error instanceof ApiError) {
+        console.warn('[auth] login redirect failed', { path: request.nextUrl.pathname, code: error.code });
+      } else {
+        logUnexpectedError(request, error);
+      }
 
-  return forwarded || request.headers.get('x-real-ip')?.trim() || 'unknown';
-};
+      const response = NextResponse.redirect(buildLoginFailedUrl(resolveReturnTo(request)), 302);
+
+      response.headers.set('Cache-Control', NO_STORE);
+
+      return response;
+    }
+  };
+
+/** See ClientIp: trusted-proxy assumption. */
+export const getClientIp = (request: NextRequest): string => getClientIpFromHeaders(request.headers);

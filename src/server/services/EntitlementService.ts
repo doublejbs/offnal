@@ -58,3 +58,11 @@ export const getMonthAccessInfo = async (
     priceKrw: pricing.priceKrw,
   };
 };
+
+export const insertTrialEntitlement = async (
+  db: DbExecutor,
+  userId: string,
+  yearMonth: string,
+): Promise<void> => {
+  await db.insert(entitlements).values({ userId, yearMonth, source: EntitlementSource.TRIAL });
+};

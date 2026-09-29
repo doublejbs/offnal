@@ -1,9 +1,9 @@
 import { type NextRequest, type NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { buildCookieOptions } from '@/server/auth/SessionService';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { decryptText, encryptText } from '@/server/crypto/TokenCrypto';
+import { buildCookieOptions, clearCookie } from '@/server/http/SessionCookies';
 
 export const OAUTH_STATE_COOKIE_NAME = 'offnal_oauth';
 
@@ -47,5 +47,5 @@ export const readOAuthStateCookie = (request: NextRequest): OAuthState | null =>
 };
 
 export const clearOAuthStateCookie = (response: NextResponse): void => {
-  response.cookies.set(OAUTH_STATE_COOKIE_NAME, '', { ...buildCookieOptions(new Date(0)), maxAge: 0 });
+  clearCookie(response, OAUTH_STATE_COOKIE_NAME);
 };

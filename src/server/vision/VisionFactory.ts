@@ -1,21 +1,19 @@
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
-import { getAppConfig } from '@/server/config/AppConfig';
+import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
 import { createAnthropicVisionProvider } from '@/server/vision/AnthropicVisionProvider';
 import { createMockVisionProvider } from '@/server/vision/MockVisionProvider';
 import { type VisionProvider } from '@/server/vision/VisionProvider';
 
-type VisionGlobal = typeof globalThis & { __offnalVisionOverride?: VisionProvider | null };
+type VisionGlobal = typeof globalThis & {
+  /** Cached per AppConfig instance, so `resetAppConfigForTesting` also resets the provider. */
+  __offnalVisionProvider?: { config: AppConfig; provider: VisionProvider };
+  __offnalVisionOverride?: VisionProvider | null;
+};
 
 const visionGlobal = globalThis as VisionGlobal;
 
-export const getVisionProvider = (): VisionProvider => {
-  if (visionGlobal.__offnalVisionOverride) {
-    return visionGlobal.__offnalVisionOverride;
-  }
-
-  const config = getAppConfig();
-
+const createVisionProviderFromConfig = (config: AppConfig): VisionProvider => {
   if (config.visionProvider === VisionProviderType.MOCK) {
     // AppConfig already refuses this combination; kept as a second guard.
     if (config.offnalEnv === OffnalEnv.PRODUCTION) {
@@ -31,6 +29,25 @@ export const getVisionProvider = (): VisionProvider => {
     effort: config.visionEffort,
     timeoutMs: config.visionTimeoutMs,
   });
+};
+
+export const getVisionProvider = (): VisionProvider => {
+  if (visionGlobal.__offnalVisionOverride) {
+    return visionGlobal.__offnalVisionOverride;
+  }
+
+  const config = getAppConfig();
+  const cached = visionGlobal.__offnalVisionProvider;
+
+  if (cached?.config === config) {
+    return cached.provider;
+  }
+
+  const provider = createVisionProviderFromConfig(config);
+
+  visionGlobal.__offnalVisionProvider = { config, provider };
+
+  return provider;
 };
 
 /** Overrides the provider returned by `getVisionProvider` (null clears). Tests only. */
