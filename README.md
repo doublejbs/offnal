@@ -158,6 +158,19 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 
 ### 배포 (Vercel 기준)
 
+**Anthropic·토스 키 없이 먼저 띄우는 테스트 배포**: 실제 Supabase(카카오 로그인·DB·Storage)에 인식·결제만 mock으로 둡니다. production에서는 mock이 기동 단계에서 차단되므로 **`OFFNAL_ENV=preview`로 등록**해야 합니다(Vercel의 Production 환경 변수로 넣더라도 `OFFNAL_ENV=preview`). 모든 화면 상단에 “테스트 환경 · 근무표 인식과 결제는 예시·테스트로 동작해요. 실제 청구 없음” 배너가 뜨고, 결제는 “테스트 결제 · 실제 청구 없음” 버튼으로만 진행되며, 데모 로그인은 꺼져 있습니다.
+
+| 변수 | 테스트 배포 값 |
+|---|---|
+| `OFFNAL_ENV` / `APP_MODE` | `preview` / `live` |
+| `APP_URL`, `APP_SECRET`, `CRON_SECRET` | 배포 도메인(https), 무작위 값 |
+| `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | 위 “Supabase 설정” |
+| `STORAGE_DRIVER`, `S3_*` | `s3`와 Supabase Storage 값 (live 기본값도 `s3`) |
+| `AUTH_PROVIDERS` | `kakao` |
+| `VISION_PROVIDER` / `PAYMENT_PROVIDER` | `mock` / `mock` |
+
+키가 준비되면 `VISION_PROVIDER=anthropic`+`ANTHROPIC_API_KEY`, `PAYMENT_PROVIDER=toss`+토스 키로 바꾸고 `OFFNAL_ENV=production`으로 올립니다. 빌드(`next build`)는 환경 변수·DB에 접근하지 않으므로(모든 화면이 요청 시 렌더링) 값이 비어 있어도 빌드는 통과하고, 잘못된 설정은 첫 요청에서 드러납니다. Supabase 값이 없으면 `src/proxy.ts`는 아무것도 하지 않습니다.
+
 1. 위 환경 변수를 Production/Preview에 각각 등록(preview는 `OFFNAL_ENV=preview`, 테스트 키 사용 권장)
 2. `pnpm db:migrate`로 대상 DB에 마이그레이션 적용
 3. 배포 후 `/api/config/public`에서 `appMode: "live"` 확인

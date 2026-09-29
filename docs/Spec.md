@@ -29,6 +29,8 @@
 - `APP_MODE`: `live` | `demo`
 - **`OFFNAL_ENV=production`에서 `APP_MODE=demo` 또는 mock 제공자(`VISION_PROVIDER=mock`, `PAYMENT_PROVIDER=mock`, `AUTH_PROVIDERS`에 `dev`, `STORAGE_DRIVER=local`, PGlite)는 기동 시 예외로 차단한다.** (`src/server/config/AppConfig.ts`)
 - demo 모드에서는 모든 화면 상단에 `DemoBanner`(“개발 데모 모드 · 예시 인식·테스트 결제이며 실제 처리가 아니에요”)를 표시한다.
+- **live 테스트 배포**: `OFFNAL_ENV=development|preview` + `APP_MODE=live`에서는 실제 Supabase(인증·DB·Storage)와 함께 `VISION_PROVIDER=mock`·`PAYMENT_PROVIDER=mock`을 허용한다(production은 계속 차단). mock 제공자가 하나라도 켜져 있으면 같은 배너 컴포넌트로 “테스트 환경 · 근무표 인식과 결제는 예시·테스트로 동작해요. 실제 청구 없음”(하나만이면 해당 항목만)을 표시하고, `/api/config/public`에 `isMockVision`·`isMockPayment`를 노출한다. live에서는 데모 로그인이 항상 꺼진다. 테스트 결제 버튼 문구 “테스트 결제 · 실제 청구 없음”은 그대로.
+- `STORAGE_DRIVER` 기본값: demo·test는 `local`, 그 밖의 live는 `s3`(서버리스 파일시스템은 영속되지 않음).
 - live 모드에서 키가 없는 제공자는 “설정 대기” 상태로 명시적 오류(`PROVIDER_NOT_CONFIGURED`)를 반환한다. 성공한 척하지 않는다.
 
 ---
