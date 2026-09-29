@@ -18,6 +18,9 @@ TEST_DATABASE_URL=postgres://user:pass@localhost:5432/postgres pnpm test:pg
 pnpm test:e2e       # Playwright E2E
 pnpm build          # 프로덕션 빌드
 pnpm db:generate    # Drizzle 마이그레이션 생성
+pnpm db:migrate     # 마이그레이션 적용 (DATABASE_MIGRATION_URL → DATABASE_URL → PGlite)
+pnpm db:check       # DB 연결·마이그레이션 수·RLS 확인
+pnpm storage:check  # Supabase Storage(S3) 키 확인
 ```
 
 ## 컨벤션 요약
@@ -28,4 +31,5 @@ pnpm db:generate    # Drizzle 마이그레이션 생성
 - re-export 금지, 경로 별칭 `@/` → `src/`
 - API 라우트 핸들러는 `next/headers` 대신 `NextRequest`/`NextResponse` 쿠키만 사용 (통합 테스트에서 직접 호출)
 - 로그인 전 응답·HTML에 인식된 이름·근무 데이터 금지. 권한 판정은 항상 서버
+- 인증은 Supabase Auth(카카오). 서버에서 Supabase 세션은 `getClaims()`로만 신뢰(`getSession()` 금지). 데모 로그인만 자체 `offnal_session`
 - 사용자 문구·문서·커밋 메시지는 한국어

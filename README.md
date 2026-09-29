@@ -11,17 +11,22 @@
 | 영역 | 선택 | 비고 |
 |---|---|---|
 | 앱 | Next.js 16 App Router + TypeScript | 화면과 API 한 저장소 |
-| DB | PostgreSQL + Drizzle ORM | 개발·테스트는 PGlite(임베디드 Postgres), preview·운영은 `DATABASE_URL` 필수 |
-| 원본 저장 | 로컬 파일(개발) / S3 호환 비공개 버킷(운영, 예: Supabase Storage) | 공개 URL 없음 |
-| 로그인 | 자체 세션(HttpOnly 쿠키) + Google OAuth(arctic, PKCE) / 데모 로그인 | 아래 “로그인 수단” 참고 |
+| DB | Supabase Postgres + Drizzle ORM (서버가 `DATABASE_URL`로 직접 연결, 모든 테이블 RLS + 정책 없음) | 로컬 개발도 개발용 클라우드 Supabase 프로젝트. 자동 테스트·키 없는 데모만 PGlite |
+| 원본 저장 | Supabase Storage 비공개 버킷(S3 호환 엔드포인트) / 로컬 파일(테스트·데모) | 공개 URL 없음 |
+| 로그인 | Supabase Auth(`@supabase/ssr`, PKCE, `sb-*` 세션 쿠키) + **카카오** / 데모 로그인(자체 세션, 데모 모드 전용) | 아래 “로그인 수단” 참고 |
 | 인식 | Anthropic Claude (`claude-opus-5-5`, 이미지 입력 + JSON 스키마 구조화 출력) / mock | 모델·effort는 환경 변수로 교체 |
 | 결제 | 토스페이먼츠 결제위젯 + 서버 승인·재조회 / mock 테스트 결제 | 단건 결제, 자동 결제 없음 |
 | 캘린더 | `ics` 라이브러리로 일회성 가져오기 파일 | 자동 동기화 아님 |
 | 이미지 | 브라우저 Canvas로 PNG 생성 | 권한 확인 API 데이터만 사용 |
 
-### 로그인 수단 (미확정 → 기본값 Google)
+### 로그인 수단 (확정: Supabase Auth + 카카오)
 
-고객이 로그인 수단을 확정하지 않아 **Google OAuth 1종**을 기본 구현했습니다. Supabase Auth 대신 자체 세션을 둔 이유는 ① 비회원 인식 작업(익명 세션 쿠키)을 로그인 계정으로 넘기는 claim을 서버 트랜잭션 하나로 통제하고 ② 제공자를 바꿀 때 `src/server/auth/AuthProvider.ts` 구현만 추가하면 되기 때문입니다. 카카오·네이버·이메일 매직링크는 같은 인터페이스로 추가할 수 있습니다. DB·스토리지는 Supabase(Postgres + S3 호환 Storage)를 그대로 쓸 수 있습니다.
+고객 확정(2026-09-29)에 따라 **Supabase Auth의 카카오 로그인**을 씁니다(Google 제거).
+
+- `/auth/login?provider=kakao` → Supabase `signInWithOAuth`(PKCE, verifier는 `sb-*` 쿠키) → 카카오 동의 → `/auth/callback`에서 `exchangeCodeForSession` → 앱 `users` 행과 `auth_identities(provider='supabase', subject=Supabase user id)` 연결 + 비회원 인식 작업 claim(한 트랜잭션).
+- 로그인 뒤 세션은 Supabase 세션 쿠키 자체입니다(앱 자체 `offnal_session`은 발급하지 않음). 요청마다 `auth.getClaims()`로 JWT 서명을 검증한 `sub`만 믿습니다. 세션 갱신은 `src/proxy.ts`(Next 16 Proxy)가 합니다.
+- 비회원 작업은 계속 앱의 `offnal_anon` 쿠키로 통제합니다. 콜백을 끝내지 못한(앱 user 행이 없는) Supabase 세션은 비로그인으로 취급합니다.
+- 데모 모드의 “데모 로그인”만 기존 자체 세션(`offnal_session`)을 씁니다.
 
 ## 빠른 시작 (데모 모드)
 
@@ -51,7 +56,9 @@ pnpm test:e2e               # Playwright E2E (데모 모드 서버를 3100 포�
 TEST_DATABASE_URL=postgres://... pnpm test:pg   # 통합 테스트를 실제 Postgres에서 (파일마다 임시 DB, CREATEDB 권한 필요)
 pnpm build && pnpm start    # 프로덕션 빌드·실행
 pnpm db:generate            # 스키마 변경 → drizzle/ 마이그레이션 생성
-pnpm db:migrate             # .env.local의 DATABASE_URL(없으면 PGlite)에 마이그레이션 적용
+pnpm db:migrate             # .env.local의 DATABASE_MIGRATION_URL(없으면 DATABASE_URL, 둘 다 없으면 PGlite)에 마이그레이션 적용
+pnpm db:check               # DATABASE_URL 연결·적용된 마이그레이션 수·모든 앱 테이블 RLS·anon 권한 확인 (비밀번호 출력 안 함)
+pnpm storage:check          # S3(Supabase Storage) 키로 검사 객체 put·get·delete (비밀값 출력 안 함)
 ```
 
 PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서로 다른 세 달 동시 저장에도 무료는 두 달”을 보장하는 `FOR UPDATE` 잠금은 `pnpm test:pg`로 실제 Postgres에서 확인해야 합니다.
@@ -68,22 +75,64 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 | `APP_MODE` | `live` |
 | `APP_URL` | `https://<도메인>` (production은 https 필수) |
 | `APP_SECRET` | 32바이트 이상 무작위 값 (`openssl rand -base64 48`) — 세션·공유 토큰 암호화 키 파생 |
-| `DATABASE_URL` | Postgres 접속 문자열 (Supabase: Transaction pooler URL 권장) |
+| `DATABASE_URL` | Supabase Transaction pooler URL (아래 “Supabase 설정”) |
+| `DATABASE_MIGRATION_URL` | Supabase Session pooler 또는 Direct URL (`pnpm db:migrate` 전용) |
 
-배포 전·스키마 변경 시 `DATABASE_URL`을 넣은 `.env.local`로 `pnpm db:migrate`를 실행합니다. 서버리스에서 동시 마이그레이션을 피하려고 운영 DB는 앱 기동 시 자동 마이그레이션하지 않습니다.
+배포 전·스키마 변경 시 대상 DB 접속 문자열을 넣은 `.env.local`로 `pnpm db:migrate` → `pnpm db:check`를 실행합니다. 서버리스에서 동시 마이그레이션을 피하려고 운영 DB는 앱 기동 시 자동 마이그레이션하지 않습니다.
 
-### 원본 저장소 (S3 호환)
+### Supabase 설정 (DB·인증·원본 저장소)
 
-`STORAGE_DRIVER=s3`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. 버킷은 **비공개**로 만듭니다. Supabase Storage는 Project Settings → Storage → S3 Connection에서 엔드포인트·키를 발급합니다. 원본은 저장 확정 직후 삭제되고, 방치된 원본은 `SOURCE_TTL_HOURS`(24시간) 뒤 정리 작업이 지웁니다. 처리업체(스토리지·AI) 쪽 보관 설정은 출시 전 별도 확인이 필요합니다.
+값을 넣을 곳은 모두 `.env.local`(로컬) / 배포 환경 변수입니다. 로컬 개발도 **개발용 클라우드 프로젝트**에 연결하고, 운영은 별도 프로젝트를 권장합니다.
 
-### Google 로그인
+**1. 프로젝트 만들기**
 
-1. Google Cloud Console → API 및 서비스 → OAuth 동의 화면 구성(범위: `openid`, `profile`, `email`)
-2. 사용자 인증 정보 → OAuth 클라이언트 ID(웹 애플리케이션)
-3. **승인된 리디렉션 URI**: `https://<도메인>/auth/callback` (로컬: `https://localhost:3000/auth/callback`)
-4. `AUTH_PROVIDERS=google`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+- [supabase.com](https://supabase.com) → New project. 리전은 **Northeast Asia (Seoul) `ap-northeast-2`** 권장. DB 비밀번호를 안전하게 보관합니다.
 
-로그인 취소·실패 시 인식 작업은 유지되고 같은 화면으로 돌아와 재시도할 수 있습니다.
+**2. API 키 → `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`**
+
+- Project Settings → Data API의 Project URL(`https://<project-ref>.supabase.co`)
+- Project Settings → API Keys의 **Publishable key**(`sb_publishable_...`). 예전 프로젝트는 Legacy의 `anon` 키(`NEXT_PUBLIC_SUPABASE_ANON_KEY`)도 받습니다. 공개돼도 되는 키이며, 모든 테이블이 RLS + 정책 없음이라 이 키로는 데이터에 접근할 수 없습니다. **secret / service_role 키는 앱에 넣지 않습니다.**
+- 권장: Project Settings → JWT Keys에서 **비대칭 서명 키(ECC/RSA)** 사용(새 프로젝트 기본). 이때 `getClaims()`는 캐시한 공개키로 서버 안에서 서명을 검증하고, 예전 대칭 키(HS256) 프로젝트면 요청마다 Auth 서버를 호출합니다.
+
+**3. DB 접속 문자열 → `DATABASE_URL`, `DATABASE_MIGRATION_URL`**
+
+- 대시보드 상단 **Connect** → Connection string
+  - `DATABASE_URL`: **Transaction pooler**(포트 6543, `postgres.<project-ref>` 사용자). 서버리스 함수용
+  - `DATABASE_MIGRATION_URL`: **Session pooler**(포트 5432) 또는 IPv6가 되는 환경이면 Direct connection. `pnpm db:migrate` 전용
+- `*.supabase.com`/`*.supabase.co` 호스트는 자동으로 TLS로 연결합니다. Supabase DB 인증서는 Supabase 자체 루트 CA로 서명되므로, 인증서까지 검증하려면 Project Settings → Database → SSL Configuration에서 인증서를 받아 `DATABASE_SSL_ROOT_CERT`에 PEM을 넣습니다(없으면 암호화만).
+- `pnpm db:migrate` → `pnpm db:check`로 마이그레이션 수와 “RLS 미적용: 없음”, “anon/authenticated 테이블 권한: 없음”을 확인합니다. 마이그레이션 `0003_supabase_rls`가 모든 앱 테이블에 RLS를 켜고 `anon`·`authenticated` 권한을 회수합니다(서버는 테이블 소유자인 `postgres` 역할로 접속해 RLS 영향을 받지 않습니다).
+
+**4. 원본 저장소 → `STORAGE_DRIVER=s3`, `S3_*`**
+
+- Storage → New bucket: 이름(예: `offnal-sources`), **Public bucket 끔**, 정책(Policies)은 추가하지 않습니다 → `S3_BUCKET`
+- Storage → S3 Configuration(대시보드 표기: Project Settings → Storage → S3 Connection): Endpoint → `S3_ENDPOINT`(`https://<project-ref>.storage.supabase.co/storage/v1/s3`), Region → `S3_REGION`, **New access key** → `S3_ACCESS_KEY_ID`·`S3_SECRET_ACCESS_KEY`(비밀 키는 발급 때 한 번만 보임). S3 키는 RLS를 우회하는 서버 전용 키입니다. path-style 주소는 코드에서 항상 켭니다.
+- `pnpm storage:check`로 검사 객체 올리기·읽기·삭제를 확인합니다.
+- 원본은 저장 확정 직후 삭제되고, 방치된 원본은 `SOURCE_TTL_HOURS`(24시간) 뒤 정리 작업이 지웁니다. 처리업체(스토리지·AI) 쪽 보관 설정은 출시 전 별도 확인이 필요합니다.
+
+**5. Auth → URL Configuration**
+
+- Site URL: `APP_URL`(운영 도메인)
+- Redirect URLs: `https://<도메인>/**`, 로컬은 `https://localhost:3000/**`(콜백이 `/auth/callback?returnTo=...` 형태라 쿼리까지 허용되도록 `**` 사용). preview 도메인도 필요하면 추가합니다.
+
+**6. 카카오 개발자 콘솔 ([developers.kakao.com](https://developers.kakao.com))**
+
+1. 내 애플리케이션 → 애플리케이션 추가
+2. 앱 설정 → 플랫폼 → **Web 사이트 도메인**: `https://<도메인>`, `https://localhost:3000`
+3. 제품 설정 → 카카오 로그인 → **활성화 ON**, **Redirect URI**: `https://<project-ref>.supabase.co/auth/v1/callback`
+4. 제품 설정 → 카카오 로그인 → 보안 → **Client Secret** 코드 생성·활성화
+5. 제품 설정 → 카카오 로그인 → **동의항목**: 닉네임(`profile_nickname`) 필수 또는 선택 동의, 프로필 사진(`profile_image`) 선택 동의, **카카오계정(이메일)(`account_email`) 선택 동의**
+   - Supabase는 카카오에 항상 `account_email profile_image profile_nickname` 범위를 요청하고, `signInWithOAuth`의 `scopes`는 이 기본값에 **추가만** 됩니다(줄일 수 없음). 동의항목에 없는 범위를 요청하면 카카오가 `KOE205` 오류를 냅니다.
+   - `account_email`은 **비즈 앱**에서만 설정할 수 있습니다. 앱 설정 → 일반 → 비즈니스 정보에서 비즈 앱으로 전환하세요(사업자가 없으면 “개인 개발자 비즈 앱” 전환 가능).
+   - 앱은 닉네임만 씁니다(표시 이름, 없으면 “오프날 사용자”). 이메일은 받으면 `auth_identities.email`에만 저장합니다.
+6. 앱 설정 → 앱 키 → **REST API 키** 확인
+
+**7. Supabase Auth → Sign In / Providers → Kakao**
+
+- Kakao enabled ON, **Client ID = 카카오 REST API 키**, **Client Secret = 4번의 Client Secret 코드**
+- 사용자가 이메일 동의를 하지 않아도 가입되도록 **Allow users without an email** 을 켭니다.
+- 앱 환경 변수: `AUTH_PROVIDERS=kakao`(데모에서 함께 시험하려면 `kakao,dev`)
+
+로그인 취소·실패 시 인식 작업은 유지되고 같은 화면(`?login=failed`)으로 돌아와 재시도할 수 있습니다.
 
 ### 근무표 인식 (Anthropic)
 
@@ -128,15 +177,15 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 
 ### 개발 모드에서만 검증
 
-- 인식(mock fixture), 결제(mock 테스트 결제), 로그인(데모 로그인) — 실제 Google·Anthropic·토스 호출은 키가 없어 실행해 보지 않았습니다(요청 형식은 단위 테스트와 공식 문서로 확인).
+- 인식(mock fixture), 결제(mock 테스트 결제), 로그인(데모 로그인) — 실제 Supabase(카카오 로그인·DB·Storage)·Anthropic·토스 호출은 키가 없어 실행해 보지 않았습니다. 카카오 로그인 흐름은 가짜 Supabase 클라이언트로, RLS 마이그레이션은 Supabase 역할을 흉내 낸 PGlite로 통합 테스트했습니다.
 
 ### 사용자 설정 대기
 
-- Google OAuth 클라이언트, Anthropic API 키, 토스 상점 키·웹훅, 운영 Postgres·S3 버킷, 도메인, `APP_SECRET`/`CRON_SECRET`
+- Supabase 프로젝트(URL·publishable 키·DB 접속 문자열·Storage 버킷·S3 키·URL Configuration), 카카오 앱(REST API 키·Client Secret·동의항목·비즈 앱 전환), Anthropic API 키, 토스 상점 키·웹훅, 도메인, `APP_SECRET`/`CRON_SECRET`
 
 ### 출시 전 결정·확인 필요
 
-- 로그인 수단 확정, 결제 사업자·세금·영수증·환불 문구(환불 시 이용권 회수 정책 포함 — 현재는 취소 이벤트를 기록만 하고 이용권 유지)
+- 결제 사업자·세금·영수증·환불 문구(환불 시 이용권 회수 정책 포함 — 현재는 취소 이벤트를 기록만 하고 이용권 유지)
 - 가상계좌: 정리 작업이 24시간 넘은 대기 주문을 취소하므로 가상계좌를 켜려면 입금 기한과 맞춰야 합니다(카드·간편결제만 쓰면 무관).
 - 재인식 한도·업로드 한도·보관 기간 실측 후 조정
 - 인식된 근무 시간 확인은 화면(체크박스)에서만 강제합니다.

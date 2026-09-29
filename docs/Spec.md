@@ -72,10 +72,10 @@ src/
     DraftMonthRemapper.ts  ImageSignature.ts
   server/
     config/AppConfig.ts  config/PricingConfig.ts
-    db/Schema.ts  db/Database.ts  db/Migrate.ts
+    db/Schema.ts  db/Database.ts  db/Migrate.ts  db/DatabaseInspection.ts  db/DbCheck.ts(pnpm db:check)
     http/ApiError.ts  http/RouteHelpers.ts  http/RequestContext.ts
-    auth/SessionService.ts  auth/AuthProvider.ts  auth/GoogleAuthProvider.ts  auth/DevAuthProvider.ts  auth/AuthProviderRegistry.ts
-    storage/ObjectStorage.ts  storage/LocalObjectStorage.ts  storage/S3ObjectStorage.ts  storage/StorageFactory.ts
+    auth/SessionService.ts(데모 세션·익명 세션)  auth/AuthProvider.ts  auth/KakaoAuthProvider.ts  auth/SupabaseServerClient.ts  auth/DevAuthProvider.ts  auth/AuthProviderRegistry.ts  auth/LoginService.ts
+    storage/ObjectStorage.ts  storage/LocalObjectStorage.ts  storage/S3ObjectStorage.ts  storage/S3Settings.ts  storage/StorageFactory.ts  storage/StorageCheck.ts(pnpm storage:check)
     vision/VisionProvider.ts  vision/AnthropicVisionProvider.ts  vision/MockVisionProvider.ts  vision/VisionFactory.ts  vision/VisionPrompts.ts
     payment/PaymentProvider.ts  payment/TossPaymentProvider.ts  payment/MockPaymentProvider.ts  payment/PaymentFactory.ts
     services/RecognitionService.ts  DraftService.ts  PublishService.ts  PaymentService.ts
@@ -149,8 +149,8 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 | 테이블 | 컬럼 (요지) | 제약 |
 |---|---|---|
 | `users` | id uuid pk, display_name text, timezone text default 'Asia/Seoul', created_at | |
-| `auth_identities` | id, user_id fk, provider text, provider_subject text, email text null, created_at | unique(provider, provider_subject) |
-| `sessions` | id text pk (= sha256(token) hex), user_id fk, created_at, expires_at | |
+| `auth_identities` | id, user_id fk, provider text(`supabase`\|`dev`), provider_subject text, email text null, created_at | unique(provider, provider_subject) |
+| `sessions` | id text pk (= sha256(token) hex), user_id fk, created_at, expires_at | 데모 로그인 전용 |
 | `anonymous_sessions` | id text pk (= sha256(token)), ip_hash text, created_at, expires_at | |
 | `recognition_jobs` | id uuid pk, anonymous_session_id text null, user_id uuid null, status text, error_code text null, source_object_key text null, source_mime text, source_deleted_at null, attempt_count int, lease_expires_at null, table_result jsonb null (**타인 이름 포함 임시**), expires_at, created_at, updated_at | index(user_id), index(anonymous_session_id) |
 | `drafts` | id uuid pk, user_id fk, recognition_job_id uuid null, person_row_id text null, year_month text, display_name text, definitions jsonb, entries jsonb, source_cells jsonb, status text, revision int default 1, expires_at, created_at, updated_at | unique(recognition_job_id, person_row_id, year_month) where recognition_job_id not null — 추출 재시도 멱등 |
@@ -163,7 +163,7 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 
 - `ShiftDefinition`은 published_months에 **월별 스냅샷(JSONB)** 으로 저장해 과거 달이 바뀌지 않게 한다. draft도 자체 사본을 가진다.
 - 삭제한 달력(`published_months` 삭제)은 `entitlements`를 건드리지 않는다.
-- **Supabase 접근 정책**: 마이그레이션으로 모든 앱 테이블에 `ENABLE ROW LEVEL SECURITY`(정책 없음 = anon/authenticated 역할 전면 차단). `anon`·`authenticated` 역할이 존재할 때만(Supabase) 해당 역할의 테이블 권한 `REVOKE ALL`도 수행(DO 블록으로 PGlite 호환). 서버는 `DATABASE_URL`(postgres 역할, RLS 우회)로만 접근. Storage 버킷도 비공개 + 정책 없음.
+- **Supabase 접근 정책**: 마이그레이션으로 모든 앱 테이블에 `ENABLE ROW LEVEL SECURITY`(정책 없음 = anon/authenticated 역할 전면 차단, `drizzle/0003_supabase_rls.sql`; 제공자 값 변경은 `0002_auth_identity_supabase.sql`). `anon`·`authenticated` 역할이 존재할 때만(Supabase) 해당 역할의 테이블 권한 `REVOKE ALL`도 수행(DO 블록으로 PGlite 호환). 서버는 `DATABASE_URL`(postgres 역할, RLS 우회)로만 접근. Storage 버킷도 비공개 + 정책 없음.
 - 앱 `users.id`는 앱 자체 uuid를 유지하고 Supabase user id는 `auth_identities`(provider `supabase`)로 연결한다(auth 스키마에 FK를 걸지 않음 — PGlite 테스트 호환).
 
 ---
@@ -249,10 +249,11 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 
 - `GET /auth/login?provider=kakao&returnTo=/recognitions/:id` → Supabase `signInWithOAuth({ provider:'kakao', options:{ redirectTo: ${APP_URL}/auth/callback?returnTo=..., skipBrowserRedirect:true } })`로 받은 URL로 리다이렉트(PKCE verifier는 `@supabase/ssr` 쿠키). returnTo는 기존 `sanitizeReturnTo`로 검증
 - `GET /auth/callback?code&returnTo` → `exchangeCodeForSession(code)` → Supabase user로 앱 user/identity upsert(표시 이름: 카카오 닉네임, 없으면 '오프날 사용자') → 익명 세션 작업 claim(한 트랜잭션) → `returnTo`. 취소·실패(`error` 파라미터, 교환 실패)는 `returnTo?login=failed`(작업 유지)
-- 요청 인증: `RequestContext`가 Supabase 서버 클라이언트로 쿠키 세션을 검증(`auth.getClaims()` 또는 `getUser()`; 서명 검증된 값만 신뢰)하고 앱 user를 찾는다. 세션 갱신은 Next 16 `proxy.ts`에서 `@supabase/ssr` 권장 방식으로 처리. API 핸들러는 계속 `NextRequest`/`NextResponse` 쿠키만 사용
+- 요청 인증: `RequestContext`가 Supabase 서버 클라이언트로 쿠키 세션을 검증(`auth.getClaims()`: 비대칭 서명 키면 캐시한 JWKS로 로컬 검증, 대칭 키면 Auth 서버 호출. `getSession()`은 검증하지 않으므로 금지)하고 `sub` → `auth_identities('supabase', sub)` → 앱 user를 찾는다. 카카오가 켜져 있고 `sb-*` 쿠키가 있을 때만 Supabase를 호출한다. 검증됐지만 앱 user 행이 없는 세션(콜백 미완료)은 비로그인 취급(사용자 생성·claim은 콜백에서만). 검증 중 토큰 갱신 쿠키는 `apiRoute`가 응답에 싣는다. 세션 갱신은 Next 16 `proxy.ts`에서 `@supabase/ssr` 권장 방식으로 처리. API 핸들러는 계속 `NextRequest`/`NextResponse` 쿠키만 사용
 - Supabase 대시보드 설정: Kakao provider 활성(REST API 키·Client Secret), Site URL = `APP_URL`, Redirect URLs에 `${APP_URL}/auth/callback`. 카카오 개발자 콘솔 Redirect URI = `https://<project-ref>.supabase.co/auth/v1/callback`
 - `POST /auth/dev-login` `{ displayName, returnTo }` → **demo 모드에서만** 존재. 같은 흐름
-- `POST /auth/logout` → Supabase `signOut()`(데모는 자체 세션 삭제)
+- `POST /auth/logout` → Supabase `signOut({ scope: 'local' })`(이 브라우저만, `sb-*` 쿠키 삭제) + 데모 자체 세션 삭제
+- 카카오 범위: Supabase가 `account_email profile_image profile_nickname`을 항상 요청하고 `options.scopes`는 추가만 되므로 코드에서 범위를 지정하지 않는다. 카카오 콘솔 동의항목에 세 항목이 모두 있어야 한다(`account_email`은 비즈 앱 필요, README 참고). Supabase Kakao 설정에서 “Allow users without an email”을 켠다
 - 로그인 버튼 옆 안내: “업로드한 사진은 다시 올리지 않아도 돼요.”
 
 ### 7.6 정리 작업
@@ -348,6 +349,6 @@ interface PaymentProvider {
 
 ## 12. 환경 변수 (`.env.example`)
 
-`OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, AUTH_PROVIDERS(kakao,dev), NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY(anon/publishable 키, 공개 가능), SUPABASE_JWT_ISSUER 등 검증에 필요한 값(구현 시 확정), VISION_PROVIDER(anthropic|mock), ANTHROPIC_API_KEY, VISION_MODEL(기본 claude-opus-5-5), VISION_EFFORT, VISION_TIMEOUT_MS, MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(1900), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
+`OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, DATABASE_MIGRATION_URL(db:migrate 전용, 세션 풀러/직접 연결), DATABASE_SSL_ROOT_CERT(선택, Supabase DB 루트 CA), AUTH_PROVIDERS(kakao,dev), NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY(또는 레거시 NEXT_PUBLIC_SUPABASE_ANON_KEY, 공개 가능; JWT 검증은 getClaims가 프로젝트 JWKS로 하므로 별도 issuer 값 불필요), VISION_PROVIDER(anthropic|mock), ANTHROPIC_API_KEY, VISION_MODEL(기본 claude-opus-5-5), VISION_EFFORT, VISION_TIMEOUT_MS, MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(1900), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
 
 한도·TTL 숫자는 모두 **초기 제안값**이며 README에 그렇게 명시한다.
