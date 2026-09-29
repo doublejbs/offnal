@@ -17,6 +17,23 @@ const PATH_PARSE_BASE = 'http://path.invalid';
 export const jsonResponse = <T>(body: T, status = 200, headers: Record<string, string> = {}): NextResponse =>
   NextResponse.json(body, { status, headers: { 'Cache-Control': NO_STORE, ...headers } });
 
+const INCLUDE_OFF_VALUES = new Set(['1', 'true']);
+
+/** `includeOff=1` (or `true`) on an ICS export; anything else keeps days off out. */
+export const parseIncludeOff = (searchParams: URLSearchParams): boolean =>
+  INCLUDE_OFF_VALUES.has(searchParams.get('includeOff') ?? '');
+
+/** A downloadable, uncached ICS attachment. */
+export const icsResponse = (fileName: string, body: string): NextResponse =>
+  new NextResponse(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${fileName}"`,
+      'Cache-Control': NO_STORE,
+    },
+  });
+
 export const errorResponse = (error: ApiError): NextResponse => {
   const body: ApiErrorBody = {
     error: {

@@ -4,6 +4,7 @@ import { buildIcs } from '@/domain/IcsBuilder';
 import { type IcsBuildInput } from '@/domain/types/IcsBuildInput';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
+import { getEvents, unfold } from '../helpers/IcsTestUtils';
 
 const DEFINITIONS: ShiftDefinition[] = [
   { code: 'D', label: '데이', startTime: '07:00', endTime: '16:00', endsNextDay: false, isOff: false },
@@ -36,14 +37,6 @@ const buildInput = (overrides: Partial<IcsBuildInput> = {}): IcsBuildInput => ({
   generatedAt: new Date('2026-09-29T03:04:05Z'),
   ...overrides,
 });
-
-const unfold = (ics: string): string => ics.replace(/\r\n[ \t]/g, '');
-
-const getEvents = (ics: string): string[] =>
-  unfold(ics)
-    .split('BEGIN:VEVENT')
-    .slice(1)
-    .map((block) => block.split('END:VEVENT')[0] ?? '');
 
 describe('IcsBuilder.buildIcs', () => {
   it('builds a calendar with PRODID and DTSTAMP', () => {

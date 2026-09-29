@@ -6,11 +6,13 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
+import { buildSharedIcsFileName } from '@/domain/ExportFileNames';
 import { buildIcs } from '@/domain/IcsBuilder';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
 import { type ShareSettingsResponse } from '@/domain/types/api/ShareSettingsResponse';
 import { type UpdateShareRequest } from '@/domain/types/api/UpdateShareRequest';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
+import { SHARE_EXPIRED_MESSAGE } from '@/domain/ShareMessages';
 import { formatYearMonthLabel, isValidYearMonth } from '@/domain/YearMonth';
 import { track } from '@/server/analytics/Analytics';
 import { type Db, type DbExecutor, type DbTransaction } from '@/server/db/Database';
@@ -26,8 +28,6 @@ import {
   resolveShareUrl,
 } from '@/server/crypto/ShareTokens';
 import { requireUser } from '@/server/validation/RequestGuards';
-
-export const SHARE_EXPIRED_MESSAGE = '링크가 만료되었거나 공유가 중지되었어요.';
 
 const NO_CALENDAR_MESSAGE = '공유할 달력이 아직 없어요. 먼저 한 달을 저장해 주세요.';
 const SHARE_OFF_MESSAGE = '공유가 꺼져 있어요. 먼저 공유 링크를 만들어 주세요.';
@@ -303,5 +303,5 @@ export const exportSharedMonthIcs = async (
 
   track(AnalyticsEvent.EXPORT_ICS, { includeOff, shared: true });
 
-  return { fileName: `offnal-shared-${target.yearMonth}.ics`, body };
+  return { fileName: buildSharedIcsFileName(target.yearMonth), body };
 };

@@ -248,7 +248,7 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 | `POST /api/calendar/share/rotate` | 새 토큰, 이전 토큰 즉시 무효 |
 | `DELETE /api/calendar/share` | 공유 중지(토큰 제거) |
 | `GET /api/shared/:token?month=YYYY-MM` | 비로그인. 해시 조회 + share_enabled + share_visible 월만. `{ displayName, months:[ym], month:{ yearMonth, definitions, entries(code만, reviewReasons 제외), updatedAt } }`. 헤더 6장 참고 |
-| `GET /api/shared/:token/export.ics?month=YYYY-MM&includeOff=1` | 비로그인 받은 사람용 일회성 가져오기 파일. `getSharedCalendar`와 같은 검증(해시 조회·share_enabled·share_visible 월만, 무효 404)과 공유 조회 IP 한도. 제목 `${displayName} · ${label} (${code})`, UID는 내부 calendarId 대신 `sha256(calendarId)` 앞 16자 기반(`${hash}-${date}@offnal`), 휴무 기본 제외. 헤더: `text/calendar`, attachment `offnal-${displayName 제외}-YYYY-MM.ics` → `offnal-shared-YYYY-MM.ics`, no-store·noindex·no-referrer |
+| `GET /api/shared/:token/export.ics?month=YYYY-MM&includeOff=1` | 비로그인 받은 사람용 일회성 가져오기 파일. `getSharedCalendar`와 같은 검증(해시 조회·share_enabled·share_visible 월만, 무효 404, `month` 생략 시 최근 공개 달)과 공유 조회 IP 한도. 제목 `${displayName} · ${label} (${code})`, UID는 내부 calendarId 대신 `sha256(calendarId)` 앞 16자 기반(`${hash}-${date}@offnal`), 휴무 기본 제외. 헤더: `text/calendar`, attachment `offnal-${displayName 제외}-YYYY-MM.ics` → `offnal-shared-YYYY-MM.ics`, no-store·noindex·no-referrer |
 
 ### 7.5 인증
 

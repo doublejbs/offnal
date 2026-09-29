@@ -9,6 +9,7 @@ import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
 import { type ShareSettingsResponse } from '@/domain/types/api/ShareSettingsResponse';
+import { SHARE_EXPIRED_MESSAGE } from '@/domain/ShareMessages';
 import { calendars } from '@/server/db/Schema';
 import { MOCK_CANDIDATE_NAMES } from '@/server/vision/MockVisionProvider';
 import {
@@ -19,10 +20,10 @@ import {
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
 import { createEnvSandbox } from '../helpers/EnvSandbox';
+import { getEvents, unfold } from '../helpers/IcsTestUtils';
 import { createLoggedInJob, createReadyDraft } from '../helpers/OffnalFlows';
 import { findUserId, publishReady } from '../helpers/PaymentFlows';
 
-const SHARE_EXPIRED_MESSAGE = '링크가 만료되었거나 공유가 중지되었어요.';
 const SELECTED_PERSON = MOCK_CANDIDATE_NAMES[0] ?? '';
 const OTHER_PEOPLE = MOCK_CANDIDATE_NAMES.slice(1);
 
@@ -40,14 +41,6 @@ afterEach(() => {
 afterAll(async () => {
   await env.close();
 });
-
-const unfold = (ics: string): string => ics.replace(/\r\n[ \t]/g, '');
-
-const getEvents = (ics: string): string[] =>
-  ics
-    .split('BEGIN:VEVENT')
-    .slice(1)
-    .map((block) => block.split('END:VEVENT')[0] ?? '');
 
 const exportShared = (token: string, query = ''): Promise<Response> =>
   createApiTestClient().send(sharedIcsRoute, `/api/shared/${token}/export.ics${query}`, {

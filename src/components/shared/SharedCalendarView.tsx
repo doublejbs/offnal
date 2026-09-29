@@ -15,6 +15,7 @@ import RecoverableError from '@/components/RecoverableError';
 import SharedExportActions from '@/components/shared/SharedExportActions';
 import { useLoad } from '@/components/UseLoad';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
+import { SHARE_EXPIRED_MESSAGE } from '@/domain/ShareMessages';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 
@@ -22,8 +23,6 @@ type SharedCalendarViewProps = {
   token: string;
   month: string | null;
 };
-
-const INVALID_MESSAGE = '링크가 만료되었거나 공유가 중지되었어요.';
 
 /** Shared entries carry codes only; they are shown as confirmed read-only days. */
 const toEntries = (data: SharedCalendarResponse): ShiftEntry[] =>
@@ -51,7 +50,7 @@ const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
     return (
       <EmptyState
         label="함께 보는 근무표"
-        title={INVALID_MESSAGE}
+        title={SHARE_EXPIRED_MESSAGE}
         description="링크를 보낸 사람에게 새 링크를 요청해 주세요."
       />
     );
@@ -112,7 +111,12 @@ const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
         <br />
         공유받은 달력은 읽기 전용이에요.
       </div>
-      <SharedExportActions key={data.month.yearMonth} token={token} data={data} />
+      <SharedExportActions
+        key={data.month.yearMonth}
+        token={token}
+        displayName={data.displayName}
+        month={data.month}
+      />
     </>
   );
 };

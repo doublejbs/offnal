@@ -13,6 +13,7 @@ import { getShiftTone } from '@/client/ShiftStyle';
 import { ShiftTone } from '@/domain/enums/ShiftTone';
 import { type PngRenderInput } from '@/domain/types/PngRenderInput';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
+import { filterUsedDefinitions } from '@/domain/UsedDefinitions';
 import { dayOfDate } from '@/domain/YearMonth';
 
 /** Always the light palette: the image must read the same regardless of the viewer's theme. */
@@ -201,8 +202,7 @@ const releaseCanvas = (canvas: HTMLCanvasElement) => {
 /** Renders a month (the owner's export data or a shared-view month) into a PNG blob. */
 export const renderMonthPng = async (data: PngRenderInput): Promise<Blob> => {
   const family = getAppFontFamily();
-  const usedCodes = new Set(data.entries.map((entry) => entry.code));
-  const legend = data.definitions.filter((definition) => usedCodes.has(definition.code));
+  const legend = filterUsedDefinitions(data.definitions, data.entries);
 
   await waitForFonts(family, collectPngTexts(data, legend));
 
@@ -236,5 +236,3 @@ export const renderMonthPng = async (data: PngRenderInput): Promise<Blob> => {
     releaseCanvas(canvas);
   }
 };
-
-export const buildPngFilename = (yearMonth: string): string => `offnal-${yearMonth}.png`;

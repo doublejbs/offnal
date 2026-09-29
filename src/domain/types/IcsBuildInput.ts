@@ -1,3 +1,4 @@
+import { type ShiftCodeEntry } from '@/domain/types/ShiftCodeEntry';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 
 export type IcsBuildInput = {
@@ -5,7 +6,7 @@ export type IcsBuildInput = {
   displayName: string;
   yearMonth: string;
   /** Only date and code are read, so share-view entries (no review data) are accepted as is. */
-  entries: { date: string; code: string | null }[];
+  entries: ShiftCodeEntry[];
   definitions: ShiftDefinition[];
   includeOff: boolean;
   generatedAt: Date;

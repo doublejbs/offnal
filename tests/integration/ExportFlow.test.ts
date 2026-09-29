@@ -15,6 +15,7 @@ import {
   readJson,
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
+import { unfold } from '../helpers/IcsTestUtils';
 import { createLoggedInJob, createReadyDraft } from '../helpers/OffnalFlows';
 import { findUserId, publishReady } from '../helpers/PaymentFlows';
 
@@ -35,8 +36,6 @@ beforeAll(async () => {
 afterAll(async () => {
   await env.close();
 });
-
-const unfold = (ics: string): string => ics.replace(/\r\n[ \t]/g, '');
 
 const exportIcs = (client: ApiTestClient, yearMonth: string, query = '') =>
   client.send(exportIcsRoute, `/api/calendar/${yearMonth}/export.ics${query}`, { params: { yearMonth } });

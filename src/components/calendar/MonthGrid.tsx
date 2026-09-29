@@ -12,6 +12,7 @@ import {
 } from '@/client/ShiftStyle';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
+import { filterUsedDefinitions } from '@/domain/UsedDefinitions';
 import { addDaysToDate, dayOfDate, listDates, yearMonthOfDate } from '@/domain/YearMonth';
 
 type MonthGridProps = {
@@ -45,8 +46,7 @@ const MonthGrid = ({
 }: MonthGridProps) => {
   const buttonsRef = useRef(new Map<string, HTMLButtonElement>());
   const entryByDate = new Map(entries.map((entry) => [entry.date, entry]));
-  const usedCodes = new Set(entries.map((entry) => entry.code));
-  const legend = definitions.filter((definition) => usedCodes.has(definition.code));
+  const legend = filterUsedDefinitions(definitions, entries);
   const dates = listDates(yearMonth);
   const tabStop = selectedDate && dates.includes(selectedDate) ? selectedDate : dates[0];
 

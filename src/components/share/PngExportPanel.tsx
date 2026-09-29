@@ -1,15 +1,18 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { getErrorMessage, getExportData } from '@/client/ApiClient';
 import { formatDefinitionSummary } from '@/client/DisplayText';
-import { buildPngFilename, renderMonthPng } from '@/client/PngRenderer';
+import { renderMonthPng } from '@/client/PngRenderer';
+import { PNG_OUTCOME_MESSAGES } from '@/client/ShareOutcomeMessages';
 import { shareOrDownloadFile } from '@/client/ShareOrDownload';
 import MonthGrid from '@/components/calendar/MonthGrid';
-import { ShareOutcome } from '@/domain/enums/ShareOutcome';
+import ExportFeedbackView from '@/components/share/ExportFeedbackView';
+import { buildPngFileName } from '@/domain/ExportFileNames';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
+import { filterUsedDefinitions } from '@/domain/UsedDefinitions';
 import { formatYearMonthLabel } from '@/domain/YearMonth';
 
 type PngExportPanelProps = {
@@ -19,23 +22,21 @@ type PngExportPanelProps = {
   entries: ShiftEntry[];
 };
 
-const OUTCOME_MESSAGES: Record<ShareOutcome, string | null> = {
-  [ShareOutcome.SHARED]: '이미지를 공유했어요.',
-  [ShareOutcome.DOWNLOADED]: '이미지를 저장했어요. 다운로드 폴더나 사진첩을 확인해 주세요.',
-  [ShareOutcome.COPIED]: null,
-  [ShareOutcome.CANCELLED]: null,
-  [ShareOutcome.FAILED]: null,
-};
-
 /** Preview, then a real PNG drawn from the entitlement-checked export data (never from this preview). */
 const PngExportPanel = ({ yearMonth, displayName, definitions, entries }: PngExportPanelProps) => {
   const [isBusy, setIsBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const usedCodes = new Set(entries.map((entry) => entry.code));
-  const used = definitions.filter((definition) => usedCodes.has(definition.code));
+  // Synchronous guard: a second tap before the busy state re-renders must not start another export.
+  const inFlightRef = useRef(false);
+  const used = filterUsedDefinitions(definitions, entries);
 
   const handleSave = async () => {
+    if (inFlightRef.current) {
+      return;
+    }
+
+    inFlightRef.current = true;
     setIsBusy(true);
     setError(null);
     setMessage(null);
@@ -44,10 +45,11 @@ const PngExportPanel = ({ yearMonth, displayName, definitions, entries }: PngExp
       const data = await getExportData(yearMonth);
       const blob = await renderMonthPng(data);
 
-      setMessage(OUTCOME_MESSAGES[await shareOrDownloadFile(blob, buildPngFilename(yearMonth))]);
+      setMessage(PNG_OUTCOME_MESSAGES[await shareOrDownloadFile(blob, buildPngFileName(yearMonth))]);
     } catch (caught: unknown) {
       setError(`이미지를 만들지 못했어요. ${getErrorMessage(caught)}`);
     } finally {
+      inFlightRef.current = false;
       setIsBusy(false);
     }
   };
@@ -71,17 +73,11 @@ const PngExportPanel = ({ yearMonth, displayName, definitions, entries }: PngExp
           </span>
         ))}
       </div>
-      {error && (
-        <div className="warning" role="alert">
-          {error}
-        </div>
-      )}
-      <button type="button" className="primary" onClick={handleSave} disabled={isBusy}>
-        {isBusy ? '이미지를 만드는 중…' : '이미지 저장'}
-      </button>
-      <div className="status-line mt-8" role="status" aria-live="polite">
-        {message}
-      </div>
+      <ExportFeedbackView error={error} message={message}>
+        <button type="button" className="primary" onClick={handleSave} disabled={isBusy}>
+          {isBusy ? '이미지를 만드는 중…' : '이미지 저장'}
+        </button>
+      </ExportFeedbackView>
       <div className="hint">저장된 이미지는 이후 근무 변경이 반영되지 않아요.</div>
     </div>
   );

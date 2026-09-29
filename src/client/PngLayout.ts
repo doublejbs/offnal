@@ -1,6 +1,6 @@
 import { formatDateTime, formatLegendText } from '@/client/DisplayText';
 import { buildMonthWeeks, WEEKDAY_LABELS } from '@/client/MonthLayout';
-import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
+import { type SharedMonth } from '@/domain/types/api/SharedCalendarResponse';
 import { type PngRenderInput } from '@/domain/types/PngRenderInput';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { formatYearMonthLabel, listDates } from '@/domain/YearMonth';
@@ -19,25 +19,18 @@ export const buildPngTitle = (data: PngRenderInput): string =>
 
 export const buildFooterText = (generatedAt: string): string => `생성 ${formatDateTime(generatedAt)}`;
 
-/** The month a share-link recipient is viewing, as renderer input; null when nothing is visible. */
+/** The month a share-link recipient is viewing, as renderer input. */
 export const buildSharedPngInput = (
-  data: SharedCalendarResponse,
+  displayName: string,
+  month: SharedMonth,
   generatedAt: Date,
-): PngRenderInput | null => {
-  if (!data.month) {
-    return null;
-  }
-
-  return {
-    displayName: data.displayName,
-    yearMonth: data.month.yearMonth,
-    definitions: data.month.definitions,
-    entries: data.month.entries.map((entry) => ({ date: entry.date, code: entry.code })),
-    generatedAt: generatedAt.toISOString(),
-  };
-};
-
-export const buildSharedPngFilename = (yearMonth: string): string => `offnal-shared-${yearMonth}.png`;
+): PngRenderInput => ({
+  displayName,
+  yearMonth: month.yearMonth,
+  definitions: month.definitions,
+  entries: month.entries.map((entry) => ({ date: entry.date, code: entry.code })),
+  generatedAt: generatedAt.toISOString(),
+});
 
 const DIGITS = '0123456789–';
 

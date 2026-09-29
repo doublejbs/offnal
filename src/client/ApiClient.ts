@@ -197,10 +197,11 @@ export const downloadSharedIcs = async (
   token: string,
   yearMonth: string,
   includeOff: boolean,
+  signal?: AbortSignal,
 ): Promise<Blob> => {
   const response = await apiFetch(
     `/api/shared/${encode(token)}/export.ics?month=${encode(yearMonth)}&includeOff=${includeOff ? 1 : 0}`,
-    { credentials: 'omit' },
+    { credentials: 'omit', signal },
   );
 
   return response.blob();

@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildPngTitle,
-  buildSharedPngFilename,
   buildSharedPngInput,
   collectPngTexts,
   computePngLayout,
@@ -11,7 +10,7 @@ import {
   PNG_WIDTH,
 } from '@/client/PngLayout';
 import { type ExportDataResponse } from '@/domain/types/api/ExportDataResponse';
-import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
+import { type SharedMonth } from '@/domain/types/api/SharedCalendarResponse';
 
 describe('PngLayout', () => {
   it('is 1080px wide and rendered at 2x', () => {
@@ -90,23 +89,19 @@ describe('PngLayout', () => {
       { code: 'D', label: '데이', startTime: '07:00', endTime: '16:00', endsNextDay: false, isOff: false },
       { code: 'OFF', label: '휴무', startTime: null, endTime: null, endsNextDay: null, isOff: true },
     ];
-    const shared: SharedCalendarResponse = {
-      displayName: '김하루',
-      months: ['2026-09', '2026-10'],
-      month: {
-        yearMonth: '2026-10',
-        definitions,
-        entries: [
-          { date: '2026-10-01', code: 'D' },
-          { date: '2026-10-02', code: 'OFF' },
-          { date: '2026-10-03', code: null },
-        ],
-        updatedAt: '2026-09-20T00:00:00.000Z',
-      },
+    const shared: SharedMonth = {
+      yearMonth: '2026-10',
+      definitions,
+      entries: [
+        { date: '2026-10-01', code: 'D' },
+        { date: '2026-10-02', code: 'OFF' },
+        { date: '2026-10-03', code: null },
+      ],
+      updatedAt: '2026-09-20T00:00:00.000Z',
     };
 
     it('builds the renderer input from the viewed month with only date and code per entry', () => {
-      const input = buildSharedPngInput(shared, new Date('2026-09-29T09:30:00.000Z'));
+      const input = buildSharedPngInput('김하루', shared, new Date('2026-09-29T09:30:00.000Z'));
 
       expect(input).toEqual({
         displayName: '김하루',
@@ -121,26 +116,14 @@ describe('PngLayout', () => {
       });
     });
 
-    it('returns null when no month is visible', () => {
-      expect(buildSharedPngInput({ ...shared, months: [], month: null }, new Date())).toBeNull();
-    });
-
     it('feeds the same title and font texts as the owner image', () => {
-      const input = buildSharedPngInput(shared, new Date('2026-09-29T09:30:00.000Z'));
-
-      if (!input) {
-        throw new Error('input expected');
-      }
+      const input = buildSharedPngInput('김하루', shared, new Date('2026-09-29T09:30:00.000Z'));
 
       const texts = collectPngTexts(input, definitions);
 
       expect(buildPngTitle(input)).toBe('김하루 · 2026년 10월');
       expect(texts[600]).toContain('김하루 · 2026년 10월');
       expect(texts[400]).toContain('생성 2026.09.29 18:30');
-    });
-
-    it('names the file offnal-shared-YYYY-MM.png', () => {
-      expect(buildSharedPngFilename('2026-10')).toBe('offnal-shared-2026-10.png');
     });
   });
 });

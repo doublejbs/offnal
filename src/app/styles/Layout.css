@@ -124,7 +124,10 @@ p {
 }
 
 .kakao-login.compact {
-  width: auto;
+  /* Hug the label and sit centered: the parent .stack is a grid, whose items stretch by default. */
+  display: inline-flex;
+  width: fit-content;
+  justify-self: center;
   min-height: 44px;
   padding: 8px 16px;
   margin-inline: auto;

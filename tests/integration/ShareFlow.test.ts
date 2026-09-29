@@ -15,6 +15,7 @@ import { type CalendarMonthResponse } from '@/domain/types/api/CalendarMonthResp
 import { type CalendarSummaryResponse } from '@/domain/types/api/CalendarSummaryResponse';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
 import { type ShareSettingsResponse } from '@/domain/types/api/ShareSettingsResponse';
+import { SHARE_EXPIRED_MESSAGE } from '@/domain/ShareMessages';
 import { MOCK_CANDIDATE_NAMES } from '@/server/vision/MockVisionProvider';
 import {
   type ApiTestClient,
@@ -28,7 +29,6 @@ import { createEnvSandbox } from '../helpers/EnvSandbox';
 import { createLoggedInJob, createReadyDraft } from '../helpers/OffnalFlows';
 import { publishReady } from '../helpers/PaymentFlows';
 
-const SHARE_EXPIRED_MESSAGE = '링크가 만료되었거나 공유가 중지되었어요.';
 const SELECTED_PERSON = MOCK_CANDIDATE_NAMES[0] ?? '';
 const OTHER_PEOPLE = MOCK_CANDIDATE_NAMES.slice(1);
 

@@ -1,3 +1,4 @@
+import { type ShiftCodeEntry } from '@/domain/types/ShiftCodeEntry';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 
 /**
@@ -8,7 +9,7 @@ export type PngRenderInput = {
   displayName: string;
   yearMonth: string;
   definitions: ShiftDefinition[];
-  entries: { date: string; code: string | null }[];
+  entries: ShiftCodeEntry[];
   /** ISO 8601, printed on the image. */
   generatedAt: string;
 };

@@ -2,6 +2,7 @@ import 'server-only';
 
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
+import { buildIcsFileName } from '@/domain/ExportFileNames';
 import { buildIcs } from '@/domain/IcsBuilder';
 import { type ExportDataResponse } from '@/domain/types/api/ExportDataResponse';
 import { track } from '@/server/analytics/Analytics';
@@ -64,7 +65,7 @@ export const exportMonthIcs = async (
 
   track(AnalyticsEvent.EXPORT_ICS, { includeOff });
 
-  return { fileName: `offnal-${month.yearMonth}.ics`, body };
+  return { fileName: buildIcsFileName(month.yearMonth), body };
 };
 
 /** GET /api/calendar/:ym/export-data — entitlement-checked snapshot for the client PNG renderer. */
