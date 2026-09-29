@@ -8,7 +8,7 @@ import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import { useUploadState } from '@/components/upload/UseUploadState';
 import LoginOptions from '@/components/LoginOptions';
-import LoginEmphasis from '@/domain/enums/LoginEmphasis';
+import { LoginEmphasis } from '@/domain/enums/LoginEmphasis';
 
 type UploadPanelProps = {
   isLoggedIn: boolean;

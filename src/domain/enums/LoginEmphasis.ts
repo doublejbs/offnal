@@ -1,6 +1,4 @@
-enum LoginEmphasis {
+export enum LoginEmphasis {
   PRIMARY = 'primary',
   SECONDARY = 'secondary',
 }
-
-export default LoginEmphasis;

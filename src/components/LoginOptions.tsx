@@ -3,7 +3,7 @@
 import { usePublicConfig } from '@/components/ConfigProvider';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
-import LoginEmphasis from '@/domain/enums/LoginEmphasis';
+import { LoginEmphasis } from '@/domain/enums/LoginEmphasis';
 
 type LoginOptionsProps = {
   returnTo: string;
@@ -42,7 +42,7 @@ const LoginOptions = ({ returnTo, primaryLabel, emphasis = LoginEmphasis.PRIMARY
     <div className="stack">
       {hasKakao && (
         <a
-          className={isSecondary ? 'kakao-login compact' : 'primary kakao-login'}
+          className={isSecondary ? 'secondary kakao-login compact' : 'primary kakao-login'}
           href={buildKakaoHref(returnTo)}
         >
           <KakaoSymbol />
