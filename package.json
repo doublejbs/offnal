@@ -21,7 +21,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/db/Migrate.ts",
     "db:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/db/DbCheck.ts",
-    "storage:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/storage/StorageCheck.ts"
+    "storage:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/storage/StorageCheck.ts",
+    "vision:eval": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/vision/eval/VisionEval.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

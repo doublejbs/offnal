@@ -151,6 +151,17 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 - 공식 `@google/genai` SDK의 `models.generateContent`로 이미지(inline base64)와 JSON 스키마(`responseMimeType: 'application/json'` + `responseJsonSchema`)를 보냅니다. 프롬프트·스키마·zod 재검증·오류 매핑은 Anthropic과 같고, nullable 표현만 Gemini 형식(`type: [T, 'null']`)으로 한곳에서 변환합니다. thinking은 모델 기본값을 씁니다.
 - **무료 티어 키는 입력(사진·프롬프트)이 Google 제품 개선(학습)에 쓰일 수 있습니다.** 실제 사용자 근무표에는 반드시 결제가 연결된 **유료 티어 키**를 쓰고 `GEMINI_TIER=paid`로 명시하세요. `OFFNAL_ENV=production`에서 `GEMINI_TIER=paid`가 없으면 기동 단계에서 차단됩니다. 무료 티어는 가상·동의받은 평가 이미지에만 씁니다.
 
+### 인식 모델 비교 평가
+
+```bash
+pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-flash,anthropic:claude-opus-5-5 --repeat 2
+```
+
+- `--dir`의 하위 폴더마다 `image.jpg` + `truth.json`(연월, 전체 이름, 코드 정의·시간, 미정의 코드, 사람별 날짜→코드)을 둡니다. `--people 이름1,이름2`로 채점 대상을 줄이고 `--repeat N`으로 반복합니다.
+- 서비스와 같은 2단계(1차 표 인식 → 이름이 일치한 행으로 사람별 2차 추출 → `normalizeExtraction`)를 모델마다 실행해 정확도(날짜 일치/31, 한 달 전체 일치), 틀린 칸·null 칸, 미정의 코드(W) 유지 여부, 연월·이름 재현율·범례 시간, 처리 시간, 토큰과 유료 단가 기준 추정 비용(업로드 1건 = 1차 + 2차 1회)을 표로 출력하고 `.data/eval/results/<timestamp>.json`에 저장합니다.
+- 모델 ID만 적으면 Gemini, `anthropic:<model>`은 Claude이며 `ANTHROPIC_API_KEY`가 없으면 건너뜁니다. 단가는 `src/server/vision/eval/ModelPrices.ts`(출처·기준일 명시)에서 관리합니다.
+- 무료 티어 429는 지수 백오프로 몇 번 재시도하고, 그래도 실패하면 실패로 기록해 정확도에서 제외합니다. 평가 이미지·정답·결과는 Git에 올리지 않습니다(`.data/`).
+
 ### 결제 (토스페이먼츠)
 
 `PAYMENT_PROVIDER=toss`, `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`(`test_` 키면 테스트 결제).
