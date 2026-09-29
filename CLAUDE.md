@@ -1,0 +1,28 @@
+# 오프날 (offnal)
+
+근무표 사진 → 내 근무 달력 → 캘린더 추가·링크 공유·이미지 저장 모바일 웹 MVP.
+
+- 제품 기준: `docs/Handoff.md` (확정 기획·디자인 원본)
+- 구현 설계: `docs/Spec.md` (디렉터리·DB·API·테스트 계약) — 작업 전 반드시 읽는다
+
+## 명령
+
+```bash
+pnpm dev            # 개발 서버 (.env.local 필요, 데모: APP_MODE=demo)
+pnpm lint           # ESLint
+pnpm typecheck      # tsc --noEmit
+pnpm test           # Vitest 단위·통합
+pnpm test:e2e       # Playwright E2E
+pnpm build          # 프로덕션 빌드
+pnpm db:generate    # Drizzle 마이그레이션 생성
+```
+
+## 컨벤션 요약
+
+- 파일명 PascalCase, `index.ts(x)` 금지 (Next.js 규약 파일 `page.tsx`/`layout.tsx`/`route.ts` 등은 예외)
+- 화살표 함수만, async/await, if 문 항상 `{}`, 선언·조건문 전후와 `return` 직전 빈 줄
+- 문자열 유니언 대신 string enum, enum은 `src/domain/enums/`에 파일 하나씩
+- re-export 금지, 경로 별칭 `@/` → `src/`
+- API 라우트 핸들러는 `next/headers` 대신 `NextRequest`/`NextResponse` 쿠키만 사용 (통합 테스트에서 직접 호출)
+- 로그인 전 응답·HTML에 인식된 이름·근무 데이터 금지. 권한 판정은 항상 서버
+- 사용자 문구·문서·커밋 메시지는 한국어
