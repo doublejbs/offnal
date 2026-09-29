@@ -248,6 +248,7 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 | `POST /api/calendar/share/rotate` | 새 토큰, 이전 토큰 즉시 무효 |
 | `DELETE /api/calendar/share` | 공유 중지(토큰 제거) |
 | `GET /api/shared/:token?month=YYYY-MM` | 비로그인. 해시 조회 + share_enabled + share_visible 월만. `{ displayName, months:[ym], month:{ yearMonth, definitions, entries(code만, reviewReasons 제외), updatedAt } }`. 헤더 6장 참고 |
+| `GET /api/shared/:token/export.ics?month=YYYY-MM&includeOff=1` | 비로그인 받은 사람용 일회성 가져오기 파일. `getSharedCalendar`와 같은 검증(해시 조회·share_enabled·share_visible 월만, 무효 404)과 공유 조회 IP 한도. 제목 `${displayName} · ${label} (${code})`, UID는 내부 calendarId 대신 `sha256(calendarId)` 앞 16자 기반(`${hash}-${date}@offnal`), 휴무 기본 제외. 헤더: `text/calendar`, attachment `offnal-${displayName 제외}-YYYY-MM.ics` → `offnal-shared-YYYY-MM.ics`, no-store·noindex·no-referrer |
 
 ### 7.5 인증
 
@@ -313,7 +314,7 @@ interface PaymentProvider {
 | `/calendar/:ym` | `MonthGrid`(읽기), 날짜 상세, `EmptyState` | 월 전환(공개 월 목록), 근무·휴무 수, 공유·내보내기 버튼, 근무 수정(`edit`), 다음 달 등록, 무료 잔여 안내, 달력 삭제(확인). 공유 활성인데 이 달이 비공개면 “공유 링크에 이 달 공개” 확인 배너 |
 | `/calendar/:ym/share` | `ExportSheet`, `ShareSettings` | 세 행동(링크 공유 / 캘린더 추가 / 이미지 저장)을 같은 위치. 링크: 표시 이름·공개 월 체크, 만들기 → Web Share 또는 복사, 재발급·중지. ICS: 시간 목록, “휴무도 종일 일정으로 추가”(기본 해제), 일회성 가져오기·중복 가능 안내, 다운로드. PNG: 미리보기 후 생성(`PngRenderer`), Web Share files 또는 다운로드, 공유 취소(AbortError)는 오류로 표시 안 함 |
 | `/checkout/:ym` | `MonthCheckout` | 대상 연월, 1,900원, 포함 항목, 단건·자동결제 없음, (토스) 결제위젯 / (mock) 테스트 성공·실패 버튼. 결과 페이지에서 confirm → 발행 → 달력 이동. 실패 시 draft 유지 안내 |
-| `/s/:token` | `SharedCalendarView` | 표시 이름·월 전환(공개 월만)·일정 상세·최종 수정 시각·읽기 전용 안내. 원본·동료 이름·수정 UI 없음. 무효 토큰은 “링크가 만료되었거나 공유가 중지되었어요” |
+| `/s/:token` | `SharedCalendarView`, `SharedExportActions` | 표시 이름·월 전환(공개 월만)·일정 상세·최종 수정 시각·읽기 전용 안내. 원본·동료 이름·수정 UI 없음. 무효 토큰은 “링크가 만료되었거나 공유가 중지되었어요”. **받은 사람 내보내기**: 보고 있는 달을 “달력 이미지 저장”(공유 응답 데이터로 `PngRenderer` 사용, 소유자 PNG와 같은 구성, Web Share files 또는 다운로드 `offnal-shared-YYYY-MM.png`, 공유 취소는 오류 아님)과 “내 캘린더에 추가”(휴무 포함 체크 기본 해제, 일회성 가져오기·자동 반영 안 됨·중복 가능 안내) — 로그인 불필요 |
 
 `PngRenderer`: 폭 1080px 캔버스(2x), 항상 밝은 배경, 제목(이름·연월), 요일 머리글, 날짜 칸(숫자+코드 배지 색), 범례(코드·표시명·시간), 생성 시각, 워드마크. `await document.fonts.ready` 후 그림. `canvas.toBlob('image/png')`.
 
