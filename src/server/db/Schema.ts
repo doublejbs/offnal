@@ -15,7 +15,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import { AuthIdentityProvider } from '@/domain/enums/AuthIdentityProvider';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
 import { type ImageMimeType } from '@/domain/enums/ImageMimeType';
@@ -65,14 +65,14 @@ export const authIdentities = pgTable(
     userId: uuid('user_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
-    provider: text('provider').$type<AuthProviderType>().notNull(),
+    provider: text('provider').$type<AuthIdentityProvider>().notNull(),
     providerSubject: text('provider_subject').notNull(),
     email: text('email'),
     createdAt: buildCreatedAtColumn(),
   },
   (table) => [
     unique('auth_identities_provider_subject_unique').on(table.provider, table.providerSubject),
-    buildEnumCheck('auth_identities_provider_check', table.provider, AuthProviderType),
+    buildEnumCheck('auth_identities_provider_check', table.provider, AuthIdentityProvider),
   ],
 );
 

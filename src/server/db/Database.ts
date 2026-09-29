@@ -11,8 +11,9 @@ import { type PgDatabase, type PgQueryResultHKT, type PgTransaction } from 'driz
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { type ExtractTablesWithRelations } from 'drizzle-orm/relations';
-import { Pool } from 'pg';
+import { Pool, type PoolConfig } from 'pg';
 
+import { AppMode } from '@/domain/enums/AppMode';
 import { DbDriver } from '@/domain/enums/DbDriver';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import * as schema from '@/server/db/Schema';
@@ -36,9 +37,16 @@ export type DbHandle = {
   close: () => Promise<void>;
 };
 
+type RawEnv = Record<string, string | undefined>;
+
 const MEMORY_PGLITE_DIR = 'memory';
 const DEFAULT_PGLITE_DIR = '.data/pglite';
-const PGLITE_ALLOWED_ENVS = new Set<string>([OffnalEnv.DEVELOPMENT, OffnalEnv.TEST]);
+/** Serverless: every warm function instance holds its own pool, so keep it small (Supabase pooler limits). */
+const POOL_MAX_CONNECTIONS = 5;
+const SUPABASE_HOST_SUFFIXES = ['.supabase.com', '.supabase.co'];
+/** libpq TLS parameters: node-postgres would let them override the explicit `ssl` option. */
+const SSL_URL_PARAMS = ['sslmode', 'sslrootcert', 'sslcert', 'sslkey', 'uselibpqcompat'];
+const SSL_REQUIRED_MODES = new Set(['require', 'verify-ca', 'verify-full', 'prefer']);
 
 const getMigrationsFolder = (): string => path.join(process.cwd(), 'drizzle');
 
@@ -82,8 +90,57 @@ const describeConnectionTarget = (connectionString: string): string => {
   }
 };
 
-const createNodePgHandle = (connectionString: string): DbHandle => {
-  const pool = new Pool({ connectionString, max: 5 });
+const readSslRootCert = (env: RawEnv): string | null => {
+  const value = env.DATABASE_SSL_ROOT_CERT?.trim();
+
+  // .env files usually carry the PEM on one line with literal "\n".
+  return value ? value.replace(/\\n/g, '\n') : null;
+};
+
+const resolveSsl = (url: URL, env: RawEnv): PoolConfig['ssl'] => {
+  const sslMode = url.searchParams.get('sslmode');
+
+  if (sslMode === 'disable') {
+    return undefined;
+  }
+
+  const isSupabaseHost = SUPABASE_HOST_SUFFIXES.some((suffix) => url.hostname.endsWith(suffix));
+
+  if (!isSupabaseHost && !(sslMode && SSL_REQUIRED_MODES.has(sslMode))) {
+    return undefined;
+  }
+
+  const ca = readSslRootCert(env);
+
+  // Supabase signs server certificates with its own root CA (Dashboard → Database Settings → SSL
+  // Configuration), not a publicly trusted one: verify when that CA is provided, otherwise encrypt only.
+  return ca ? { rejectUnauthorized: true, ca } : { rejectUnauthorized: false };
+};
+
+/**
+ * node-postgres pool settings: TLS for Supabase hosts or `sslmode=require|verify-*` (libpq TLS
+ * params are stripped from the URL so the explicit `ssl` option applies), small pool for serverless.
+ */
+export const buildPoolConfig = (connectionString: string, env: RawEnv = process.env): PoolConfig => {
+  let url: URL;
+
+  try {
+    url = new URL(connectionString);
+  } catch {
+    return { connectionString, max: POOL_MAX_CONNECTIONS };
+  }
+
+  const ssl = resolveSsl(url, env);
+
+  for (const param of SSL_URL_PARAMS) {
+    url.searchParams.delete(param);
+  }
+
+  return { connectionString: url.toString(), max: POOL_MAX_CONNECTIONS, ...(ssl ? { ssl } : {}) };
+};
+
+const createNodePgHandle = (connectionString: string, env: RawEnv = process.env): DbHandle => {
+  const pool = new Pool(buildPoolConfig(connectionString, env));
   const db = drizzleNodePg({ client: pool, schema });
 
   return {
@@ -99,21 +156,36 @@ const createNodePgHandle = (connectionString: string): DbHandle => {
   };
 };
 
-/** Creates a database handle from environment variables without applying migrations. */
-export const createDbHandleFromEnv = (env: Record<string, string | undefined> = process.env): DbHandle => {
-  const databaseUrl = env.DATABASE_URL?.trim();
-
-  if (databaseUrl) {
-    return createNodePgHandle(databaseUrl);
-  }
-
+/**
+ * PGlite only for automated tests and keyless demo development (Spec §1): OFFNAL_ENV=test, or
+ * development with APP_MODE=demo (the development default when APP_MODE is unset).
+ */
+const isPgliteAllowed = (env: RawEnv): boolean => {
   // Unset OFFNAL_ENV falls back to NODE_ENV so a production build never silently uses PGlite.
   const offnalEnv =
     env.OFFNAL_ENV?.trim() || (env.NODE_ENV === 'production' ? OffnalEnv.PRODUCTION : OffnalEnv.DEVELOPMENT);
+  const appMode = env.APP_MODE?.trim() || AppMode.DEMO;
 
-  if (!PGLITE_ALLOWED_ENVS.has(offnalEnv)) {
+  return offnalEnv === OffnalEnv.TEST || (offnalEnv === OffnalEnv.DEVELOPMENT && appMode === AppMode.DEMO);
+};
+
+export type DbHandleOptions = {
+  /** `pnpm db:migrate`: prefer DATABASE_MIGRATION_URL (Supabase session pooler or direct connection). */
+  forMigration?: boolean;
+};
+
+/** Creates a database handle from environment variables without applying migrations. */
+export const createDbHandleFromEnv = (env: RawEnv = process.env, options: DbHandleOptions = {}): DbHandle => {
+  const databaseUrl =
+    (options.forMigration ? env.DATABASE_MIGRATION_URL?.trim() : undefined) || env.DATABASE_URL?.trim();
+
+  if (databaseUrl) {
+    return createNodePgHandle(databaseUrl, env);
+  }
+
+  if (!isPgliteAllowed(env)) {
     throw new Error(
-      `DATABASE_URL is required when OFFNAL_ENV=${offnalEnv}; PGlite is only allowed in development or test.`,
+      'DATABASE_URL is required; PGlite is only allowed with OFFNAL_ENV=test or in development with APP_MODE=demo.',
     );
   }
 

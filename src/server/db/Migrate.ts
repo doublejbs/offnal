@@ -1,7 +1,8 @@
 import { createDbHandleFromEnv } from '@/server/db/Database';
 
 const runMigrations = async (): Promise<void> => {
-  const handle = createDbHandleFromEnv();
+  // DATABASE_MIGRATION_URL (session pooler/direct) when set: the transaction pooler suits the app, not DDL.
+  const handle = createDbHandleFromEnv(process.env, { forMigration: true });
 
   console.info(`[db:migrate] target: ${handle.driver} (${handle.target})`);
 

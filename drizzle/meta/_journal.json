@@ -15,6 +15,20 @@
       "when": 1790679132332,
       "tag": "0001_draft_base_published_revision",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790688097577,
+      "tag": "0002_auth_identity_supabase",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790688098249,
+      "tag": "0003_supabase_rls",
+      "breakpoints": true
     }
   ]
 }

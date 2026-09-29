@@ -1,6 +1,9 @@
+import { randomUUID } from 'node:crypto';
+
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { AuthIdentityProvider } from '@/domain/enums/AuthIdentityProvider';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
@@ -8,6 +11,7 @@ import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import {
+  buildPoolConfig,
   createDbHandleFromEnv,
   createTestDb,
   type Db,
@@ -15,7 +19,9 @@ import {
   setDbForTesting,
   type TestDb,
 } from '@/server/db/Database';
+import { listAppTableRowSecurity, listPublicRoleAccessibleTables } from '@/server/db/DatabaseInspection';
 import {
+  authIdentities,
   calendars,
   drafts,
   entitlements,
@@ -346,6 +352,76 @@ describe('Database schema', () => {
     expect(updated!.updatedAt.getTime()).toBeGreaterThan(past.getTime());
   });
 
+  it('enables row level security on every app table (Supabase access policy)', async () => {
+    expect(await listPublicRoleAccessibleTables(db)).toBeNull();
+
+    const tables = await listAppTableRowSecurity(db);
+
+    expect(tables.map((table) => table.name)).toEqual(
+      expect.arrayContaining([
+        'users',
+        'auth_identities',
+        'recognition_jobs',
+        'payments',
+        'rate_limit_counters',
+      ]),
+    );
+    expect(tables.length).toBeGreaterThanOrEqual(12);
+    expect(tables.filter((table) => !table.rowSecurity)).toEqual([]);
+  });
+
+  it('revokes Supabase anon/authenticated table privileges when those roles exist', async () => {
+    const handle = createDbHandleFromEnv({ OFFNAL_ENV: 'test', PGLITE_DIR: 'memory' });
+
+    try {
+      // Mimic a Supabase project: the roles exist and new public tables are granted to them by default.
+      await handle.db.execute(sql`create role anon`);
+      await handle.db.execute(sql`create role authenticated`);
+      await handle.db.execute(
+        sql`alter default privileges in schema public grant all on tables to anon, authenticated`,
+      );
+      await handle.migrate();
+
+      expect(await listPublicRoleAccessibleTables(handle.db)).toEqual([]);
+      expect((await listAppTableRowSecurity(handle.db)).every((table) => table.rowSecurity)).toBe(true);
+    } finally {
+      await handle.close();
+    }
+  });
+
+  it('accepts only supabase and dev identities', async () => {
+    const userId = await createUser(db);
+
+    await expectSqlState(
+      db.insert(authIdentities).values({
+        userId,
+        provider: 'google' as AuthIdentityProvider,
+        providerSubject: 'google-sub',
+      }),
+      CHECK_VIOLATION,
+    );
+    await db
+      .insert(authIdentities)
+      .values({ userId, provider: AuthIdentityProvider.SUPABASE, providerSubject: randomUUID() });
+  });
+
+  it('allows PGlite only in test and keyless demo development', async () => {
+    expect(() =>
+      createDbHandleFromEnv({ OFFNAL_ENV: 'development', APP_MODE: 'live', PGLITE_DIR: 'memory' }),
+    ).toThrow(/DATABASE_URL is required/);
+
+    for (const env of [
+      { OFFNAL_ENV: 'test', APP_MODE: 'live', PGLITE_DIR: 'memory' },
+      { OFFNAL_ENV: 'development', APP_MODE: 'demo', PGLITE_DIR: 'memory' },
+      { OFFNAL_ENV: 'development', PGLITE_DIR: 'memory' },
+    ]) {
+      const handle = createDbHandleFromEnv(env);
+
+      expect(handle.target).toBe('memory');
+      await handle.close();
+    }
+  });
+
   it('refuses PGlite outside development and test', () => {
     expect(() => createDbHandleFromEnv({ OFFNAL_ENV: 'production', PGLITE_DIR: 'memory' })).toThrow(
       /DATABASE_URL is required/,
@@ -381,5 +457,39 @@ describe('Database schema', () => {
     const rows = await fromEnv.select().from(users);
 
     expect(rows).toEqual([]);
+  });
+});
+
+describe('buildPoolConfig', () => {
+  it('uses TLS for Supabase hosts and strips sslmode so the explicit ssl option wins', () => {
+    const config = buildPoolConfig(
+      'postgresql://postgres.ref:pw@aws-0-ap-northeast-2.pooler.supabase.com:6543/postgres?sslmode=require',
+      {},
+    );
+
+    expect(config.ssl).toEqual({ rejectUnauthorized: false });
+    expect(config.connectionString).not.toContain('sslmode');
+    expect(config.max).toBe(5);
+  });
+
+  it('verifies the server certificate when a root CA is provided', () => {
+    const config = buildPoolConfig('postgresql://postgres:pw@db.ref.supabase.co:5432/postgres', {
+      DATABASE_SSL_ROOT_CERT: '-----BEGIN CERTIFICATE-----\\nabc\\n-----END CERTIFICATE-----',
+    });
+
+    expect(config.ssl).toEqual({
+      rejectUnauthorized: true,
+      ca: '-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----',
+    });
+  });
+
+  it('keeps plain connections for local Postgres and honours sslmode', () => {
+    expect(buildPoolConfig('postgres://user:pw@localhost:5432/offnal', {}).ssl).toBeUndefined();
+    expect(buildPoolConfig('postgres://user:pw@db.example.com:5432/offnal?sslmode=require', {}).ssl).toEqual({
+      rejectUnauthorized: false,
+    });
+    expect(
+      buildPoolConfig('postgres://user:pw@db.ref.supabase.co:5432/postgres?sslmode=disable', {}).ssl,
+    ).toBeUndefined();
   });
 });
