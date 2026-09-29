@@ -1,6 +1,7 @@
 import { formatDateTime, formatLegendText } from '@/client/DisplayText';
 import { buildMonthWeeks, WEEKDAY_LABELS } from '@/client/MonthLayout';
-import { type ExportDataResponse } from '@/domain/types/api/ExportDataResponse';
+import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
+import { type PngRenderInput } from '@/domain/types/PngRenderInput';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { formatYearMonthLabel, listDates } from '@/domain/YearMonth';
 
@@ -13,10 +14,30 @@ export const PNG_WEIGHTS = [400, 500, 600];
 
 const WORDMARK = '오프날';
 
-export const buildPngTitle = (data: ExportDataResponse): string =>
+export const buildPngTitle = (data: PngRenderInput): string =>
   `${data.displayName} · ${formatYearMonthLabel(data.yearMonth)}`;
 
 export const buildFooterText = (generatedAt: string): string => `생성 ${formatDateTime(generatedAt)}`;
+
+/** The month a share-link recipient is viewing, as renderer input; null when nothing is visible. */
+export const buildSharedPngInput = (
+  data: SharedCalendarResponse,
+  generatedAt: Date,
+): PngRenderInput | null => {
+  if (!data.month) {
+    return null;
+  }
+
+  return {
+    displayName: data.displayName,
+    yearMonth: data.month.yearMonth,
+    definitions: data.month.definitions,
+    entries: data.month.entries.map((entry) => ({ date: entry.date, code: entry.code })),
+    generatedAt: generatedAt.toISOString(),
+  };
+};
+
+export const buildSharedPngFilename = (yearMonth: string): string => `offnal-shared-${yearMonth}.png`;
 
 const DIGITS = '0123456789–';
 
@@ -24,10 +45,7 @@ const DIGITS = '0123456789–';
  * Every string the renderer draws, grouped by font weight, so each weight's font subset can be loaded
  * for exactly those glyphs before drawing (names and custom labels are arbitrary Korean text).
  */
-export const collectPngTexts = (
-  data: ExportDataResponse,
-  legend: ShiftDefinition[],
-): Record<number, string> => {
+export const collectPngTexts = (data: PngRenderInput, legend: ShiftDefinition[]): Record<number, string> => {
   const codes = data.entries.map((entry) => entry.code ?? '').join('');
   const dayNumbers = listDates(data.yearMonth).join('');
 

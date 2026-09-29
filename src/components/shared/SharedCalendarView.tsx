@@ -12,6 +12,7 @@ import MonthSwitcher from '@/components/calendar/MonthSwitcher';
 import EmptyState from '@/components/EmptyState';
 import LoadingState from '@/components/LoadingState';
 import RecoverableError from '@/components/RecoverableError';
+import SharedExportActions from '@/components/shared/SharedExportActions';
 import { useLoad } from '@/components/UseLoad';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
@@ -111,6 +112,7 @@ const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
         <br />
         공유받은 달력은 읽기 전용이에요.
       </div>
+      <SharedExportActions key={data.month.yearMonth} token={token} data={data} />
     </>
   );
 };

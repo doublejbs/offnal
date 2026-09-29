@@ -86,16 +86,18 @@ const toUtcDateTimeArray = (instant: Date): DateArray => [
   instant.getUTCMinutes(),
 ];
 
-export const buildEventUid = (calendarId: string, date: string): string => `${calendarId}-${date}@offnal`;
+/** `base` is the calendarId for the owner's file and a hash of it for a shared-view file. */
+export const buildEventUid = (base: string, date: string): string => `${base}-${date}@offnal`;
 
 const buildEvent = (
   input: IcsBuildInput,
   date: string,
   definition: ShiftDefinition,
 ): EventWithTimestamp | null => {
+  const shiftTitle = `${definition.label} (${definition.code})`;
   const base = {
-    uid: buildEventUid(input.calendarId, date),
-    title: `${definition.label} (${definition.code})`,
+    uid: buildEventUid(input.uidBase ?? input.calendarId, date),
+    title: input.titlePrefix === undefined ? shiftTitle : `${input.titlePrefix} · ${shiftTitle}`,
     description: EVENT_DESCRIPTION,
     timestamp: input.generatedAt.getTime(),
     productId: PRODUCT_ID,
@@ -151,7 +153,9 @@ export const buildIcs = (input: IcsBuildInput): string => {
   const { error, value } = createEvents(events, {
     productId: PRODUCT_ID,
     method: 'PUBLISH',
-    calName: escapeIcsText(`오프날 · ${input.displayName} ${formatYearMonthLabel(input.yearMonth)}`),
+    calName: escapeIcsText(
+      input.calendarName ?? `오프날 · ${input.displayName} ${formatYearMonthLabel(input.yearMonth)}`,
+    ),
   });
 
   if (error || value === null) {

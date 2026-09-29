@@ -214,3 +214,45 @@ describe('IcsBuilder.buildIcs', () => {
     expect(ics).toContain('BEGIN:VCALENDAR');
   });
 });
+
+describe('IcsBuilder shared-view options', () => {
+  const extractUids = (ics: string) => getEvents(ics).map((event) => /UID:(.*)/.exec(event)?.[1]?.trim());
+
+  it('prefixes every event title with the given prefix', () => {
+    const ics = unfold(buildIcs(buildInput({ includeOff: true, titlePrefix: '김하루' })));
+
+    expect(ics).toContain('SUMMARY:김하루 · 데이 (D)\r\n');
+    expect(ics).toContain('SUMMARY:김하루 · 휴무 (OFF)\r\n');
+    expect(ics).toContain('SUMMARY:김하루 · 나이트 (N)\r\n');
+  });
+
+  it('escapes the title prefix like any other text', () => {
+    const ics = unfold(buildIcs(buildInput({ titlePrefix: '하루, 둘; 셋' })));
+
+    expect(ics).toContain('SUMMARY:하루\\, 둘\\; 셋 · 데이 (D)');
+  });
+
+  it('uses uidBase instead of the calendarId for UIDs', () => {
+    const ics = buildIcs(buildInput({ uidBase: '0123456789abcdef' }));
+
+    expect(extractUids(ics)).toEqual([
+      '0123456789abcdef-2026-10-01@offnal',
+      '0123456789abcdef-2026-10-31@offnal',
+    ]);
+    expect(ics).not.toContain('cal-123');
+  });
+
+  it('uses calendarName instead of the default calendar name', () => {
+    const ics = unfold(buildIcs(buildInput({ calendarName: '김하루님의 근무 · 2026년 10월' })));
+
+    expect(ics).toContain('X-WR-CALNAME:김하루님의 근무 · 2026년 10월\r\n');
+    expect(ics).not.toContain('오프날 · 김하루');
+  });
+
+  it('keeps the owner output unchanged without options', () => {
+    const ics = unfold(buildIcs(buildInput()));
+
+    expect(ics).toContain('SUMMARY:데이 (D)\r\n');
+    expect(extractUids(ics)).toEqual(['cal-123-2026-10-01@offnal', 'cal-123-2026-10-31@offnal']);
+  });
+});

@@ -11,7 +11,7 @@ import {
 } from '@/client/PngLayout';
 import { getShiftTone } from '@/client/ShiftStyle';
 import { ShiftTone } from '@/domain/enums/ShiftTone';
-import { type ExportDataResponse } from '@/domain/types/api/ExportDataResponse';
+import { type PngRenderInput } from '@/domain/types/PngRenderInput';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { dayOfDate } from '@/domain/YearMonth';
 
@@ -102,7 +102,7 @@ const fitText = (
 const drawHeader = (
   context: CanvasRenderingContext2D,
   layout: PngLayout,
-  data: ExportDataResponse,
+  data: PngRenderInput,
   family: string,
 ) => {
   const title = buildPngTitle(data);
@@ -138,7 +138,7 @@ const drawWeekdays = (context: CanvasRenderingContext2D, layout: PngLayout, fami
 const drawCells = (
   context: CanvasRenderingContext2D,
   layout: PngLayout,
-  data: ExportDataResponse,
+  data: PngRenderInput,
   family: string,
 ) => {
   const codeByDate = new Map(data.entries.map((entry) => [entry.date, entry.code]));
@@ -198,8 +198,8 @@ const releaseCanvas = (canvas: HTMLCanvasElement) => {
   canvas.height = 0;
 };
 
-/** Renders the owner's published month (from export-data only) into a PNG blob. */
-export const renderMonthPng = async (data: ExportDataResponse): Promise<Blob> => {
+/** Renders a month (the owner's export data or a shared-view month) into a PNG blob. */
+export const renderMonthPng = async (data: PngRenderInput): Promise<Blob> => {
   const family = getAppFontFamily();
   const usedCodes = new Set(data.entries.map((entry) => entry.code));
   const legend = data.definitions.filter((definition) => usedCodes.has(definition.code));

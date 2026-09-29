@@ -1,20 +1,24 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
+
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
+import { buildIcs } from '@/domain/IcsBuilder';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
 import { type ShareSettingsResponse } from '@/domain/types/api/ShareSettingsResponse';
 import { type UpdateShareRequest } from '@/domain/types/api/UpdateShareRequest';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
-import { isValidYearMonth } from '@/domain/YearMonth';
+import { formatYearMonthLabel, isValidYearMonth } from '@/domain/YearMonth';
 import { track } from '@/server/analytics/Analytics';
 import { type Db, type DbExecutor, type DbTransaction } from '@/server/db/Database';
-import { type CalendarRow, calendars, publishedMonths } from '@/server/db/Schema';
+import { type CalendarRow, calendars, type PublishedMonthRow, publishedMonths } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { findCalendarForOwner } from '@/server/services/CalendarService';
+import { type IcsExport } from '@/server/services/ExportService';
 import {
   hashShareToken,
   isShareTokenFormat,
@@ -192,16 +196,22 @@ const toPublicDefinition = (definition: ShiftDefinition): ShiftDefinition => ({
   isOff: definition.isOff,
 });
 
+type SharedMonthLookup = {
+  calendar: CalendarRow;
+  visible: PublishedMonthRow[];
+  /** The requested month, or the latest visible month when `month` is omitted; undefined when none. */
+  target: PublishedMonthRow | undefined;
+};
+
 /**
- * GET /api/shared/:token?month=YYYY-MM (public, also used by the /s/:token page). Only share-visible
- * months; entries carry date and code only. Unknown/disabled token or hidden month → 404.
- * `month` omitted → the latest visible month.
+ * Token → enabled calendar → share-visible months. Unknown/disabled token, malformed input or a
+ * requested month that is not visible → the same 404.
  */
-export const getSharedCalendar = async (
+const findSharedMonth = async (
   db: DbExecutor,
   token: string,
   month: string | null,
-): Promise<SharedCalendarResponse> => {
+): Promise<SharedMonthLookup> => {
   if (!isShareTokenFormat(token) || (month !== null && !isValidYearMonth(month))) {
     return throwShareNotFound();
   }
@@ -227,6 +237,21 @@ export const getSharedCalendar = async (
     return throwShareNotFound();
   }
 
+  return { calendar, visible, target };
+};
+
+/**
+ * GET /api/shared/:token?month=YYYY-MM (public, also used by the /s/:token page). Only share-visible
+ * months; entries carry date and code only. Unknown/disabled token or hidden month → 404.
+ * `month` omitted → the latest visible month.
+ */
+export const getSharedCalendar = async (
+  db: DbExecutor,
+  token: string,
+  month: string | null,
+): Promise<SharedCalendarResponse> => {
+  const { calendar, visible, target } = await findSharedMonth(db, token, month);
+
   return {
     displayName: calendar.displayName,
     months: visible.map((row) => row.yearMonth),
@@ -239,4 +264,44 @@ export const getSharedCalendar = async (
         }
       : null,
   };
+};
+
+const SHARED_UID_HASH_LENGTH = 16;
+
+/** Stable per calendar but not reversible to the internal id, for UIDs in files anyone with the link gets. */
+export const buildSharedUidBase = (calendarId: string): string =>
+  createHash('sha256').update(calendarId).digest('hex').slice(0, SHARED_UID_HASH_LENGTH);
+
+/**
+ * GET /api/shared/:token/export.ics?month=YYYY-MM&includeOff=1 — the recipient's one-time import of the
+ * viewed month. Same checks as getSharedCalendar; nothing visible → 404. Titles carry the sharer's name.
+ */
+export const exportSharedMonthIcs = async (
+  db: DbExecutor,
+  token: string,
+  month: string | null,
+  includeOff: boolean,
+): Promise<IcsExport> => {
+  const { calendar, target } = await findSharedMonth(db, token, month);
+
+  if (!target) {
+    return throwShareNotFound();
+  }
+
+  const body = buildIcs({
+    calendarId: calendar.id,
+    uidBase: buildSharedUidBase(calendar.id),
+    displayName: calendar.displayName,
+    titlePrefix: calendar.displayName,
+    calendarName: `${calendar.displayName}님의 근무 · ${formatYearMonthLabel(target.yearMonth)}`,
+    yearMonth: target.yearMonth,
+    entries: target.entries.map((entry) => ({ date: entry.date, code: entry.code })),
+    definitions: target.definitions.map(toPublicDefinition),
+    includeOff,
+    generatedAt: new Date(),
+  });
+
+  track(AnalyticsEvent.EXPORT_ICS, { includeOff, shared: true });
+
+  return { fileName: `offnal-shared-${target.yearMonth}.ics`, body };
 };

@@ -192,6 +192,20 @@ export const getSharedCalendar = (
 ): Promise<SharedCalendarResponse> =>
   getJson(`/api/shared/${encode(token)}${month ? `?month=${encode(month)}` : ''}`, signal);
 
+/** Recipient's one-time ICS of a shared month as a Blob (the caller triggers the download). */
+export const downloadSharedIcs = async (
+  token: string,
+  yearMonth: string,
+  includeOff: boolean,
+): Promise<Blob> => {
+  const response = await apiFetch(
+    `/api/shared/${encode(token)}/export.ics?month=${encode(yearMonth)}&includeOff=${includeOff ? 1 : 0}`,
+    { credentials: 'omit' },
+  );
+
+  return response.blob();
+};
+
 // Payments
 export const createPayment = (body: CreatePaymentRequest): Promise<CreatePaymentResponse> =>
   sendJson('POST', '/api/payments', body);
