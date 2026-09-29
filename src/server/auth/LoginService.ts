@@ -7,10 +7,14 @@ import { authIdentities, type UserRow, users } from '@/server/db/Schema';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { claimAnonymousJobs } from '@/server/services/RecognitionOwnership';
 
-export type LoginResult = {
+export type IdentityLoginResult = {
   user: UserRow;
-  session: IssuedToken;
   claimedJobCount: number;
+};
+
+/** Demo login: also issues the app's own `offnal_session`. */
+export type LoginResult = IdentityLoginResult & {
+  session: IssuedToken;
 };
 
 const findUserByIdentity = async (tx: DbTransaction, profile: AuthProfile): Promise<UserRow | null> => {
@@ -67,27 +71,47 @@ export const upsertUserForProfile = async (tx: DbTransaction, profile: AuthProfi
   return winner;
 };
 
+/** Upserts the user, drops a previous demo session and claims the anonymous session's unexpired jobs. */
+const linkIdentity = async (
+  tx: DbTransaction,
+  context: RequestContext,
+  profile: AuthProfile,
+): Promise<IdentityLoginResult> => {
+  const user = await upsertUserForProfile(tx, profile);
+
+  if (context.sessionToken) {
+    await destroySessionToken(tx, context.sessionToken);
+  }
+
+  const claimedJobCount = context.anonymousSessionId
+    ? await claimAnonymousJobs(tx, user.id, context.anonymousSessionId)
+    : 0;
+
+  return { user, claimedJobCount };
+};
+
 /**
- * Shared by the OAuth callback and dev login, in one transaction: upsert the user, replace the
- * previous session (rotation) and claim the anonymous session's unexpired jobs. The route sets
- * the returned session cookie and redirects.
+ * Supabase (Kakao) callback, in one transaction. No app session is issued: the Supabase session
+ * cookies are the session, resolved per request by RequestContext via `auth_identities`.
  */
-export const completeLogin = async (
+export const completeSupabaseLogin = async (
+  db: Db,
+  context: RequestContext,
+  profile: AuthProfile,
+): Promise<IdentityLoginResult> => db.transaction(async (tx) => linkIdentity(tx, context, profile));
+
+/**
+ * Demo login, in one transaction: same linking plus a new `offnal_session` (rotation). The route
+ * sets the returned session cookie and redirects.
+ */
+export const completeDemoLogin = async (
   db: Db,
   context: RequestContext,
   profile: AuthProfile,
 ): Promise<LoginResult> =>
   db.transaction(async (tx) => {
-    const user = await upsertUserForProfile(tx, profile);
+    const result = await linkIdentity(tx, context, profile);
+    const session = await createUserSession(tx, result.user.id);
 
-    if (context.sessionToken) {
-      await destroySessionToken(tx, context.sessionToken);
-    }
-
-    const session = await createUserSession(tx, user.id);
-    const claimedJobCount = context.anonymousSessionId
-      ? await claimAnonymousJobs(tx, user.id, context.anonymousSessionId)
-      : 0;
-
-    return { user, session, claimedJobCount };
+    return { ...result, session };
   });

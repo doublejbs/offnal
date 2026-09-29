@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { getDevAuthProvider, isDevLoginEnabled } from '@/server/auth/AuthProviderRegistry';
-import { completeLogin } from '@/server/auth/LoginService';
+import { completeDemoLogin } from '@/server/auth/LoginService';
 import { getDb } from '@/server/db/Database';
 import { ApiError } from '@/server/errors/ApiError';
 import { buildLoginRedirect } from '@/server/http/LoginResponses';
@@ -80,7 +80,7 @@ export const POST = async (request: NextRequest): Promise<Response> => {
 
     const profile = getDevAuthProvider().createProfile(parsed.data.displayName ?? '');
     const db = await getDb();
-    const result = await completeLogin(db, await getRequestContext(request, db), profile);
+    const result = await completeDemoLogin(db, await getRequestContext(request, db), profile);
 
     return buildLoginRedirect(result, returnTo, 303);
   } catch (error: unknown) {

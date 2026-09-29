@@ -1,15 +1,30 @@
+import { and, eq } from 'drizzle-orm';
 import { type NextRequest } from 'next/server';
 
+import { AuthIdentityProvider } from '@/domain/enums/AuthIdentityProvider';
+import { isKakaoLoginEnabled } from '@/server/auth/AuthProviderRegistry';
 import { hashIp, resolveAnonymousSessionId, resolveUserFromSessionToken } from '@/server/auth/SessionService';
+import {
+  createSupabaseRouteClient,
+  createSupabaseServerComponentClient,
+  hasSupabaseCookies,
+  readVerifiedSupabaseUserId,
+  type SupabaseAuthApi,
+  type SupabaseCookie,
+  type SupabaseRouteClient,
+} from '@/server/auth/SupabaseServerClient';
+import { isDemoMode } from '@/server/config/AppConfig';
 import { type DbExecutor, getDb } from '@/server/db/Database';
-import { type UserRow } from '@/server/db/Schema';
+import { authIdentities, type UserRow, users } from '@/server/db/Schema';
 import { getClientIpFromHeaders } from '@/server/http/ClientIp';
 import { ANONYMOUS_COOKIE_NAME, SESSION_COOKIE_NAME } from '@/server/http/SessionCookies';
 
 export type RequestContext = {
   user: UserRow | null;
-  /** Raw session cookie value when it resolved to a valid session. */
+  /** Raw demo `offnal_session` cookie value when it resolved to a valid session (demo mode only). */
   sessionToken: string | null;
+  /** Signature-verified Supabase user ID (`sub`), even when no app user is linked to it yet. */
+  supabaseUserId: string | null;
   /** Anonymous session ID (sha256 of the `offnal_anon` cookie) when valid. */
   anonymousSessionId: string | null;
   ip: string;
@@ -18,21 +33,66 @@ export type RequestContext = {
 
 export type LoggedInContext = RequestContext & { user: UserRow };
 
-type CookieReader = (name: string) => string | undefined;
+/** API request context plus the Supabase client whose cookie writes (refreshes) belong on the response. */
+export type RequestSession = {
+  context: RequestContext;
+  supabase: SupabaseRouteClient | null;
+};
 
-const resolveContext = async (
+type CookieSource = {
+  read: (name: string) => string | undefined;
+  all: () => SupabaseCookie[];
+  /** Lazily creates the Supabase client (only when Supabase cookies are present). */
+  createSupabase: () => Promise<SupabaseAuthApi | null>;
+};
+
+const findUserBySupabaseId = async (db: DbExecutor, supabaseUserId: string): Promise<UserRow | null> => {
+  const [row] = await db
+    .select({ user: users })
+    .from(authIdentities)
+    .innerJoin(users, eq(users.id, authIdentities.userId))
+    .where(
+      and(
+        eq(authIdentities.provider, AuthIdentityProvider.SUPABASE),
+        eq(authIdentities.providerSubject, supabaseUserId),
+      ),
+    )
+    .limit(1);
+
+  return row?.user ?? null;
+};
+
+/**
+ * Supabase session first (Kakao enabled + `sb-*` cookies present, so anonymous traffic never calls
+ * Supabase): `getClaims()` verifies the JWT signature (locally with asymmetric signing keys) and the
+ * `sub` maps to an app user via `auth_identities`. A verified Supabase user without an app row (the
+ * callback never completed) counts as logged out: only the callback creates users and claims jobs.
+ */
+const resolveSupabaseUser = async (
   db: DbExecutor,
-  readCookie: CookieReader,
-  ip: string,
-): Promise<RequestContext> => {
-  const rawSession = readCookie(SESSION_COOKIE_NAME);
-  const rawAnonymous = readCookie(ANONYMOUS_COOKIE_NAME);
-  const user = rawSession ? await resolveUserFromSessionToken(db, rawSession) : null;
+  source: CookieSource,
+): Promise<{ supabaseUserId: string | null; user: UserRow | null }> => {
+  if (!isKakaoLoginEnabled() || !hasSupabaseCookies(source.all())) {
+    return { supabaseUserId: null, user: null };
+  }
+
+  const auth = await source.createSupabase();
+  const supabaseUserId = auth ? await readVerifiedSupabaseUserId(auth) : null;
+
+  return { supabaseUserId, user: supabaseUserId ? await findUserBySupabaseId(db, supabaseUserId) : null };
+};
+
+const resolveContext = async (db: DbExecutor, source: CookieSource, ip: string): Promise<RequestContext> => {
+  const rawSession = isDemoMode() ? source.read(SESSION_COOKIE_NAME) : undefined;
+  const rawAnonymous = source.read(ANONYMOUS_COOKIE_NAME);
+  const supabase = await resolveSupabaseUser(db, source);
+  const demoUser = !supabase.user && rawSession ? await resolveUserFromSessionToken(db, rawSession) : null;
   const anonymousSessionId = rawAnonymous ? await resolveAnonymousSessionId(db, rawAnonymous) : null;
 
   return {
-    user,
-    sessionToken: user ? (rawSession ?? null) : null,
+    user: supabase.user ?? demoUser,
+    sessionToken: demoUser ? (rawSession ?? null) : null,
+    supabaseUserId: supabase.supabaseUserId,
     anonymousSessionId,
     ip,
     ipHash: hashIp(ip),
@@ -40,8 +100,28 @@ const resolveContext = async (
 };
 
 /** API routes: reads cookies from the NextRequest only (never next/headers). */
+export const getRequestSession = async (request: NextRequest, db: DbExecutor): Promise<RequestSession> => {
+  let supabase: SupabaseRouteClient | null = null;
+
+  const context = await resolveContext(
+    db,
+    {
+      read: (name) => request.cookies.get(name)?.value,
+      all: () => request.cookies.getAll(),
+      createSupabase: async () => {
+        supabase = createSupabaseRouteClient(request);
+
+        return supabase?.auth ?? null;
+      },
+    },
+    getClientIpFromHeaders(request.headers),
+  );
+
+  return { context, supabase };
+};
+
 export const getRequestContext = async (request: NextRequest, db: DbExecutor): Promise<RequestContext> =>
-  resolveContext(db, (name) => request.cookies.get(name)?.value, getClientIpFromHeaders(request.headers));
+  (await getRequestSession(request, db)).context;
 
 /** Server components: same resolution logic, reading cookies and headers via next/headers. */
 export const getServerComponentContext = async (): Promise<RequestContext> => {
@@ -51,7 +131,11 @@ export const getServerComponentContext = async (): Promise<RequestContext> => {
 
   return resolveContext(
     await getDb(),
-    (name) => cookieStore.get(name)?.value,
+    {
+      read: (name) => cookieStore.get(name)?.value,
+      all: () => cookieStore.getAll().map(({ name, value }) => ({ name, value })),
+      createSupabase: () => createSupabaseServerComponentClient(),
+    },
     getClientIpFromHeaders(headerStore),
   );
 };

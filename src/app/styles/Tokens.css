@@ -8,6 +8,10 @@
   --soft: #f4f6fb;
   --blue: #3155e7;
   --bluefill: #edf1ff;
+  /* Kakao login brand colors: fixed in light and dark themes (Kakao Login design guide). */
+  --kakao-bg: #fee500;
+  --kakao-ink: rgb(0 0 0 / 85%);
+  --kakao-symbol: #000;
   --primary-bg: #3155e7;
   --primary-ink: #fff;
   --shadow: #17203415;

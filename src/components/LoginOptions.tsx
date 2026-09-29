@@ -9,27 +9,38 @@ type LoginOptionsProps = {
   primaryLabel: string;
 };
 
-const buildGoogleHref = (returnTo: string): string =>
-  `/auth/login?provider=${AuthProviderType.GOOGLE}&returnTo=${encodeURIComponent(returnTo)}`;
+const buildKakaoHref = (returnTo: string): string =>
+  `/auth/login?provider=${AuthProviderType.KAKAO}&returnTo=${encodeURIComponent(returnTo)}`;
+
+/** Kakao speech-bubble symbol (Kakao Login design guide). */
+const KakaoSymbol = () => (
+  <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+    <path
+      fill="currentColor"
+      d="M9 1.5C4.58 1.5 1 4.31 1 7.78c0 2.24 1.5 4.2 3.75 5.31l-.96 3.5c-.08.3.26.54.52.37l4.18-2.77c.17.01.34.02.51.02 4.42 0 8-2.81 8-6.28S13.42 1.5 9 1.5Z"
+    />
+  </svg>
+);
 
 /**
- * Real provider links (Google) and, in demo mode only, a clearly labelled instant login form.
- * The first available provider gets the primary button.
+ * Kakao login (via Supabase Auth) and, in demo mode only, a clearly labelled instant login form.
+ * Kakao keeps its brand label and colors; the demo form gets the primary button when it is alone.
  */
 const LoginOptions = ({ returnTo, primaryLabel }: LoginOptionsProps) => {
   const { authProviders } = usePublicConfig();
-  const hasGoogle = authProviders.includes(AuthProviderType.GOOGLE);
+  const hasKakao = authProviders.includes(AuthProviderType.KAKAO);
   const hasDev = authProviders.includes(AuthProviderType.DEV);
 
-  if (!hasGoogle && !hasDev) {
+  if (!hasKakao && !hasDev) {
     return <div className="warning">아직 로그인 수단이 연결되지 않았어요. 설정을 기다리고 있어요.</div>;
   }
 
   return (
     <div className="stack">
-      {hasGoogle && (
-        <a className="primary" href={buildGoogleHref(returnTo)}>
-          {hasDev ? 'Google로 로그인' : primaryLabel}
+      {hasKakao && (
+        <a className="primary kakao-login" href={buildKakaoHref(returnTo)}>
+          <KakaoSymbol />
+          카카오로 로그인
         </a>
       )}
       {hasDev && (
@@ -46,8 +57,8 @@ const LoginOptions = ({ returnTo, primaryLabel }: LoginOptionsProps) => {
               autoComplete="off"
             />
           </label>
-          <button type="submit" className={hasGoogle ? 'secondary' : 'primary'}>
-            {hasGoogle ? '데모 로그인' : primaryLabel}
+          <button type="submit" className={hasKakao ? 'secondary' : 'primary'}>
+            {hasKakao ? '데모 로그인' : primaryLabel}
           </button>
         </form>
       )}

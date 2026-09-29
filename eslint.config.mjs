@@ -103,7 +103,8 @@ const eslintConfig = defineConfig([
   },
   {
     files: ['src/**/*.{ts,tsx}', 'tests/**/*.ts', 'e2e/**/*.ts'],
-    ignores: ['src/app/**'],
+    // Next.js convention files outside app/: proxy.ts (Next 16, formerly middleware.ts) at the src root.
+    ignores: ['src/app/**', 'src/proxy.ts'],
     plugins: { 'check-file': checkFile },
     rules: {
       'check-file/filename-naming-convention': [

@@ -112,6 +112,17 @@ p {
   opacity: 0.55;
 }
 
+.kakao-login {
+  background: var(--kakao-bg);
+  color: var(--kakao-ink);
+  border-radius: 12px;
+}
+
+.kakao-login svg {
+  flex: none;
+  color: var(--kakao-symbol);
+}
+
 .danger {
   background: transparent;
   color: var(--danger);

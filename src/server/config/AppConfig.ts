@@ -27,8 +27,10 @@ export type AppConfig = {
   s3SecretAccessKey: string | null;
   /** Enabled login providers. `dev` is present only (and always) in demo mode. */
   authProviders: AuthProviderType[];
-  googleClientId: string | null;
-  googleClientSecret: string | null;
+  /** Supabase project URL (`https://<ref>.supabase.co`, public). Null when Supabase Auth is not set up. */
+  supabaseUrl: string | null;
+  /** Publishable (or legacy anon) key: public by design, grants nothing because RLS blocks every table. */
+  supabasePublishableKey: string | null;
   visionProvider: VisionProviderType;
   anthropicApiKey: string | null;
   visionModel: string;
@@ -96,8 +98,10 @@ const envSchema = z.object({
     )
     .pipe(z.array(z.enum(AuthProviderType)))
     .optional(),
-  GOOGLE_CLIENT_ID: optionalText,
-  GOOGLE_CLIENT_SECRET: optionalText,
+  NEXT_PUBLIC_SUPABASE_URL: z.url().optional(),
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: optionalText,
+  /** Legacy name of the same public key (projects created before publishable keys). */
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: optionalText,
   VISION_PROVIDER: z.enum(VisionProviderType).optional(),
   ANTHROPIC_API_KEY: optionalText,
   VISION_MODEL: z.string().default(DEFAULT_VISION_MODEL),
@@ -154,10 +158,17 @@ const resolveAuthProviders = (requested: AuthProviderType[], appMode: AppMode): 
   return withoutDev;
 };
 
+const readSupabasePublishableKey = (parsed: ParsedEnv): string | null =>
+  parsed.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? parsed.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? null;
+
+const hasSupabaseAuth = (parsed: ParsedEnv): boolean =>
+  Boolean(parsed.NEXT_PUBLIC_SUPABASE_URL && readSupabasePublishableKey(parsed));
+
 const collectProductionViolations = (
   parsed: ParsedEnv,
   appMode: AppMode,
   storageDriver: StorageDriver,
+  authProviders: AuthProviderType[],
 ): string[] => {
   const violations: string[] = [];
   const visionProvider =
@@ -183,6 +194,14 @@ const collectProductionViolations = (
 
   if (storageDriver === StorageDriver.LOCAL) {
     violations.push('STORAGE_DRIVER=local');
+  } else if (!parsed.S3_BUCKET || !parsed.S3_ACCESS_KEY_ID || !parsed.S3_SECRET_ACCESS_KEY) {
+    violations.push('STORAGE_DRIVER=s3 requires S3_BUCKET, S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY');
+  }
+
+  if (authProviders.includes(AuthProviderType.KAKAO) && !hasSupabaseAuth(parsed)) {
+    violations.push(
+      'kakao login requires NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY (or _ANON_KEY)',
+    );
   }
 
   if (!parsed.DATABASE_URL) {
@@ -231,15 +250,16 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
   const storageDriver =
     parsed.STORAGE_DRIVER ?? (isDemo || !isProduction ? StorageDriver.LOCAL : StorageDriver.S3);
 
+  const defaultAuthProviders = isDemo ? [AuthProviderType.DEV] : [AuthProviderType.KAKAO];
+  const authProviders = resolveAuthProviders(parsed.AUTH_PROVIDERS ?? defaultAuthProviders, appMode);
+
   if (isProduction) {
-    const violations = collectProductionViolations(parsed, appMode, storageDriver);
+    const violations = collectProductionViolations(parsed, appMode, storageDriver, authProviders);
 
     if (violations.length > 0) {
       throw new Error(`Unsafe production configuration: ${violations.join('; ')}`);
     }
   }
-
-  const defaultAuthProviders = isDemo ? [AuthProviderType.DEV] : [AuthProviderType.GOOGLE];
 
   return {
     offnalEnv,
@@ -255,9 +275,9 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     s3Bucket: parsed.S3_BUCKET ?? null,
     s3AccessKeyId: parsed.S3_ACCESS_KEY_ID ?? null,
     s3SecretAccessKey: parsed.S3_SECRET_ACCESS_KEY ?? null,
-    authProviders: resolveAuthProviders(parsed.AUTH_PROVIDERS ?? defaultAuthProviders, appMode),
-    googleClientId: parsed.GOOGLE_CLIENT_ID ?? null,
-    googleClientSecret: parsed.GOOGLE_CLIENT_SECRET ?? null,
+    authProviders,
+    supabaseUrl: parsed.NEXT_PUBLIC_SUPABASE_URL ? new URL(parsed.NEXT_PUBLIC_SUPABASE_URL).origin : null,
+    supabasePublishableKey: readSupabasePublishableKey(parsed),
     visionProvider:
       parsed.VISION_PROVIDER ?? (isDemo ? VisionProviderType.MOCK : VisionProviderType.ANTHROPIC),
     anthropicApiKey: parsed.ANTHROPIC_API_KEY ?? null,

@@ -18,7 +18,13 @@ const VALID_PRODUCTION_ENV: Record<string, string> = {
   DATABASE_URL: 'postgres://user:pass@db.example:5432/offnal',
   STORAGE_DRIVER: 's3',
   S3_BUCKET: 'offnal-sources',
-  AUTH_PROVIDERS: 'google',
+  S3_ENDPOINT: 'https://project-ref.storage.supabase.co/storage/v1/s3',
+  S3_REGION: 'ap-northeast-2',
+  S3_ACCESS_KEY_ID: 'test-access-key-id',
+  S3_SECRET_ACCESS_KEY: 'test-secret-access-key',
+  AUTH_PROVIDERS: 'kakao',
+  NEXT_PUBLIC_SUPABASE_URL: 'https://project-ref.supabase.co',
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test',
   VISION_PROVIDER: 'anthropic',
   PAYMENT_PROVIDER: 'toss',
 };
@@ -38,7 +44,9 @@ describe('parseAppConfig', () => {
       offnalEnv: OffnalEnv.PRODUCTION,
       appMode: AppMode.LIVE,
       storageDriver: StorageDriver.S3,
-      authProviders: [AuthProviderType.GOOGLE],
+      authProviders: [AuthProviderType.KAKAO],
+      supabaseUrl: 'https://project-ref.supabase.co',
+      supabasePublishableKey: 'sb_publishable_test',
       visionProvider: VisionProviderType.ANTHROPIC,
       paymentProvider: PaymentProviderType.TOSS,
       visionModel: 'claude-opus-5-5',
@@ -55,8 +63,13 @@ describe('parseAppConfig', () => {
     ['APP_MODE=demo', { APP_MODE: 'demo' }],
     ['VISION_PROVIDER=mock', { VISION_PROVIDER: 'mock' }],
     ['PAYMENT_PROVIDER=mock', { PAYMENT_PROVIDER: 'mock' }],
-    ['AUTH_PROVIDERS includes dev', { AUTH_PROVIDERS: 'google,dev' }],
+    ['AUTH_PROVIDERS includes dev', { AUTH_PROVIDERS: 'kakao,dev' }],
     ['STORAGE_DRIVER=local', { STORAGE_DRIVER: 'local' }],
+    ['unset STORAGE_DRIVER defaulting to local in demo', { STORAGE_DRIVER: undefined, APP_MODE: 'demo' }],
+    ['kakao without NEXT_PUBLIC_SUPABASE_URL', { NEXT_PUBLIC_SUPABASE_URL: undefined }],
+    ['kakao without a Supabase publishable key', { NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: undefined }],
+    ['s3 without a bucket', { S3_BUCKET: undefined }],
+    ['s3 without access keys', { S3_ACCESS_KEY_ID: undefined }],
     ['missing DATABASE_URL (PGlite)', { DATABASE_URL: undefined }],
     ['missing APP_SECRET', { APP_SECRET: undefined }],
     ['short APP_SECRET', { APP_SECRET: 'short-secret' }],
@@ -97,19 +110,20 @@ describe('parseAppConfig', () => {
 
   it('adds dev login in demo mode and strips it in live mode', () => {
     expect(
-      parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo', AUTH_PROVIDERS: 'google' }).authProviders,
-    ).toEqual([AuthProviderType.GOOGLE, AuthProviderType.DEV]);
+      parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo', AUTH_PROVIDERS: 'kakao' }).authProviders,
+    ).toEqual([AuthProviderType.KAKAO, AuthProviderType.DEV]);
     expect(
-      parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'live', AUTH_PROVIDERS: 'google,dev' })
+      parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'live', AUTH_PROVIDERS: 'kakao,dev' })
         .authProviders,
-    ).toEqual([AuthProviderType.GOOGLE]);
+    ).toEqual([AuthProviderType.KAKAO]);
   });
 
   it('rejects invalid values', () => {
     expect(() => parseAppConfig({ OFFNAL_ENV: 'staging' })).toThrow();
     expect(() => parseAppConfig({ OFFNAL_ENV: 'development', VISION_PROVIDER: 'openai' })).toThrow();
     expect(() => parseAppConfig({ OFFNAL_ENV: 'development', PRICE_KRW: '-1' })).toThrow();
-    expect(() => parseAppConfig({ OFFNAL_ENV: 'development', AUTH_PROVIDERS: 'google,apple' })).toThrow();
+    expect(() => parseAppConfig({ OFFNAL_ENV: 'development', AUTH_PROVIDERS: 'kakao,apple' })).toThrow();
+    expect(() => parseAppConfig({ OFFNAL_ENV: 'development', AUTH_PROVIDERS: 'google' })).toThrow();
   });
 
   it('reads price and free month limit overrides', () => {
@@ -117,5 +131,42 @@ describe('parseAppConfig', () => {
 
     expect(config.priceKrw).toBe(2500);
     expect(config.freeMonthLimit).toBe(3);
+  });
+
+  it('reads Supabase settings, accepting the legacy anon key', () => {
+    const withPublishable = parseAppConfig({
+      OFFNAL_ENV: 'development',
+      NEXT_PUBLIC_SUPABASE_URL: 'https://project-ref.supabase.co/',
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_x',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'legacy-anon',
+    });
+    const withAnon = parseAppConfig({
+      OFFNAL_ENV: 'development',
+      NEXT_PUBLIC_SUPABASE_URL: 'https://project-ref.supabase.co',
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'legacy-anon',
+    });
+
+    expect(withPublishable.supabaseUrl).toBe('https://project-ref.supabase.co');
+    expect(withPublishable.supabasePublishableKey).toBe('sb_publishable_x');
+    expect(withAnon.supabasePublishableKey).toBe('legacy-anon');
+    expect(parseAppConfig({ OFFNAL_ENV: 'development' })).toMatchObject({
+      supabaseUrl: null,
+      supabasePublishableKey: null,
+    });
+  });
+
+  it('defaults live mode to kakao login and demo mode to dev login only', () => {
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'live' }).authProviders).toEqual([
+      AuthProviderType.KAKAO,
+    ]);
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo' }).authProviders).toEqual([
+      AuthProviderType.DEV,
+    ]);
+  });
+
+  it('rejects a Supabase URL that is not a URL', () => {
+    expect(() =>
+      parseAppConfig({ OFFNAL_ENV: 'development', NEXT_PUBLIC_SUPABASE_URL: 'not a url' }),
+    ).toThrow();
   });
 });

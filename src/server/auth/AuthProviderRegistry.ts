@@ -1,33 +1,41 @@
+import { type NextRequest } from 'next/server';
+
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
-import { type OAuthAuthProvider } from '@/server/auth/AuthProvider';
 import { createDevAuthProvider, type DevAuthProvider } from '@/server/auth/DevAuthProvider';
-import { createGoogleAuthProvider } from '@/server/auth/GoogleAuthProvider';
+import { createKakaoAuthProvider, type KakaoAuthProvider } from '@/server/auth/KakaoAuthProvider';
+import { createSupabaseRouteClient, type SupabaseRouteClient } from '@/server/auth/SupabaseServerClient';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { ApiError } from '@/server/errors/ApiError';
 
-export const OAUTH_CALLBACK_PATH = '/auth/callback';
+export type KakaoLogin = {
+  provider: KakaoAuthProvider;
+  /** Carries the Supabase cookie writes (PKCE verifier, session) onto the redirect response. */
+  supabase: SupabaseRouteClient;
+};
 
-/** Redirect-based provider by name. Not enabled → 404; enabled without keys → 503 PROVIDER_NOT_CONFIGURED. */
-export const getOAuthProvider = (name: string): OAuthAuthProvider => {
-  const config = getAppConfig();
+export const isKakaoLoginEnabled = (): boolean =>
+  getAppConfig().authProviders.includes(AuthProviderType.KAKAO);
 
-  if (name !== AuthProviderType.GOOGLE || !config.authProviders.includes(AuthProviderType.GOOGLE)) {
+/**
+ * Kakao login bound to this request. Unknown or not enabled → 404; enabled without Supabase
+ * settings → 503 PROVIDER_NOT_CONFIGURED (routes turn both into `login=failed` redirects).
+ */
+export const getKakaoLogin = (name: string, request: NextRequest): KakaoLogin => {
+  if (name !== AuthProviderType.KAKAO || !isKakaoLoginEnabled()) {
     throw new ApiError(ApiErrorCode.NOT_FOUND);
   }
 
-  if (!config.googleClientId || !config.googleClientSecret) {
+  const supabase = createSupabaseRouteClient(request);
+
+  if (!supabase) {
     throw new ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED, {
-      message: 'Google 로그인이 아직 설정되지 않았어요.',
+      message: '카카오 로그인이 아직 설정되지 않았어요.',
     });
   }
 
-  return createGoogleAuthProvider({
-    clientId: config.googleClientId,
-    clientSecret: config.googleClientSecret,
-    redirectUri: new URL(OAUTH_CALLBACK_PATH, config.appUrl).toString(),
-  });
+  return { provider: createKakaoAuthProvider(supabase.auth, getAppConfig().appUrl), supabase };
 };
 
 export const isDevLoginEnabled = (): boolean => getAppConfig().appMode === AppMode.DEMO;

@@ -1,4 +1,5 @@
+/** Login buttons / `AUTH_PROVIDERS` entries. */
 export enum AuthProviderType {
-  GOOGLE = 'google',
+  KAKAO = 'kakao',
   DEV = 'dev',
 }
