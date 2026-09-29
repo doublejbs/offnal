@@ -1,11 +1,19 @@
-import { formatDateTime, formatShiftTime } from '@/client/DisplayText';
+import { formatLegendText } from '@/client/DisplayText';
 import { WEEKDAY_LABELS } from '@/client/MonthLayout';
-import { computePngLayout, PNG_SCALE, type PngLayout } from '@/client/PngLayout';
+import {
+  buildFooterText,
+  buildPngTitle,
+  collectPngTexts,
+  computePngLayout,
+  PNG_SCALE,
+  PNG_WEIGHTS,
+  type PngLayout,
+} from '@/client/PngLayout';
 import { getShiftTone } from '@/client/ShiftStyle';
 import { ShiftTone } from '@/domain/enums/ShiftTone';
 import { type ExportDataResponse } from '@/domain/types/api/ExportDataResponse';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
-import { dayOfDate, formatYearMonthLabel } from '@/domain/YearMonth';
+import { dayOfDate } from '@/domain/YearMonth';
 
 /** Always the light palette: the image must read the same regardless of the viewer's theme. */
 const COLORS = {
@@ -28,27 +36,26 @@ const TONE_COLORS: Record<ShiftTone, { ink: string; fill: string }> = {
 };
 
 const FALLBACK_FONT = "-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif";
+const MIN_FONT_SIZE = 12;
 
-const getAppFontFamily = (): string => {
-  const family = getComputedStyle(document.body).fontFamily;
+const getAppFontFamily = (): string => getComputedStyle(document.body).fontFamily || FALLBACK_FONT;
 
-  return family || FALLBACK_FONT;
-};
-
-/** Waits for the app web font (Korean glyphs) so the canvas never falls back mid-render. */
-const waitForFonts = async (family: string): Promise<void> => {
+/**
+ * Loads every weight actually used with exactly the text drawn in it: Korean web fonts are split into
+ * unicode-range subsets, so a generic sample would not fetch the glyphs of names or labels.
+ */
+const waitForFonts = async (family: string, textsByWeight: Record<number, string>): Promise<void> => {
   if (!('fonts' in document)) {
     return;
   }
 
-  await Promise.all([
-    document.fonts.load(`400 32px ${family}`, '오프날 근무 0123'),
-    document.fonts.load(`600 32px ${family}`, '오프날 근무 0123'),
-  ]).catch(() => undefined);
+  await Promise.all(
+    PNG_WEIGHTS.map((weight) => document.fonts.load(`${weight} 32px ${family}`, textsByWeight[weight] ?? '')),
+  ).catch(() => undefined);
   await document.fonts.ready;
 };
 
-const roundRect = (
+const fillRoundRect = (
   context: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -57,7 +64,19 @@ const roundRect = (
   radius: number,
 ) => {
   context.beginPath();
-  context.roundRect(x, y, width, height, radius);
+
+  // CanvasRenderingContext2D.roundRect is missing on iOS 15 and older Chromium.
+  if (typeof context.roundRect === 'function') {
+    context.roundRect(x, y, width, height, radius);
+  } else {
+    context.moveTo(x + radius, y);
+    context.arcTo(x + width, y, x + width, y + height, radius);
+    context.arcTo(x + width, y + height, x, y + height, radius);
+    context.arcTo(x, y + height, x, y, radius);
+    context.arcTo(x, y, x + width, y, radius);
+    context.closePath();
+  }
+
   context.fill();
 };
 
@@ -74,7 +93,7 @@ const fitText = (
 
   context.font = `${weight} ${current}px ${family}`;
 
-  while (context.measureText(text).width > maxWidth && current > 12) {
+  while (context.measureText(text).width > maxWidth && current > MIN_FONT_SIZE) {
     current -= 2;
     context.font = `${weight} ${current}px ${family}`;
   }
@@ -86,6 +105,8 @@ const drawHeader = (
   data: ExportDataResponse,
   family: string,
 ) => {
+  const title = buildPngTitle(data);
+
   context.textBaseline = 'alphabetic';
   context.textAlign = 'left';
   context.font = `600 36px ${family}`;
@@ -97,19 +118,8 @@ const drawHeader = (
   context.fillStyle = COLORS.blue;
   context.fillText('날', layout.padding + offWidth, layout.wordmarkY);
   context.fillStyle = COLORS.ink;
-  fitText(
-    context,
-    `${data.displayName} · ${formatYearMonthLabel(data.yearMonth)}`,
-    layout.width - layout.padding * 2,
-    600,
-    56,
-    family,
-  );
-  context.fillText(
-    `${data.displayName} · ${formatYearMonthLabel(data.yearMonth)}`,
-    layout.padding,
-    layout.titleY,
-  );
+  fitText(context, title, layout.width - layout.padding * 2, 600, 56, family);
+  context.fillText(title, layout.padding, layout.titleY);
 };
 
 const drawWeekdays = (context: CanvasRenderingContext2D, layout: PngLayout, family: string) => {
@@ -146,7 +156,7 @@ const drawCells = (
     context.fillStyle = COLORS.ink;
     context.fillText(String(dayOfDate(cell.date)), centerX, cell.y + 44);
     context.fillStyle = tone.fill;
-    roundRect(context, cell.x + 12, cell.y + 62, badgeWidth, 46, 10);
+    fillRoundRect(context, cell.x + 12, cell.y + 62, badgeWidth, 46, 10);
     context.fillStyle = tone.ink;
     fitText(context, code ?? '–', badgeWidth - 10, 600, 28, family);
     context.fillText(code ?? '–', centerX, cell.y + 95);
@@ -159,14 +169,13 @@ const drawLegend = (
   definitions: ShiftDefinition[],
   family: string,
 ) => {
-  context.textAlign = 'left';
   definitions.forEach((definition, index) => {
     const y = layout.legendTop + index * layout.legendRowHeight;
     const tone = TONE_COLORS[getShiftTone(definition.code, definitions)];
-    const text = `${definition.label} · ${formatShiftTime(definition)}`;
+    const text = formatLegendText(definition);
 
     context.fillStyle = tone.fill;
-    roundRect(context, layout.padding, y, 120, 38, 8);
+    fillRoundRect(context, layout.padding, y, 120, 38, 8);
     context.fillStyle = tone.ink;
     context.textAlign = 'center';
     fitText(context, definition.code, 110, 600, 24, family);
@@ -183,39 +192,49 @@ const toBlob = (canvas: HTMLCanvasElement): Promise<Blob> =>
     canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('PNG encoding failed'))), 'image/png');
   });
 
+/** Frees the backing store right away (iOS Safari has a small total canvas memory budget). */
+const releaseCanvas = (canvas: HTMLCanvasElement) => {
+  canvas.width = 0;
+  canvas.height = 0;
+};
+
 /** Renders the owner's published month (from export-data only) into a PNG blob. */
 export const renderMonthPng = async (data: ExportDataResponse): Promise<Blob> => {
   const family = getAppFontFamily();
-
-  await waitForFonts(family);
-
   const usedCodes = new Set(data.entries.map((entry) => entry.code));
   const legend = data.definitions.filter((definition) => usedCodes.has(definition.code));
+
+  await waitForFonts(family, collectPngTexts(data, legend));
+
   const layout = computePngLayout(data.yearMonth, legend.length);
   const canvas = document.createElement('canvas');
 
   canvas.width = layout.width * PNG_SCALE;
   canvas.height = layout.height * PNG_SCALE;
 
-  const context = canvas.getContext('2d');
+  try {
+    const context = canvas.getContext('2d');
 
-  if (!context) {
-    throw new Error('Canvas is not available');
+    if (!context) {
+      throw new Error('Canvas is not available');
+    }
+
+    context.scale(PNG_SCALE, PNG_SCALE);
+    context.fillStyle = COLORS.background;
+    context.fillRect(0, 0, layout.width, layout.height);
+    drawHeader(context, layout, data, family);
+    drawWeekdays(context, layout, family);
+    drawCells(context, layout, data, family);
+    drawLegend(context, layout, legend, family);
+    context.textAlign = 'left';
+    context.font = `400 24px ${family}`;
+    context.fillStyle = COLORS.sub;
+    context.fillText(buildFooterText(data.generatedAt), layout.padding, layout.footerY);
+
+    return await toBlob(canvas);
+  } finally {
+    releaseCanvas(canvas);
   }
-
-  context.scale(PNG_SCALE, PNG_SCALE);
-  context.fillStyle = COLORS.background;
-  context.fillRect(0, 0, layout.width, layout.height);
-  drawHeader(context, layout, data, family);
-  drawWeekdays(context, layout, family);
-  drawCells(context, layout, data, family);
-  drawLegend(context, layout, legend, family);
-  context.textAlign = 'left';
-  context.font = `400 24px ${family}`;
-  context.fillStyle = COLORS.sub;
-  context.fillText(`생성 ${formatDateTime(data.generatedAt)}`, layout.padding, layout.footerY);
-
-  return toBlob(canvas);
 };
 
 export const buildPngFilename = (yearMonth: string): string => `offnal-${yearMonth}.png`;

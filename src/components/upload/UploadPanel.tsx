@@ -42,20 +42,15 @@ const UploadPanel = () => {
           onChange={handleFileChange}
           disabled={isUploading}
         />
-        <label
-          htmlFor={inputId}
-          className="primary"
-          aria-disabled={isUploading}
-          style={isUploading ? { opacity: 0.6 } : undefined}
-        >
+        <label htmlFor={inputId} className="primary" aria-disabled={isUploading} data-busy={isUploading}>
           {isUploading ? <LoaderCircle size={18} className="spin" aria-hidden="true" /> : null}
           {isUploading ? '올리는 중…' : '사진 선택'}
         </label>
-        <div className="status-line" role="status" aria-live="polite" style={{ marginTop: 10 }}>
+        <div className="status-line mt-10" role="status" aria-live="polite">
           {statusText}
         </div>
         {error && (
-          <div className="warning" role="alert" style={{ textAlign: 'left' }}>
+          <div className="warning text-left" role="alert">
             {error}
           </div>
         )}

@@ -57,6 +57,7 @@ export const useRecognitionState = (id: string): RecognitionState => {
   const claimStartedRef = useRef(false);
 
   useEffect(() => {
+    const controller = new AbortController();
     let isActive = true;
     let isFinished = false;
     let isProcessInFlight = true;
@@ -80,7 +81,7 @@ export const useRecognitionState = (id: string): RecognitionState => {
 
     const poll = async () => {
       try {
-        apply(await getRecognitionStatus(id), false);
+        apply(await getRecognitionStatus(id, controller.signal), false);
       } catch (error: unknown) {
         if (isActive && isApiClientError(error) && error.status === 404) {
           isFinished = true;
@@ -112,6 +113,8 @@ export const useRecognitionState = (id: string): RecognitionState => {
 
     return () => {
       isActive = false;
+      // Stops the status poll; the process request is left running on purpose (the server keeps going).
+      controller.abort();
       window.clearTimeout(pollTimer);
       window.clearTimeout(delayTimer);
     };

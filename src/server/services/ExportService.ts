@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { buildIcs } from '@/domain/IcsBuilder';

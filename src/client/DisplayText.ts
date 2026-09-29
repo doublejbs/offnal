@@ -128,3 +128,27 @@ const RECOGNITION_ERROR_MESSAGES: Record<RecognitionErrorCode, string> = {
 
 export const recognitionErrorMessage = (code: RecognitionErrorCode | null): string =>
   code ? RECOGNITION_ERROR_MESSAGES[code] : '근무표를 읽지 못했어요. 다시 시도해 주세요.';
+
+/** Source cell text: null = the model could not read it; an empty string = the cell was blank. */
+export const formatRawText = (rawText: string | null): string => {
+  if (rawText === null) {
+    return '읽지 못함';
+  }
+
+  return rawText.trim() ? rawText : '빈칸';
+};
+
+/** Legend text next to a code badge: "휴무" for off codes, "데이 · 07:00–16:00" otherwise (no repeats). */
+export const formatLegendText = (definition: ShiftDefinition): string => {
+  const time = formatShiftTime(definition);
+
+  if (definition.isOff) {
+    return definition.label;
+  }
+
+  return definition.label === definition.code ? time : `${definition.label} · ${time}`;
+};
+
+/** One-line summary including the code: "OFF · 휴무", "D · 데이 · 07:00–16:00". */
+export const formatDefinitionSummary = (definition: ShiftDefinition): string =>
+  `${definition.code} · ${formatLegendText(definition)}`;

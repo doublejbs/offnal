@@ -1,100 +1,52 @@
 'use client';
 
 import { CalendarPlus, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
-import { type ReactNode, useEffect, useState } from 'react';
+import { useState } from 'react';
 
-import { getCalendarMonth, getErrorMessage, isApiClientError } from '@/client/ApiClient';
+import { getCalendarMonth } from '@/client/ApiClient';
 import AuthRequired from '@/components/AuthRequired';
 import BackLink from '@/components/BackLink';
 import LoadingState from '@/components/LoadingState';
 import RecoverableError from '@/components/RecoverableError';
+import ExportRow from '@/components/share/ExportRow';
 import IcsExportPanel from '@/components/share/IcsExportPanel';
 import PngExportPanel from '@/components/share/PngExportPanel';
 import ShareSettings from '@/components/share/ShareSettings';
-import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
+import { useLoad } from '@/components/UseLoad';
 import { ExportPanel } from '@/domain/enums/ExportPanel';
-import { type CalendarMonthResponse } from '@/domain/types/api/CalendarMonthResponse';
+import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
 import { formatYearMonthLabel } from '@/domain/YearMonth';
 
 type ExportSheetProps = {
   yearMonth: string;
 };
 
-type RowButtonProps = {
-  panel: ExportPanel;
-  openPanel: ExportPanel | null;
-  icon: ReactNode;
-  title: string;
-  description: string;
-  onToggle: (panel: ExportPanel) => void;
-  children: ReactNode;
-};
-
-const RowButton = ({ panel, openPanel, icon, title, description, onToggle, children }: RowButtonProps) => {
-  const isOpen = openPanel === panel;
-  const panelId = `export-panel-${panel}`;
-
-  return (
-    <div>
-      <button
-        type="button"
-        className="rowbutton"
-        aria-expanded={isOpen}
-        aria-controls={panelId}
-        onClick={() => onToggle(panel)}
-      >
-        {icon}
-        <span>
-          <strong>{title}</strong>
-          <small>{description}</small>
-        </span>
-      </button>
-      {isOpen && (
-        <div id={panelId} className="panel">
-          {children}
-        </div>
-      )}
-    </div>
-  );
-};
-
 /** The three export actions in one place; each expands its own panel. */
 const ExportSheet = ({ yearMonth }: ExportSheetProps) => {
-  const [month, setMonth] = useState<CalendarMonthResponse | null>(null);
-  const [error, setError] = useState<unknown>(null);
+  const monthLoad = useLoad(yearMonth, (signal) => getCalendarMonth(yearMonth, signal));
   const [openPanel, setOpenPanel] = useState<ExportPanel | null>(null);
-
-  useEffect(() => {
-    let isActive = true;
-
-    getCalendarMonth(yearMonth)
-      .then((response) => isActive && setMonth(response))
-      .catch((caught: unknown) => isActive && setError(caught));
-
-    return () => {
-      isActive = false;
-    };
-  }, [yearMonth]);
+  const month = monthLoad.data;
 
   const handleToggle = (panel: ExportPanel) => setOpenPanel((current) => (current === panel ? null : panel));
 
-  if (isApiClientError(error) && error.code === ApiErrorCode.AUTH_REQUIRED) {
+  if (monthLoad.state === ScreenLoadState.LOADING) {
+    return <LoadingState />;
+  }
+
+  if (monthLoad.state === ScreenLoadState.AUTH_REQUIRED) {
     return <AuthRequired returnTo={`/calendar/${yearMonth}/share`} />;
   }
 
-  if (error) {
+  if (monthLoad.state !== ScreenLoadState.READY || !month) {
     return (
       <RecoverableError
         title="달력을 불러오지 못했어요"
-        message={getErrorMessage(error)}
+        message={monthLoad.errorMessage ?? '다시 시도해 주세요.'}
+        onRetry={monthLoad.state === ScreenLoadState.ERROR ? monthLoad.reload : undefined}
         alternativeHref="/calendar"
         alternativeLabel="내 달력으로"
       />
     );
-  }
-
-  if (!month) {
-    return <LoadingState />;
   }
 
   return (
@@ -109,7 +61,7 @@ const ExportSheet = ({ yearMonth }: ExportSheetProps) => {
         편한 방식으로.
       </h1>
       <p>함께 보는 사람은 가입하지 않아도 돼요.</p>
-      <RowButton
+      <ExportRow
         panel={ExportPanel.LINK}
         openPanel={openPanel}
         icon={<LinkIcon size={20} aria-hidden="true" />}
@@ -118,8 +70,8 @@ const ExportSheet = ({ yearMonth }: ExportSheetProps) => {
         onToggle={handleToggle}
       >
         <ShareSettings yearMonth={yearMonth} fallbackName={month.displayName} />
-      </RowButton>
-      <RowButton
+      </ExportRow>
+      <ExportRow
         panel={ExportPanel.ICS}
         openPanel={openPanel}
         icon={<CalendarPlus size={20} aria-hidden="true" />}
@@ -128,8 +80,8 @@ const ExportSheet = ({ yearMonth }: ExportSheetProps) => {
         onToggle={handleToggle}
       >
         <IcsExportPanel yearMonth={yearMonth} definitions={month.definitions} entries={month.entries} />
-      </RowButton>
-      <RowButton
+      </ExportRow>
+      <ExportRow
         panel={ExportPanel.PNG}
         openPanel={openPanel}
         icon={<ImageIcon size={20} aria-hidden="true" />}
@@ -143,7 +95,7 @@ const ExportSheet = ({ yearMonth }: ExportSheetProps) => {
           definitions={month.definitions}
           entries={month.entries}
         />
-      </RowButton>
+      </ExportRow>
       <div className="block">
         <h2>내 일정만 공유해요</h2>
         <p>

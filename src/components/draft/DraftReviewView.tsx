@@ -1,34 +1,22 @@
 'use client';
 
-import { Image as ImageIcon } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
 
-import { formatReviewWarning } from '@/client/DisplayText';
 import AuthRequired from '@/components/AuthRequired';
-import BackLink from '@/components/BackLink';
-import MonthGrid from '@/components/calendar/MonthGrid';
-import DraftHeaderFields from '@/components/draft/DraftHeaderFields';
-import PublishPanel from '@/components/draft/PublishPanel';
-import SaveStatus from '@/components/draft/SaveStatus';
-import ShiftEditor from '@/components/draft/ShiftEditor';
-import ShiftTimeEditor from '@/components/draft/ShiftTimeEditor';
-import SourceStrip from '@/components/draft/SourceStrip';
+import DraftEditorView from '@/components/draft/DraftEditorView';
 import { useDraftReviewState } from '@/components/draft/UseDraftReviewState';
 import EmptyState from '@/components/EmptyState';
 import LoadingState from '@/components/LoadingState';
 import RecoverableError from '@/components/RecoverableError';
-import SourcePreview from '@/components/SourcePreview';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
-import { formatYearMonthLabel } from '@/domain/YearMonth';
 
 type DraftReviewViewProps = {
   draftId: string;
 };
 
+/** Load/guard states of the draft screen; the editor itself is DraftEditorView. */
 const DraftReviewView = ({ draftId }: DraftReviewViewProps) => {
   const state = useDraftReviewState(draftId);
-  const [isSourceOpen, setIsSourceOpen] = useState(false);
   const { server, local } = state;
 
   if (state.loadState === ScreenLoadState.LOADING) {
@@ -69,98 +57,7 @@ const DraftReviewView = ({ draftId }: DraftReviewViewProps) => {
     );
   }
 
-  const selectedEntry = local.entries.find((entry) => entry.date === state.selectedDate) ?? null;
-  const warning = formatReviewWarning(state.review);
-  const sourceByDate = new Map(server.sourceCells.map((cell) => [cell.date, cell.rawText]));
-  const canShowSource = server.sourceAvailable && server.jobId !== null;
-  const isLocked = state.isConflict;
-
-  return (
-    <>
-      {server.jobId && <BackLink href={`/recognitions/${server.jobId}/select`} label="이름 다시 고르기" />}
-      <div className="label">2 / 2 · 인식 결과 확인</div>
-      <h1>
-        내 근무가 맞는지
-        <br />
-        확인해 주세요.
-      </h1>
-      <div className="tiny">
-        {local.displayName || '이름 없음'} · {formatYearMonthLabel(local.yearMonth)} · 날짜를 눌러 수정
-      </div>
-      <DraftHeaderFields
-        displayName={local.displayName}
-        monthInput={state.monthInput}
-        monthError={state.monthError}
-        disabled={isLocked}
-        onNameChange={state.handleNameChange}
-        onMonthChange={state.handleMonthChange}
-      />
-      <SaveStatus
-        saveState={state.saveState}
-        saveMessage={state.saveMessage}
-        onRetry={() => void state.handleRetrySave()}
-        onReload={() => void state.handleReload()}
-      />
-      {warning ? (
-        <div className="warning">{warning}</div>
-      ) : (
-        <div className="notice">모든 날짜를 확인했어요. 근무 시간도 확인해 주세요.</div>
-      )}
-      <SourceStrip
-        sourceCells={server.sourceCells}
-        reviewDates={state.review.dates}
-        selectedDate={state.selectedDate}
-      />
-      {canShowSource && (
-        <button
-          type="button"
-          className="textbutton"
-          aria-expanded={isSourceOpen}
-          onClick={() => setIsSourceOpen((value) => !value)}
-        >
-          <ImageIcon size={16} aria-hidden="true" />
-          {isSourceOpen ? '원본 사진 닫기' : '원본 사진 크게 보기'}
-        </button>
-      )}
-      {canShowSource && isSourceOpen && server.jobId && <SourcePreview recognitionId={server.jobId} />}
-      <div style={{ marginTop: 14 }}>
-        <MonthGrid
-          yearMonth={local.yearMonth}
-          entries={local.entries}
-          definitions={local.definitions}
-          selectedDate={state.selectedDate}
-          onSelectDate={state.setSelectedDate}
-        />
-      </div>
-      {selectedEntry && (
-        <ShiftEditor
-          entry={selectedEntry}
-          rawText={server.sourceCells.length > 0 ? (sourceByDate.get(selectedEntry.date) ?? null) : undefined}
-          definitions={local.definitions}
-          disabled={isLocked}
-          onSelectCode={state.handleSelectCode}
-          onAddCode={(code, label) => state.handleAddCode(code, label, true)}
-        />
-      )}
-      <ShiftTimeEditor
-        definitions={local.definitions}
-        entries={local.entries}
-        isOpen={state.isTimeEditorOpen}
-        disabled={isLocked}
-        onToggle={state.setIsTimeEditorOpen}
-        onUpdate={state.handleUpdateDefinition}
-        onRemove={state.handleRemoveDefinition}
-        onAdd={(code, label) => state.handleAddCode(code, label, false)}
-      />
-      <PublishPanel
-        access={server.access}
-        blockers={state.blockers}
-        publish={state.publish}
-        isBlockedBySave={isLocked}
-        onSelectBlocker={state.handleSelectBlocker}
-      />
-    </>
-  );
+  return <DraftEditorView state={state} server={server} local={local} />;
 };
 
 export default DraftReviewView;

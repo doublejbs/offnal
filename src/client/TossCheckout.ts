@@ -33,7 +33,13 @@ export class TossUnavailableError extends Error {
   }
 }
 
-const loadSdk = (): Promise<TossPaymentsFactory> =>
+const LOAD_TIMEOUT_MS = 15_000;
+const LOAD_FAILED_MESSAGE = '결제 모듈을 불러오지 못했어요. 네트워크를 확인하고 다시 시도해 주세요.';
+
+/** One shared load per page; cleared on failure so a retry injects a fresh <script>. */
+let sdkPromise: Promise<TossPaymentsFactory> | null = null;
+
+const injectScript = (): Promise<TossPaymentsFactory> =>
   new Promise((resolve, reject) => {
     if (window.TossPayments) {
       resolve(window.TossPayments);
@@ -41,27 +47,44 @@ const loadSdk = (): Promise<TossPaymentsFactory> =>
       return;
     }
 
-    const existing = document.getElementById(SCRIPT_ID);
-    const script = existing instanceof HTMLScriptElement ? existing : document.createElement('script');
-    const handleLoad = () => {
-      if (window.TossPayments) {
-        resolve(window.TossPayments);
-      } else {
-        reject(new TossUnavailableError('결제 모듈을 불러오지 못했어요.'));
-      }
+    document.getElementById(SCRIPT_ID)?.remove();
+
+    const script = document.createElement('script');
+    const fail = () => {
+      window.clearTimeout(timer);
+      script.remove();
+      reject(new TossUnavailableError(LOAD_FAILED_MESSAGE));
     };
-    const handleError = () => reject(new TossUnavailableError('결제 모듈을 불러오지 못했어요.'));
+    const timer = window.setTimeout(fail, LOAD_TIMEOUT_MS);
 
-    script.addEventListener('load', handleLoad, { once: true });
-    script.addEventListener('error', handleError, { once: true });
+    script.addEventListener(
+      'load',
+      () => {
+        window.clearTimeout(timer);
 
-    if (!existing) {
-      script.id = SCRIPT_ID;
-      script.src = TOSS_SDK_URL;
-      script.async = true;
-      document.head.append(script);
-    }
+        if (window.TossPayments) {
+          resolve(window.TossPayments);
+        } else {
+          fail();
+        }
+      },
+      { once: true },
+    );
+    script.addEventListener('error', fail, { once: true });
+    script.id = SCRIPT_ID;
+    script.src = TOSS_SDK_URL;
+    script.async = true;
+    document.head.append(script);
   });
+
+const loadSdk = (): Promise<TossPaymentsFactory> => {
+  sdkPromise ??= injectScript().catch((error: unknown) => {
+    sdkPromise = null;
+    throw error;
+  });
+
+  return sdkPromise;
+};
 
 export type TossCheckoutHandle = {
   requestPayment: () => Promise<void>;

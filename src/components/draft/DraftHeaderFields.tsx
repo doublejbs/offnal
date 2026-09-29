@@ -18,7 +18,7 @@ const DraftHeaderFields = ({
   onNameChange,
   onMonthChange,
 }: DraftHeaderFieldsProps) => (
-  <div className="time-grid" style={{ margin: '12px 0' }}>
+  <div className="time-grid my-12">
     <label className="inline-field">
       이름
       <input
@@ -38,7 +38,7 @@ const DraftHeaderFields = ({
       />
     </label>
     {monthError && (
-      <div className="status-line" data-tone="warn" role="alert" style={{ gridColumn: '1 / -1' }}>
+      <div className="status-line span-all" data-tone="warn" role="alert">
         {monthError}
       </div>
     )}

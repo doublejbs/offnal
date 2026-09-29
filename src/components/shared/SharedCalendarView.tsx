@@ -1,29 +1,25 @@
 'use client';
 
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import { getSharedCalendar } from '@/client/ApiClient';
 import { formatDateTime } from '@/client/DisplayText';
 import DayDetail from '@/components/calendar/DayDetail';
 import MonthGrid from '@/components/calendar/MonthGrid';
+import MonthHeading from '@/components/calendar/MonthHeading';
 import MonthSwitcher from '@/components/calendar/MonthSwitcher';
 import EmptyState from '@/components/EmptyState';
 import LoadingState from '@/components/LoadingState';
-import { countWorkAndOff } from '@/domain/ScheduleStats';
+import RecoverableError from '@/components/RecoverableError';
+import { useLoad } from '@/components/UseLoad';
+import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
-import { formatYearMonthLabel } from '@/domain/YearMonth';
 
 type SharedCalendarViewProps = {
   token: string;
   month: string | null;
-};
-
-type SharedLoad = {
-  key: string;
-  data: SharedCalendarResponse | null;
-  isInvalid: boolean;
 };
 
 const INVALID_MESSAGE = '링크가 만료되었거나 공유가 중지되었어요.';
@@ -41,27 +37,16 @@ const toEntries = (data: SharedCalendarResponse): ShiftEntry[] =>
 const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
   const router = useRouter();
   const pathname = usePathname();
-  const requestKey = `${token}:${month ?? ''}`;
-  const [load, setLoad] = useState<SharedLoad | null>(null);
+  const shared = useLoad(`${token}:${month ?? ''}`, (signal) => getSharedCalendar(token, month, signal));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const { data } = shared;
 
-  useEffect(() => {
-    let isActive = true;
-
-    getSharedCalendar(token, month)
-      .then((data) => isActive && setLoad({ key: requestKey, data, isInvalid: false }))
-      .catch(() => isActive && setLoad({ key: requestKey, data: null, isInvalid: true }));
-
-    return () => {
-      isActive = false;
-    };
-  }, [month, requestKey, token]);
-
-  if (!load || load.key !== requestKey) {
+  if (shared.state === ScreenLoadState.LOADING) {
     return <LoadingState text="달력을 불러오는 중이에요…" />;
   }
 
-  if (load.isInvalid || !load.data) {
+  // Only a 404 means the link itself is invalid; anything else is a temporary failure worth retrying.
+  if (shared.state === ScreenLoadState.NOT_FOUND) {
     return (
       <EmptyState
         label="함께 보는 근무표"
@@ -71,7 +56,15 @@ const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
     );
   }
 
-  const { data } = load;
+  if (shared.state !== ScreenLoadState.READY || !data) {
+    return (
+      <RecoverableError
+        title="달력을 불러오지 못했어요"
+        message={shared.errorMessage ?? '잠시 후 다시 시도해 주세요.'}
+        onRetry={shared.reload}
+      />
+    );
+  }
 
   if (!data.month) {
     return (
@@ -84,7 +77,6 @@ const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
   }
 
   const entries = toEntries(data);
-  const counts = countWorkAndOff(entries, data.month.definitions);
   const selectedEntry = entries.find((entry) => entry.date === selectedDate);
 
   const handleChangeMonth = (next: string) => {
@@ -95,17 +87,14 @@ const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
   return (
     <>
       <div className="label">함께 보는 근무표</div>
-      <div className="calendarhead">
-        <div style={{ minWidth: 0 }}>
-          <div className="tiny">{data.displayName}님의 근무</div>
-          <h1>{formatYearMonthLabel(data.month.yearMonth)}</h1>
-        </div>
-        <span className="tiny" style={{ flex: 'none' }}>
-          근무 {counts.workCount} · 휴무 {counts.offCount}
-        </span>
-      </div>
+      <MonthHeading
+        displayName={data.displayName}
+        yearMonth={data.month.yearMonth}
+        entries={entries}
+        definitions={data.month.definitions}
+      />
       <MonthSwitcher months={data.months} current={data.month.yearMonth} onChange={handleChangeMonth} />
-      <div style={{ marginTop: 12 }}>
+      <div className="mt-12">
         <MonthGrid
           yearMonth={data.month.yearMonth}
           entries={entries}

@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { and, eq } from 'drizzle-orm';
 
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';

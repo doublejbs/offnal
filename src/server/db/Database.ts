@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';

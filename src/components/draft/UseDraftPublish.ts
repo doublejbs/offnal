@@ -4,12 +4,12 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { editCalendarMonth, getErrorMessage, isApiClientError, publishDraft } from '@/client/ApiClient';
-import { type DraftAutosave, type LocalDraft } from '@/components/draft/UseDraftAutosave';
+import { type LocalDraft } from '@/client/DraftSaveQueue';
+import { type DraftAutosave } from '@/components/draft/UseDraftAutosave';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
 import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
-import { type PublishBlocker } from '@/domain/types/PublishBlocker';
 
 const UNSAVED_MESSAGE = '아직 저장되지 않은 수정이 있어요. 저장 상태를 확인한 뒤 다시 눌러 주세요.';
 const STALE_BASE_MESSAGE =
@@ -18,16 +18,18 @@ const STALE_BASE_MESSAGE =
 type DraftPublishInput = {
   draftId: string;
   autosave: DraftAutosave;
-  blockers: PublishBlocker[];
-  local: LocalDraft | null;
+  getLocal: () => LocalDraft | null;
   server: DraftResponse | null;
 };
 
 const buildCheckoutHref = (yearMonth: string, draftId: string): string =>
   `/checkout/${yearMonth}?draftId=${encodeURIComponent(draftId)}`;
 
-/** Save → (checkout when the server says payment is required) → publish → calendar. */
-export const useDraftPublish = ({ draftId, autosave, blockers, local, server }: DraftPublishInput) => {
+/**
+ * Save → (checkout when the server says payment is required) → publish → calendar. Editing is locked by
+ * the caller while `isPublishing`, and the last edit is flushed through the same queue first.
+ */
+export const useDraftPublish = ({ draftId, autosave, getLocal, server }: DraftPublishInput) => {
   const router = useRouter();
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
@@ -39,6 +41,8 @@ export const useDraftPublish = ({ draftId, autosave, blockers, local, server }: 
 
       return;
     }
+
+    setIsPublishing(false);
 
     if (isApiClientError(error) && error.code === ApiErrorCode.REVISION_CONFLICT) {
       const isStale = error.details?.reason === RevisionConflictReason.STALE_BASE;
@@ -53,7 +57,7 @@ export const useDraftPublish = ({ draftId, autosave, blockers, local, server }: 
   };
 
   const handlePublish = async () => {
-    if (!local || !server || blockers.length > 0 || isPublishing) {
+    if (!getLocal() || !server || isPublishing) {
       return;
     }
 
@@ -61,8 +65,9 @@ export const useDraftPublish = ({ draftId, autosave, blockers, local, server }: 
     setPublishError(null);
 
     const isSaved = await autosave.flush();
+    const local = getLocal();
 
-    if (!isSaved) {
+    if (!isSaved || !local) {
       setIsPublishing(false);
       setPublishError(UNSAVED_MESSAGE);
 
@@ -80,12 +85,13 @@ export const useDraftPublish = ({ draftId, autosave, blockers, local, server }: 
 
       router.push(`/calendar/${result.yearMonth}`);
     } catch (error: unknown) {
-      setIsPublishing(false);
       handlePublishError(error, local.yearMonth);
     }
   };
 
   const handleRestartFromPublished = async () => {
+    const local = getLocal();
+
     if (!local) {
       return;
     }

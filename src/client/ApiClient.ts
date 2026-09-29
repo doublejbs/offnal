@@ -125,8 +125,8 @@ export const getRecognitionStatus = (id: string, signal?: AbortSignal): Promise<
 export const claimRecognition = (id: string): Promise<RecognitionStatusResponse> =>
   sendJson('POST', `/api/recognitions/${encode(id)}/claim`);
 
-export const getCandidates = (id: string): Promise<CandidatesResponse> =>
-  getJson(`/api/recognitions/${encode(id)}/candidates`);
+export const getCandidates = (id: string, signal?: AbortSignal): Promise<CandidatesResponse> =>
+  getJson(`/api/recognitions/${encode(id)}/candidates`, signal);
 
 export const getRecognitionSourceUrl = (id: string): string => `/api/recognitions/${encode(id)}/source`;
 
@@ -136,7 +136,8 @@ export const extractRecognition = (
 ): Promise<ExtractRecognitionResponse> => sendJson('POST', `/api/recognitions/${encode(id)}/extract`, body);
 
 // Drafts
-export const getDraft = (id: string): Promise<DraftResponse> => getJson(`/api/drafts/${encode(id)}`);
+export const getDraft = (id: string, signal?: AbortSignal): Promise<DraftResponse> =>
+  getJson(`/api/drafts/${encode(id)}`, signal);
 
 export const patchDraft = (id: string, body: PatchDraftRequest): Promise<DraftResponse> =>
   sendJson('PATCH', `/api/drafts/${encode(id)}`, body);
@@ -148,10 +149,11 @@ export const discardDraft = (id: string): Promise<OkResponse> =>
   sendJson('DELETE', `/api/drafts/${encode(id)}`);
 
 // Calendar
-export const getCalendarSummary = (): Promise<CalendarSummaryResponse> => getJson('/api/calendar');
+export const getCalendarSummary = (signal?: AbortSignal): Promise<CalendarSummaryResponse> =>
+  getJson('/api/calendar', signal);
 
-export const getCalendarMonth = (yearMonth: string): Promise<CalendarMonthResponse> =>
-  getJson(`/api/calendar/${encode(yearMonth)}`);
+export const getCalendarMonth = (yearMonth: string, signal?: AbortSignal): Promise<CalendarMonthResponse> =>
+  getJson(`/api/calendar/${encode(yearMonth)}`, signal);
 
 export const deleteCalendarMonth = (yearMonth: string): Promise<OkResponse> =>
   sendJson('DELETE', `/api/calendar/${encode(yearMonth)}`);
@@ -172,7 +174,8 @@ export const downloadIcs = async (yearMonth: string, includeOff: boolean): Promi
 };
 
 // Share
-export const getShareSettings = (): Promise<ShareSettingsResponse> => getJson('/api/calendar/share');
+export const getShareSettings = (signal?: AbortSignal): Promise<ShareSettingsResponse> =>
+  getJson('/api/calendar/share', signal);
 
 export const updateShareSettings = (body: UpdateShareRequest): Promise<ShareSettingsResponse> =>
   sendJson('POST', '/api/calendar/share', body);
@@ -182,8 +185,12 @@ export const rotateShareLink = (): Promise<ShareSettingsResponse> =>
 
 export const stopSharing = (): Promise<ShareSettingsResponse> => sendJson('DELETE', '/api/calendar/share');
 
-export const getSharedCalendar = (token: string, month: string | null): Promise<SharedCalendarResponse> =>
-  getJson(`/api/shared/${encode(token)}${month ? `?month=${encode(month)}` : ''}`);
+export const getSharedCalendar = (
+  token: string,
+  month: string | null,
+  signal?: AbortSignal,
+): Promise<SharedCalendarResponse> =>
+  getJson(`/api/shared/${encode(token)}${month ? `?month=${encode(month)}` : ''}`, signal);
 
 // Payments
 export const createPayment = (body: CreatePaymentRequest): Promise<CreatePaymentResponse> =>

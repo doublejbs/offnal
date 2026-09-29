@@ -1,3 +1,5 @@
+import 'server-only';
+
 import sharp, { type Metadata } from 'sharp';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';

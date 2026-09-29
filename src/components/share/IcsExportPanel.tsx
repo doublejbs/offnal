@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 import { downloadIcs, getErrorMessage } from '@/client/ApiClient';
-import { formatShiftTime } from '@/client/DisplayText';
+import { formatDefinitionSummary } from '@/client/DisplayText';
 import { downloadBlob } from '@/client/ShareOrDownload';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
@@ -42,12 +42,12 @@ const IcsExportPanel = ({ yearMonth, definitions, entries }: IcsExportPanelProps
 
   return (
     <div>
-      <div className="block" style={{ marginTop: 0 }}>
+      <div className="block mt-0">
         <h2>출퇴근 시간을 함께</h2>
         <p>
           {used.map((definition) => (
-            <span key={definition.code} style={{ display: 'block' }}>
-              {definition.code} · {definition.label} · {formatShiftTime(definition)}
+            <span key={definition.code} className="block-text">
+              {formatDefinitionSummary(definition)}
             </span>
           ))}
         </p>
@@ -72,7 +72,7 @@ const IcsExportPanel = ({ yearMonth, definitions, entries }: IcsExportPanelProps
       <button type="button" className="primary" onClick={handleDownload} disabled={isBusy}>
         {isBusy ? '파일을 만드는 중…' : '일정 파일 받기'}
       </button>
-      <div className="status-line" role="status" aria-live="polite" style={{ marginTop: 8 }}>
+      <div className="status-line mt-8" role="status" aria-live="polite">
         {message}
       </div>
       <div className="hint">ICS 형식 · 한국 시간 기준</div>

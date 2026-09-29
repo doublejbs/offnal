@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react';
+import { type ReactNode, useId } from 'react';
 
 type EmptyStateProps = {
   label?: string;
@@ -7,13 +7,17 @@ type EmptyStateProps = {
   children?: ReactNode;
 };
 
-const EmptyState = ({ label, title, description, children }: EmptyStateProps) => (
-  <section aria-labelledby="empty-title">
-    {label && <div className="label">{label}</div>}
-    <h1 id="empty-title">{title}</h1>
-    {description && <p>{description}</p>}
-    {children && <div className="stack">{children}</div>}
-  </section>
-);
+const EmptyState = ({ label, title, description, children }: EmptyStateProps) => {
+  const titleId = useId();
+
+  return (
+    <section aria-labelledby={titleId}>
+      {label && <div className="label">{label}</div>}
+      <h1 id={titleId}>{title}</h1>
+      {description && <p>{description}</p>}
+      {children && <div className="stack">{children}</div>}
+    </section>
+  );
+};
 
 export default EmptyState;

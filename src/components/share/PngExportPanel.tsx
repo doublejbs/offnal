@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 import { getErrorMessage, getExportData } from '@/client/ApiClient';
-import { formatShiftTime } from '@/client/DisplayText';
+import { formatDefinitionSummary } from '@/client/DisplayText';
 import { buildPngFilename, renderMonthPng } from '@/client/PngRenderer';
 import { shareOrDownloadFile } from '@/client/ShareOrDownload';
 import MonthGrid from '@/components/calendar/MonthGrid';
@@ -54,7 +54,7 @@ const PngExportPanel = ({ yearMonth, displayName, definitions, entries }: PngExp
 
   return (
     <div>
-      <p style={{ marginTop: 0 }}>
+      <p className="mt-0">
         {displayName}의 {formatYearMonthLabel(yearMonth)} · 이미지 미리보기
       </p>
       <MonthGrid
@@ -66,8 +66,8 @@ const PngExportPanel = ({ yearMonth, displayName, definitions, entries }: PngExp
       />
       <div className="hint">
         {used.map((definition) => (
-          <span key={definition.code} style={{ display: 'block' }}>
-            {definition.code} {definition.label} · {formatShiftTime(definition)}
+          <span key={definition.code} className="block-text">
+            {formatDefinitionSummary(definition)}
           </span>
         ))}
       </div>
@@ -79,7 +79,7 @@ const PngExportPanel = ({ yearMonth, displayName, definitions, entries }: PngExp
       <button type="button" className="primary" onClick={handleSave} disabled={isBusy}>
         {isBusy ? '이미지를 만드는 중…' : '이미지 저장'}
       </button>
-      <div className="status-line" role="status" aria-live="polite" style={{ marginTop: 8 }}>
+      <div className="status-line mt-8" role="status" aria-live="polite">
         {message}
       </div>
       <div className="hint">저장된 이미지는 이후 근무 변경이 반영되지 않아요.</div>

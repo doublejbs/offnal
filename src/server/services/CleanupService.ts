@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { and, asc, eq, exists, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 
 import { MS_PER_DAY, MS_PER_HOUR } from '@/domain/DomainLimits';

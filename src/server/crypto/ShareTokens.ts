@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { getAppConfig } from '@/server/config/AppConfig';
 import { decryptText, encryptText, generateToken, hashSha256Hex } from '@/server/crypto/TokenCrypto';
 import { type CalendarRow } from '@/server/db/Schema';

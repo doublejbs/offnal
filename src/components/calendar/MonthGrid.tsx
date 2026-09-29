@@ -12,7 +12,7 @@ import {
 } from '@/client/ShiftStyle';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
-import { addDaysToDate, yearMonthOfDate } from '@/domain/YearMonth';
+import { addDaysToDate, dayOfDate, listDates, yearMonthOfDate } from '@/domain/YearMonth';
 
 type MonthGridProps = {
   yearMonth: string;
@@ -32,6 +32,7 @@ const KEY_OFFSETS: Record<string, number> = {
 
 /**
  * 7-column month; every day is a toggle button whose label spells out the shift and review state.
+ * Roving tabindex: the grid is a single tab stop (the selected day) and arrow keys move/select days.
  * Without `onSelectDate` it renders a static preview (no buttons).
  */
 const MonthGrid = ({
@@ -46,17 +47,27 @@ const MonthGrid = ({
   const entryByDate = new Map(entries.map((entry) => [entry.date, entry]));
   const usedCodes = new Set(entries.map((entry) => entry.code));
   const legend = definitions.filter((definition) => usedCodes.has(definition.code));
+  const dates = listDates(yearMonth);
+  const tabStop = selectedDate && dates.includes(selectedDate) ? selectedDate : dates[0];
 
-  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, date: string) => {
-    const offset = KEY_OFFSETS[event.key];
-
-    if (offset === undefined) {
-      return;
+  const findKeyTarget = (key: string, date: string): string | undefined => {
+    if (key === 'Home') {
+      return dates[0];
     }
 
-    const target = addDaysToDate(date, offset);
+    if (key === 'End') {
+      return dates.at(-1);
+    }
 
-    if (yearMonthOfDate(target) !== yearMonth) {
+    const offset = KEY_OFFSETS[key];
+
+    return offset === undefined ? undefined : addDaysToDate(date, offset);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, date: string) => {
+    const target = findKeyTarget(event.key, date);
+
+    if (!target || yearMonthOfDate(target) !== yearMonth) {
       return;
     }
 
@@ -80,7 +91,11 @@ const MonthGrid = ({
           <span key={label}>{label}</span>
         ))}
       </div>
-      <div className="grid">
+      <div
+        className="grid"
+        role={onSelectDate ? 'group' : undefined}
+        aria-label={onSelectDate ? '날짜 선택' : undefined}
+      >
         {buildMonthWeeks(yearMonth)
           .flat()
           .map((date, index) => {
@@ -92,7 +107,7 @@ const MonthGrid = ({
             const label = `${formatMonthDay(date)} ${describeEntryStatus(entry)}`;
             const content = (
               <>
-                <span>{Number(date.slice(8))}</span>
+                <span>{dayOfDate(date)}</span>
                 <span className={toneClassName(getEntryTone(entry, definitions))}>{getBadgeText(entry)}</span>
               </>
             );
@@ -111,6 +126,7 @@ const MonthGrid = ({
                 ref={registerButton(date)}
                 type="button"
                 className="day"
+                tabIndex={date === tabStop ? 0 : -1}
                 aria-pressed={selectedDate === date}
                 aria-label={label}
                 onClick={() => onSelectDate(date)}

@@ -35,7 +35,7 @@ const LoginOptions = ({ returnTo, primaryLabel }: LoginOptionsProps) => {
       {hasDev && (
         <form method="post" action="/auth/dev-login" className="stack" aria-label="데모 로그인">
           <input type="hidden" name="returnTo" value={returnTo} />
-          <label className="field" style={{ margin: 0 }}>
+          <label className="field m-0">
             <span>
               <strong>데모 로그인</strong> · 표시 이름 (실제 계정이 아니에요)
             </span>

@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
     '/**': ['./drizzle/**/*'],
   },
   poweredByHeader: false,
+  // `next dev` would otherwise (re)write an agent-rules block into CLAUDE.md/AGENTS.md.
+  agentRules: false,
   headers: async () => [
     { source: '/:path*', headers: toHeaderList(BASELINE_HEADERS) },
     // Later rules override earlier ones (and route response headers) for the same key, so both the share

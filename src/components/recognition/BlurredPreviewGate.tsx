@@ -2,6 +2,7 @@
 
 import { LockKeyhole } from 'lucide-react';
 import Link from 'next/link';
+import { useId } from 'react';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { WEEKDAY_LABELS } from '@/client/MonthLayout';
@@ -22,11 +23,12 @@ type BlurredPreviewGateProps = {
  */
 const BlurredPreviewGate = ({ recognitionId, loginFailed }: BlurredPreviewGateProps) => {
   const { freeMonthLimit, priceKrw } = usePublicConfig();
+  const titleId = useId();
 
   return (
-    <section aria-labelledby="gate-title">
+    <section aria-labelledby={titleId}>
       <div className="label">근무표 인식 완료</div>
-      <h1 id="gate-title">
+      <h1 id={titleId}>
         근무표를 읽었어요.
         <br />내 달력을 확인해 보세요.
       </h1>

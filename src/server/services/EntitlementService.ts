@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { and, count, eq } from 'drizzle-orm';
 
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';

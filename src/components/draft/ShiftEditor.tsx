@@ -1,9 +1,9 @@
 'use client';
 
 import { Plus } from 'lucide-react';
-import { useState } from 'react';
+import { type RefObject, useId, useState } from 'react';
 
-import { describeReviewReason, formatShiftTime } from '@/client/DisplayText';
+import { describeReviewReason, formatRawText, formatShiftTime } from '@/client/DisplayText';
 import { formatDayLabel } from '@/client/MonthLayout';
 import AddCodeForm from '@/components/draft/AddCodeForm';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
@@ -11,9 +11,11 @@ import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 
 type ShiftEditorProps = {
   entry: ShiftEntry;
+  /** undefined = no source row for this draft (manual/edit drafts). */
   rawText: string | null | undefined;
   definitions: ShiftDefinition[];
   disabled: boolean;
+  sectionRef: RefObject<HTMLElement | null>;
   onSelectCode: (code: string | null) => void;
   onAddCode: (code: string, label: string) => string | null;
 };
@@ -24,10 +26,12 @@ const ShiftEditor = ({
   rawText,
   definitions,
   disabled,
+  sectionRef,
   onSelectCode,
   onAddCode,
 }: ShiftEditorProps) => {
   const [isAdding, setIsAdding] = useState(false);
+  const titleId = useId();
   const definition = definitions.find((item) => item.code === entry.code);
   const isUnconfirmed = entry.code === null || !entry.confirmed;
 
@@ -42,18 +46,14 @@ const ShiftEditor = ({
   };
 
   return (
-    <section className="editor" aria-labelledby="shift-editor-title">
+    <section ref={sectionRef} className="editor" aria-labelledby={titleId} tabIndex={-1}>
       <div className="edithead">
-        <strong id="shift-editor-title">{formatDayLabel(entry.date)}</strong>
+        <strong id={titleId}>{formatDayLabel(entry.date)}</strong>
         <span className="tiny">{isUnconfirmed ? '확인 필요' : '근무 수정'}</span>
       </div>
-      {rawText !== undefined && (
-        <div className="tiny" style={{ marginBottom: 8 }}>
-          원본: {rawText?.trim() ? rawText : '빈칸'}
-        </div>
-      )}
+      {rawText !== undefined && <div className="tiny mb-8">원본: {formatRawText(rawText)}</div>}
       {isUnconfirmed && entry.reviewReasons.length > 0 && (
-        <div className="status-line" data-tone="warn" style={{ marginBottom: 10 }}>
+        <div className="status-line mb-10" data-tone="warn">
           {entry.reviewReasons.map(describeReviewReason).join(' · ')}
         </div>
       )}
@@ -84,7 +84,7 @@ const ShiftEditor = ({
           disabled={disabled}
           onClick={() => setIsAdding((value) => !value)}
         >
-          <Plus size={14} aria-hidden="true" style={{ verticalAlign: '-2px' }} /> 코드 추가
+          <Plus size={14} aria-hidden="true" className="icon-inline" /> 코드 추가
         </button>
       </div>
       {isAdding && (

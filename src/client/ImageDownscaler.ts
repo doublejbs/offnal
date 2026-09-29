@@ -1,12 +1,9 @@
 /** Long-edge limit sent to the server (keeps table text legible while staying small). */
 export const MAX_LONG_EDGE = 2576;
 
-const INITIAL_QUALITY = 0.85;
-const MIN_QUALITY = 0.5;
-const QUALITY_STEP = 0.1;
+const QUALITIES = [0.85, 0.75, 0.65, 0.55];
 const RESIZE_STEP = 0.8;
 const MIN_LONG_EDGE = 1024;
-const MAX_RESIZE_ATTEMPTS = 6;
 
 export const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -29,12 +26,12 @@ export type DownscaledImage = {
   filename: string;
 };
 
+export type Size = { width: number; height: number };
+
+export type EncodingAttempt = Size & { quality: number };
+
 /** Pure: target size for a long edge limit (never upscales). */
-export const fitWithinLongEdge = (
-  width: number,
-  height: number,
-  maxLongEdge: number,
-): { width: number; height: number } => {
+export const fitWithinLongEdge = (width: number, height: number, maxLongEdge: number): Size => {
   const longEdge = Math.max(width, height);
 
   if (longEdge <= maxLongEdge) {
@@ -44,6 +41,30 @@ export const fitWithinLongEdge = (
   const ratio = maxLongEdge / longEdge;
 
   return { width: Math.round(width * ratio), height: Math.round(height * ratio) };
+};
+
+/**
+ * Pure: the ordered (size, quality) attempts — full quality first, then lower quality, then smaller
+ * sizes down to a 1024px long edge (or the original size when it is already smaller).
+ */
+export const planEncodingAttempts = (width: number, height: number): EncodingAttempt[] => {
+  const attempts: EncodingAttempt[] = [];
+  const originalLongEdge = Math.max(width, height);
+  let longEdge = Math.min(MAX_LONG_EDGE, originalLongEdge);
+
+  for (;;) {
+    const size = fitWithinLongEdge(width, height, longEdge);
+
+    for (const quality of QUALITIES) {
+      attempts.push({ ...size, quality });
+    }
+
+    if (longEdge <= MIN_LONG_EDGE) {
+      return attempts;
+    }
+
+    longEdge = Math.max(MIN_LONG_EDGE, Math.round(longEdge * RESIZE_STEP));
+  }
 };
 
 const decode = async (file: Blob): Promise<ImageBitmap> => {
@@ -58,13 +79,30 @@ const decode = async (file: Blob): Promise<ImageBitmap> => {
   }
 };
 
+/** Uses the browser's high-quality resize when supported; falls back to scaling in drawImage. */
+const resizeBitmap = async (bitmap: ImageBitmap, size: Size): Promise<ImageBitmap | null> => {
+  if (size.width === bitmap.width && size.height === bitmap.height) {
+    return null;
+  }
+
+  try {
+    return await createImageBitmap(bitmap, {
+      resizeWidth: size.width,
+      resizeHeight: size.height,
+      resizeQuality: 'high',
+    });
+  } catch {
+    return null;
+  }
+};
+
 const encodeJpeg = (canvas: HTMLCanvasElement, quality: number): Promise<Blob | null> =>
   new Promise((resolve) => {
     canvas.toBlob(resolve, 'image/jpeg', quality);
   });
 
-const drawScaled = (bitmap: ImageBitmap, longEdge: number): HTMLCanvasElement => {
-  const size = fitWithinLongEdge(bitmap.width, bitmap.height, longEdge);
+const drawToCanvas = async (bitmap: ImageBitmap, size: Size): Promise<HTMLCanvasElement> => {
+  const resized = await resizeBitmap(bitmap, size);
   const canvas = document.createElement('canvas');
 
   canvas.width = size.width;
@@ -73,14 +111,22 @@ const drawScaled = (bitmap: ImageBitmap, longEdge: number): HTMLCanvasElement =>
   const context = canvas.getContext('2d');
 
   if (!context) {
+    resized?.close();
     throw new ImageDecodeError();
   }
 
   context.fillStyle = '#ffffff';
   context.fillRect(0, 0, size.width, size.height);
-  context.drawImage(bitmap, 0, 0, size.width, size.height);
+  context.drawImage(resized ?? bitmap, 0, 0, size.width, size.height);
+  resized?.close();
 
   return canvas;
+};
+
+/** Frees the canvas backing store right away (iOS Safari keeps a small total canvas budget). */
+const releaseCanvas = (canvas: HTMLCanvasElement) => {
+  canvas.width = 0;
+  canvas.height = 0;
 };
 
 const toJpegName = (name: string): string => `${name.replace(/\.[^.]+$/u, '') || 'photo'}.jpg`;
@@ -92,28 +138,34 @@ const toJpegName = (name: string): string => `${name.replace(/\.[^.]+$/u, '') ||
  */
 export const downscaleImage = async (file: File, maxBytes: number): Promise<DownscaledImage> => {
   const bitmap = await decode(file);
-  let longEdge = Math.min(MAX_LONG_EDGE, Math.max(bitmap.width, bitmap.height));
+  let canvas: HTMLCanvasElement | null = null;
+  let canvasSize = '';
 
   try {
-    for (let attempt = 0; attempt < MAX_RESIZE_ATTEMPTS; attempt += 1) {
-      const canvas = drawScaled(bitmap, longEdge);
+    for (const attempt of planEncodingAttempts(bitmap.width, bitmap.height)) {
+      const sizeKey = `${attempt.width}x${attempt.height}`;
 
-      for (let quality = INITIAL_QUALITY; quality >= MIN_QUALITY - 1e-9; quality -= QUALITY_STEP) {
-        const blob = await encodeJpeg(canvas, quality);
-
-        if (blob && blob.size < maxBytes) {
-          return { blob, filename: toJpegName(file.name) };
+      if (!canvas || canvasSize !== sizeKey) {
+        if (canvas) {
+          releaseCanvas(canvas);
         }
+
+        canvas = await drawToCanvas(bitmap, attempt);
+        canvasSize = sizeKey;
       }
 
-      if (longEdge <= MIN_LONG_EDGE) {
-        break;
-      }
+      const blob = await encodeJpeg(canvas, attempt.quality);
 
-      longEdge = Math.max(MIN_LONG_EDGE, Math.round(longEdge * RESIZE_STEP));
+      if (blob && blob.size < maxBytes) {
+        return { blob, filename: toJpegName(file.name) };
+      }
     }
   } finally {
     bitmap.close();
+
+    if (canvas) {
+      releaseCanvas(canvas);
+    }
   }
 
   throw new ImageTooLargeError();

@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { and, eq, isNull } from 'drizzle-orm';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';

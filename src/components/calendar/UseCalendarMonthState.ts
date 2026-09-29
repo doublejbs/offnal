@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 import {
   deleteCalendarMonth,
@@ -9,81 +9,34 @@ import {
   getCalendarMonth,
   getCalendarSummary,
   getErrorMessage,
-  isApiClientError,
   updateShareSettings,
 } from '@/client/ApiClient';
-import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
+import { useLoad } from '@/components/UseLoad';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
 import { type CalendarMonthResponse } from '@/domain/types/api/CalendarMonthResponse';
-import { type CalendarSummaryResponse } from '@/domain/types/api/CalendarSummaryResponse';
 import { todayInSeoul, yearMonthOfDate } from '@/domain/YearMonth';
 
 const pickInitialDate = (month: CalendarMonthResponse): string | null => {
   const today = todayInSeoul(new Date());
 
-  if (yearMonthOfDate(today) === month.yearMonth) {
-    return today;
-  }
-
-  return month.entries[0]?.date ?? null;
-};
-
-const toLoadState = (error: unknown): ScreenLoadState => {
-  if (isApiClientError(error) && error.code === ApiErrorCode.AUTH_REQUIRED) {
-    return ScreenLoadState.AUTH_REQUIRED;
-  }
-
-  if (isApiClientError(error) && error.status === 404) {
-    return ScreenLoadState.NOT_FOUND;
-  }
-
-  return ScreenLoadState.ERROR;
+  return yearMonthOfDate(today) === month.yearMonth ? today : (month.entries[0]?.date ?? null);
 };
 
 export const useCalendarMonthState = (yearMonth: string) => {
   const router = useRouter();
-  const [loadState, setLoadState] = useState(ScreenLoadState.LOADING);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<CalendarSummaryResponse | null>(null);
-  const [month, setMonth] = useState<CalendarMonthResponse | null>(null);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const summary = useLoad('calendar-summary', (signal) => getCalendarSummary(signal));
+  const month = useLoad(yearMonth, (signal) => getCalendarMonth(yearMonth, signal));
+  const [pickedDate, setSelectedDate] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSharingMonth, setIsSharingMonth] = useState(false);
-
-  useEffect(() => {
-    let isActive = true;
-
-    Promise.all([getCalendarSummary(), getCalendarMonth(yearMonth)])
-      .then(([nextSummary, nextMonth]) => {
-        if (!isActive) {
-          return;
-        }
-
-        setSummary(nextSummary);
-        setMonth(nextMonth);
-        setSelectedDate(pickInitialDate(nextMonth));
-        setLoadState(ScreenLoadState.READY);
-      })
-      .catch(async (error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        // Keep the month list for the "not published" state.
-        const fallback = await getCalendarSummary().catch(() => null);
-
-        setSummary(fallback);
-        setLoadError(getErrorMessage(error));
-        setLoadState(toLoadState(error));
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [yearMonth]);
+  const selectedDate = pickedDate ?? (month.data ? pickInitialDate(month.data) : null);
+  const loadState =
+    month.state === ScreenLoadState.READY && summary.state !== ScreenLoadState.READY
+      ? summary.state
+      : month.state;
 
   const handleChangeMonth = (next: string) => router.push(`/calendar/${next}`);
 
@@ -117,7 +70,7 @@ export const useCalendarMonthState = (yearMonth: string) => {
 
   /** Adds this month to the existing link's visible months (sharing a new month is always explicit). */
   const handleShareThisMonth = async () => {
-    if (!summary || !month) {
+    if (!summary.data || !month.data) {
       return;
     }
 
@@ -125,16 +78,18 @@ export const useCalendarMonthState = (yearMonth: string) => {
     setActionError(null);
 
     try {
-      const visibleMonths = summary.months.filter((item) => item.shareVisible).map((item) => item.yearMonth);
+      const visibleMonths = summary.data.months
+        .filter((item) => item.shareVisible)
+        .map((item) => item.yearMonth);
 
       await updateShareSettings({
-        displayName: summary.share.displayName ?? month.displayName,
+        displayName: summary.data.share.displayName ?? month.data.displayName,
         visibleMonths: [...new Set([...visibleMonths, yearMonth])],
       });
-      setMonth({ ...month, shareVisible: true });
-      setSummary({
-        ...summary,
-        months: summary.months.map((item) =>
+      month.setData({ ...month.data, shareVisible: true });
+      summary.setData({
+        ...summary.data,
+        months: summary.data.months.map((item) =>
           item.yearMonth === yearMonth ? { ...item, shareVisible: true } : item,
         ),
       });
@@ -147,9 +102,9 @@ export const useCalendarMonthState = (yearMonth: string) => {
 
   return {
     loadState,
-    loadError,
-    summary,
-    month,
+    loadError: month.errorMessage ?? summary.errorMessage,
+    summary: summary.data,
+    month: month.data,
     selectedDate,
     actionError,
     isEditing,
@@ -158,6 +113,10 @@ export const useCalendarMonthState = (yearMonth: string) => {
     isSharingMonth,
     setSelectedDate,
     setIsDeleteOpen,
+    handleReload: () => {
+      summary.reload();
+      month.reload();
+    },
     handleChangeMonth,
     handleEdit,
     handleDelete,

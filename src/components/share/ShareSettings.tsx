@@ -1,9 +1,9 @@
 'use client';
 
-import { Copy, Share2 } from 'lucide-react';
-
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadingState from '@/components/LoadingState';
+import RecoverableError from '@/components/RecoverableError';
+import ShareLinkActions from '@/components/share/ShareLinkActions';
 import { useShareSettingsState } from '@/components/share/UseShareSettingsState';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
@@ -15,20 +15,24 @@ type ShareSettingsProps = {
   fallbackName: string;
 };
 
-/** Read-only link: display name, which published months it shows, share/copy, rotate and stop. */
+const isStop = (action: ShareConfirmAction): boolean => action === ShareConfirmAction.STOP;
+
+/** Read-only link: display name, which published months it shows, then share/copy, rotate and stop. */
 const ShareSettings = ({ yearMonth, fallbackName }: ShareSettingsProps) => {
   const state = useShareSettingsState(yearMonth, fallbackName);
-  const { settings } = state;
+  const { settings, settingsLoad } = state;
 
-  if (state.loadState === ScreenLoadState.LOADING) {
+  if (settingsLoad.state === ScreenLoadState.LOADING) {
     return <LoadingState text="공유 설정을 불러오는 중이에요…" />;
   }
 
-  if (state.loadState !== ScreenLoadState.READY || !settings) {
+  if (settingsLoad.state !== ScreenLoadState.READY || !settings) {
     return (
-      <div className="warning" role="alert">
-        {state.loadError}
-      </div>
+      <RecoverableError
+        title="공유 설정을 불러오지 못했어요"
+        message={settingsLoad.errorMessage ?? '잠시 후 다시 시도해 주세요.'}
+        onRetry={settingsLoad.reload}
+      />
     );
   }
 
@@ -36,7 +40,7 @@ const ShareSettings = ({ yearMonth, fallbackName }: ShareSettingsProps) => {
 
   return (
     <div>
-      <label className="field" style={{ marginTop: 0 }}>
+      <label className="field mt-0">
         표시 이름
         <input
           value={state.displayName}
@@ -44,8 +48,8 @@ const ShareSettings = ({ yearMonth, fallbackName }: ShareSettingsProps) => {
           onChange={(event) => state.setDisplayName(event.target.value)}
         />
       </label>
-      <fieldset style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        <legend style={{ fontSize: 14, marginBottom: 4 }}>공개할 달</legend>
+      <fieldset className="plain-fieldset">
+        <legend className="text-14 mb-4">공개할 달</legend>
         {months.map((month) => (
           <label key={month} className="check">
             <input
@@ -57,74 +61,50 @@ const ShareSettings = ({ yearMonth, fallbackName }: ShareSettingsProps) => {
           </label>
         ))}
       </fieldset>
+      {!settings.enabled && state.visibleMonths.length > 0 && (
+        <div className="hint text-left">
+          링크를 만들면 {state.visibleMonths.map(formatYearMonthLabel).join(', ')}만 공개돼요. 나중에 등록하는
+          달은 자동으로 공개되지 않아요.
+        </div>
+      )}
       <div className="notice">링크를 가진 사람은 누구나 볼 수 있고 다시 전달할 수 있어요.</div>
       {state.error && (
         <div className="warning" role="alert">
           {state.error}
         </div>
       )}
-      <button type="button" className="primary" onClick={state.handleSave} disabled={!state.canSave}>
-        {state.isBusy ? '저장하는 중…' : settings.enabled ? '저장하고 링크 공유' : '공유 링크 만들기'}
+      <button
+        type="button"
+        className={settings.enabled ? 'secondary' : 'primary'}
+        onClick={state.handleSave}
+        disabled={!state.canSave}
+      >
+        {state.isBusy ? '저장하는 중…' : settings.enabled ? '공유 설정 저장' : '공유 링크 만들기'}
       </button>
       {state.visibleMonths.length === 0 && <div className="hint">공개할 달을 하나 이상 선택해 주세요.</div>}
-      <div className="status-line" role="status" aria-live="polite" style={{ marginTop: 8 }}>
+      <div className="status-line mt-8" role="status" aria-live="polite">
         {state.message}
       </div>
       {settings.enabled && settings.url && (
-        <>
-          <div className="copy-field">
-            <input
-              readOnly
-              value={settings.url}
-              aria-label="공유 링크"
-              onFocus={(event) => event.currentTarget.select()}
-            />
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="링크 공유 또는 복사"
-              onClick={() => settings.url && state.handleShareUrl(settings.url)}
-            >
-              {typeof navigator !== 'undefined' && 'share' in navigator ? (
-                <Share2 size={18} aria-hidden="true" />
-              ) : (
-                <Copy size={18} aria-hidden="true" />
-              )}
-            </button>
-          </div>
-          <div className="actionrow">
-            <button
-              type="button"
-              className="secondary"
-              disabled={state.isBusy}
-              onClick={() => state.setConfirmAction(ShareConfirmAction.ROTATE)}
-            >
-              링크 재발급
-            </button>
-            <button
-              type="button"
-              className="danger"
-              disabled={state.isBusy}
-              onClick={() => state.setConfirmAction(ShareConfirmAction.STOP)}
-            >
-              공유 중지
-            </button>
-          </div>
-          <div className="hint">이미 저장된 이미지나 일정 파일은 링크를 바꿔도 회수되지 않아요.</div>
-        </>
+        <ShareLinkActions
+          url={settings.url}
+          canShare={state.canShare}
+          isBusy={state.isBusy}
+          onShare={state.handleShareUrl}
+          onCopy={state.handleCopyUrl}
+          onRequestConfirm={state.setConfirmAction}
+        />
       )}
       <ConfirmDialog
         isOpen={state.confirmAction !== ShareConfirmAction.NONE}
-        title={
-          state.confirmAction === ShareConfirmAction.STOP ? '공유를 중지할까요?' : '링크를 다시 만들까요?'
-        }
+        title={isStop(state.confirmAction) ? '공유를 중지할까요?' : '링크를 다시 만들까요?'}
         message={
-          state.confirmAction === ShareConfirmAction.STOP
+          isStop(state.confirmAction)
             ? '지금 링크로는 더 이상 달력을 볼 수 없어요. 다시 공유하면 새 링크가 만들어져요.'
             : '지금까지 보낸 링크는 바로 열리지 않게 돼요. 새 링크를 다시 보내 주세요.'
         }
-        confirmLabel={state.confirmAction === ShareConfirmAction.STOP ? '공유 중지' : '재발급'}
-        isDanger={state.confirmAction === ShareConfirmAction.STOP}
+        confirmLabel={isStop(state.confirmAction) ? '공유 중지' : '재발급'}
+        isDanger={isStop(state.confirmAction)}
         isBusy={state.isBusy}
         onConfirm={state.handleConfirm}
         onCancel={() => state.setConfirmAction(ShareConfirmAction.NONE)}

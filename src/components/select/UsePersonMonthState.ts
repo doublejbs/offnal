@@ -4,100 +4,37 @@ import { useRouter } from 'next/navigation';
 import { type FormEvent, useEffect, useState } from 'react';
 
 import { extractRecognition, getCandidates, getErrorMessage, isApiClientError } from '@/client/ApiClient';
+import { useLoad } from '@/components/UseLoad';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
-import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
-import { type CandidatesResponse } from '@/domain/types/api/CandidatesResponse';
 import { currentYearMonthInSeoul, isValidYearMonth } from '@/domain/YearMonth';
 
-export type PersonMonthState = {
-  loadState: ScreenLoadState;
-  loadError: string | null;
-  data: CandidatesResponse | null;
-  yearMonth: string;
-  selectedRowId: string | null;
-  isManual: boolean;
-  manualName: string;
-  isSubmitting: boolean;
-  submitError: string | null;
-  canSubmit: boolean;
-  setYearMonth: (value: string) => void;
-  setSelectedRowId: (value: string) => void;
-  setManualName: (value: string) => void;
-  handleToggleManual: () => void;
-  handleSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
-};
-
-const toLoadState = (error: unknown): ScreenLoadState => {
-  if (!isApiClientError(error)) {
-    return ScreenLoadState.ERROR;
-  }
-
-  if (error.code === ApiErrorCode.AUTH_REQUIRED) {
-    return ScreenLoadState.AUTH_REQUIRED;
-  }
-
-  if (error.code === ApiErrorCode.EXPIRED) {
-    return ScreenLoadState.EXPIRED;
-  }
-
-  if (error.status === 404) {
-    return ScreenLoadState.NOT_FOUND;
-  }
-
-  return ScreenLoadState.ERROR;
-};
-
-export const usePersonMonthState = (recognitionId: string): PersonMonthState => {
+export const usePersonMonthState = (recognitionId: string) => {
   const router = useRouter();
-  const [loadState, setLoadState] = useState(ScreenLoadState.LOADING);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [data, setData] = useState<CandidatesResponse | null>(null);
-  const [yearMonth, setYearMonth] = useState('');
+  const candidates = useLoad(recognitionId, (signal) => getCandidates(recognitionId, signal));
+  const [yearMonthInput, setYearMonth] = useState<string | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [isManual, setIsManual] = useState(false);
   const [manualName, setManualName] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const { data, error } = candidates;
+  const isNotReady = isApiClientError(error) && error.code === ApiErrorCode.RECOGNITION_NOT_READY;
+  const yearMonth = yearMonthInput ?? data?.yearMonthGuess ?? currentYearMonthInSeoul(new Date());
+  // Extraction needs the original photo: once it is deleted only a new upload can continue.
+  const isSourceGone = data !== null && !data.sourceAvailable;
 
   useEffect(() => {
-    let isActive = true;
-
-    getCandidates(recognitionId)
-      .then((response) => {
-        if (!isActive) {
-          return;
-        }
-
-        setData(response);
-        setYearMonth(response.yearMonthGuess ?? currentYearMonthInSeoul(new Date()));
-        setLoadState(ScreenLoadState.READY);
-      })
-      .catch((error: unknown) => {
-        if (!isActive) {
-          return;
-        }
-
-        if (isApiClientError(error) && error.code === ApiErrorCode.RECOGNITION_NOT_READY) {
-          router.replace(`/recognitions/${recognitionId}`);
-
-          return;
-        }
-
-        setLoadError(getErrorMessage(error));
-        setLoadState(toLoadState(error));
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [recognitionId, router]);
+    if (isNotReady) {
+      router.replace(`/recognitions/${recognitionId}`);
+    }
+  }, [isNotReady, recognitionId, router]);
 
   const trimmedName = manualName.trim();
   const hasPerson = isManual
     ? trimmedName.length > 0 && trimmedName.length <= MAX_DISPLAY_NAME_LENGTH
     : selectedRowId !== null;
-  const canSubmit = isValidYearMonth(yearMonth) && hasPerson && !isSubmitting;
+  const canSubmit = isValidYearMonth(yearMonth) && hasPerson && !isSubmitting && !isSourceGone;
 
   const handleToggleManual = () => {
     setSubmitError(null);
@@ -108,8 +45,6 @@ export const usePersonMonthState = (recognitionId: string): PersonMonthState => 
     event.preventDefault();
 
     if (!canSubmit) {
-      setSubmitError(isValidYearMonth(yearMonth) ? '내 이름을 선택해 주세요.' : '대상 월을 확인해 주세요.');
-
       return;
     }
 
@@ -124,16 +59,16 @@ export const usePersonMonthState = (recognitionId: string): PersonMonthState => 
       const { draftId } = await extractRecognition(recognitionId, body);
 
       router.push(`/drafts/${draftId}`);
-    } catch (error: unknown) {
+    } catch (caught: unknown) {
       setIsSubmitting(false);
-      setSubmitError(getErrorMessage(error));
+      setSubmitError(getErrorMessage(caught));
     }
   };
 
   return {
-    loadState,
-    loadError,
-    data,
+    candidates,
+    isNotReady,
+    isSourceGone,
     yearMonth,
     selectedRowId,
     isManual,

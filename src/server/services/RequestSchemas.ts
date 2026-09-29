@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { z } from 'zod';
 
 import { MAX_DISPLAY_NAME_LENGTH, MAX_LABEL_LENGTH } from '@/domain/DomainLimits';

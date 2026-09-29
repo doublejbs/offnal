@@ -4,9 +4,12 @@ import {
   describeBlocker,
   describeMonthAccess,
   formatDateTime,
+  formatDefinitionSummary,
+  formatLegendText,
   formatMonthCount,
   formatOrdinal,
   formatPrice,
+  formatRawText,
   formatReviewWarning,
   formatShiftTime,
   recognitionErrorMessage,
@@ -84,6 +87,22 @@ describe('DisplayText', () => {
     expect(formatShiftTime({ ...NIGHT, isOff: true })).toBe('휴무');
     expect(formatShiftTime({ ...NIGHT, startTime: null })).toBe('시간을 입력해 주세요');
     expect(formatShiftTime(undefined)).toBe('등록되지 않은 코드예요');
+  });
+
+  it('distinguishes unreadable source cells from blank ones', () => {
+    expect(formatRawText(null)).toBe('읽지 못함');
+    expect(formatRawText('')).toBe('빈칸');
+    expect(formatRawText('  ')).toBe('빈칸');
+    expect(formatRawText('E?')).toBe('E?');
+  });
+
+  it('never repeats the off label in legends', () => {
+    const off: ShiftDefinition = { ...NIGHT, code: 'OFF', label: '휴무', isOff: true };
+
+    expect(formatLegendText(off)).toBe('휴무');
+    expect(formatDefinitionSummary(off)).toBe('OFF · 휴무');
+    expect(formatDefinitionSummary(NIGHT)).toBe('N · 나이트 · 22:30–다음 날 07:30');
+    expect(formatLegendText({ ...NIGHT, code: 'X', label: 'X' })).toBe('22:30–다음 날 07:30');
   });
 
   it('formats timestamps in Asia/Seoul', () => {

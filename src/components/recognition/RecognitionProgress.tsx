@@ -1,4 +1,6 @@
 import { Check, LoaderCircle } from 'lucide-react';
+import Link from 'next/link';
+import { useId } from 'react';
 
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 
@@ -7,14 +9,15 @@ type RecognitionProgressProps = {
   isDelayed: boolean;
 };
 
-/** Real stages only: no percentages, no estimated time. */
+/** Real stages only: no percentages, no estimated time. Cancel simply leaves (the job expires). */
 const RecognitionProgress = ({ status, isDelayed }: RecognitionProgressProps) => {
+  const titleId = useId();
   const isReading = status === RecognitionStatus.PROCESSING;
 
   return (
-    <section aria-labelledby="progress-title">
+    <section aria-labelledby={titleId}>
       <div className="label">근무표 인식 중</div>
-      <h1 id="progress-title">
+      <h1 id={titleId}>
         근무표를
         <br />
         읽고 있어요.
@@ -35,6 +38,12 @@ const RecognitionProgress = ({ status, isDelayed }: RecognitionProgressProps) =>
           평소보다 오래 걸리고 있어요. 표가 크거나 복잡하면 시간이 더 걸릴 수 있어요. 조금만 더 기다려 주세요.
         </div>
       )}
+      <div className="center">
+        <Link href="/" className="textbutton">
+          취소하고 처음으로
+        </Link>
+      </div>
+      <div className="hint">취소해도 올린 사진은 보관 기간이 지나면 자동으로 삭제돼요.</div>
     </section>
   );
 };

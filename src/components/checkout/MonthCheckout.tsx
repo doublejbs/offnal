@@ -5,12 +5,10 @@ import Link from 'next/link';
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import AuthRequired from '@/components/AuthRequired';
 import BackLink from '@/components/BackLink';
-import {
-  TOSS_AGREEMENT_ID,
-  TOSS_METHODS_ID,
-  useMonthCheckoutState,
-} from '@/components/checkout/UseMonthCheckoutState';
+import CheckoutReceipt from '@/components/checkout/CheckoutReceipt';
+import { useMonthCheckoutState } from '@/components/checkout/UseMonthCheckoutState';
 import { usePublicConfig } from '@/components/ConfigProvider';
+import LoadingState from '@/components/LoadingState';
 import { CheckoutStage } from '@/domain/enums/CheckoutStage';
 import { formatYearMonthLabel, parseYearMonth } from '@/domain/YearMonth';
 
@@ -38,75 +36,85 @@ const MonthCheckout = ({ yearMonth, draftId }: MonthCheckoutProps) => {
     );
   }
 
-  if (state.isAuthRequired) {
+  if (state.stage === CheckoutStage.AUTH_REQUIRED) {
     return <AuthRequired returnTo={`/checkout/${yearMonth}${draftId ? `?draftId=${draftId}` : ''}`} />;
   }
+
+  if (state.stage === CheckoutStage.FREE_MONTH_AVAILABLE) {
+    return (
+      <>
+        <BackLink href={backHref} />
+        <div className="label">무료로 저장할 수 있어요</div>
+        <h1>이 달은 결제하지 않아도 돼요.</h1>
+        <p>
+          아직 무료 월이 남아 있어서 {formatYearMonthLabel(yearMonth)}은 무료로 저장돼요. 근무표로 돌아가
+          저장해 주세요.
+        </p>
+        <Link href={backHref} className="primary" replace>
+          {draftId ? '근무표로 돌아가 무료로 저장' : '내 달력으로'}
+        </Link>
+      </>
+    );
+  }
+
+  if (state.stage === CheckoutStage.ENTITLED) {
+    return (
+      <>
+        <div className="label">이미 이용권이 있는 달이에요</div>
+        <h1>추가 결제 없이 저장할게요.</h1>
+        {state.error ? (
+          <>
+            <div className="warning" role="alert">
+              {state.error}
+            </div>
+            <Link href={backHref} className="primary" replace>
+              근무표로 돌아가기
+            </Link>
+          </>
+        ) : (
+          <LoadingState text="달력에 저장하는 중이에요…" />
+        )}
+      </>
+    );
+  }
+
+  const label =
+    state.freeRemaining === 0
+      ? `무료 ${formatMonthCount(freeMonthLimit)}을 모두 이용했어요`
+      : `${formatYearMonthLabel(yearMonth)} 이용권`;
 
   return (
     <>
       <BackLink href={backHref} />
-      <div className="label">무료 {formatMonthCount(freeMonthLimit)}을 모두 이용했어요</div>
+      <div className="label">{label}</div>
       <h1>
         필요한 달만,
         <br />
         가볍게 이어가세요.
       </h1>
-      <p>
-        {parts.month}월 근무표 확인을 마쳤어요.
-        <br />
-        구매하면 저장하고 공유할 수 있어요.
-      </p>
-      <div className="block">
-        <div className="tiny">{formatYearMonthLabel(yearMonth)} 이용권</div>
-        <div className="price">
-          {amount.toLocaleString('ko-KR')}
-          <span>원</span>
-        </div>
-        <div className="receipt">
-          <span>이번 달 근무표 저장</span>
-          <span>포함</span>
-        </div>
-        <div className="receipt">
-          <span>캘린더 추가 · 링크 · 이미지</span>
-          <span>포함</span>
-        </div>
-        <div className="receipt">
-          <span>같은 달 근무 수정</span>
-          <span>포함</span>
-        </div>
-        <p style={{ margin: '14px 0 0', fontSize: 13 }}>단건 구매예요. 다음 달 자동 결제는 없어요.</p>
-      </div>
+      {draftId && (
+        <p>
+          {parts.month}월 근무표 확인을 마쳤어요.
+          <br />
+          구매하면 저장하고 공유할 수 있어요.
+        </p>
+      )}
+      <CheckoutReceipt yearMonth={yearMonth} amount={amount} />
       {state.error && (
         <div className="warning" role="alert">
           {state.error}
         </div>
       )}
-      {state.stage === CheckoutStage.ALREADY_ENTITLED && (
-        <div className="notice" role="status">
-          이미 이용권이 있는 달이에요. 추가 결제 없이 저장할 수 있어요.
-          <Link href={backHref} className="primary" style={{ marginTop: 10 }}>
-            돌아가서 저장하기
-          </Link>
-        </div>
-      )}
-      {(state.stage === CheckoutStage.IDLE ||
-        state.stage === CheckoutStage.CREATING ||
-        state.stage === CheckoutStage.ERROR) && (
-        <button
-          type="button"
-          className="primary"
-          onClick={state.handleStart}
-          disabled={state.stage === CheckoutStage.CREATING}
-        >
-          {state.stage === CheckoutStage.CREATING ? '주문을 만드는 중…' : `${price} 결제하고 저장`}
+      {state.stage === CheckoutStage.CREATING && <LoadingState text="주문을 준비하는 중이에요…" />}
+      {state.stage === CheckoutStage.ERROR && (
+        <button type="button" className="primary" onClick={state.handleRetry}>
+          다시 시도
         </button>
       )}
       {state.stage === CheckoutStage.MOCK_READY && (
-        <div className="block" style={{ marginTop: 0 }}>
+        <div className="block mt-0">
           <span className="test-badge">테스트 결제 · 실제 청구 없음</span>
-          <p style={{ marginTop: 0 }}>
-            개발 데모에서는 결제 결과를 직접 선택해요. 실제 카드 결제는 일어나지 않아요.
-          </p>
+          <p className="mt-0">개발 데모에서는 결제 결과를 직접 선택해요. 실제 카드 결제는 일어나지 않아요.</p>
           <div className="stack">
             <button type="button" className="primary" onClick={() => state.handleMockResult(true)}>
               테스트 결제 성공
@@ -119,15 +127,17 @@ const MonthCheckout = ({ yearMonth, draftId }: MonthCheckoutProps) => {
       )}
       {TOSS_STAGES.includes(state.stage) && (
         <div>
-          <div id={TOSS_METHODS_ID} />
-          <div id={TOSS_AGREEMENT_ID} />
+          <div id={state.methodsId} />
+          <div id={state.agreementId} />
           <button
             type="button"
             className="primary"
             onClick={state.handleTossPay}
             disabled={state.stage !== CheckoutStage.TOSS_READY}
           >
-            {state.stage === CheckoutStage.TOSS_LOADING ? '결제 화면을 불러오는 중…' : `${price} 결제하기`}
+            {state.stage === CheckoutStage.TOSS_LOADING
+              ? '결제 화면을 불러오는 중…'
+              : `${price} 결제하고 저장`}
           </button>
         </div>
       )}

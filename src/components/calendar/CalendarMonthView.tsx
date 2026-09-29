@@ -6,6 +6,7 @@ import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import AuthRequired from '@/components/AuthRequired';
 import DayDetail from '@/components/calendar/DayDetail';
 import MonthGrid from '@/components/calendar/MonthGrid';
+import MonthHeading from '@/components/calendar/MonthHeading';
 import MonthSwitcher from '@/components/calendar/MonthSwitcher';
 import { useCalendarMonthState } from '@/components/calendar/UseCalendarMonthState';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -13,7 +14,6 @@ import EmptyState from '@/components/EmptyState';
 import LoadingState from '@/components/LoadingState';
 import RecoverableError from '@/components/RecoverableError';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
-import { countWorkAndOff } from '@/domain/ScheduleStats';
 import { formatYearMonthLabel } from '@/domain/YearMonth';
 
 type CalendarMonthViewProps = {
@@ -38,7 +38,7 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
   }
 
   if (state.loadState === ScreenLoadState.NOT_FOUND) {
-    const months = summary?.months ?? [];
+    const latest = summary?.months.at(-1)?.yearMonth;
 
     return (
       <EmptyState
@@ -49,8 +49,8 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
         <Link href="/" className="primary">
           근무표 올리기
         </Link>
-        {months.length > 0 && (
-          <Link href={`/calendar/${months.at(-1)?.yearMonth}`} className="secondary">
+        {latest && (
+          <Link href={`/calendar/${latest}`} className="secondary">
             저장한 달력 보기
           </Link>
         )}
@@ -63,28 +63,23 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
       <RecoverableError
         title="달력을 불러오지 못했어요"
         message={state.loadError ?? '다시 시도해 주세요.'}
-        alternativeHref="/calendar"
-        alternativeLabel="다시 불러오기"
+        onRetry={state.handleReload}
       />
     );
   }
 
-  const counts = countWorkAndOff(month.entries, month.definitions);
   const selectedEntry = month.entries.find((entry) => entry.date === state.selectedDate);
   const showShareBanner = summary.share.enabled && !month.shareVisible;
 
   return (
     <>
       <div className="label">내 달력</div>
-      <div className="calendarhead">
-        <div style={{ minWidth: 0 }}>
-          <div className="tiny">{month.displayName}님의 근무</div>
-          <h1>{formatYearMonthLabel(month.yearMonth)}</h1>
-        </div>
-        <span className="tiny" style={{ flex: 'none' }}>
-          근무 {counts.workCount} · 휴무 {counts.offCount}
-        </span>
-      </div>
+      <MonthHeading
+        displayName={month.displayName}
+        yearMonth={month.yearMonth}
+        entries={month.entries}
+        definitions={month.definitions}
+      />
       <MonthSwitcher
         months={summary.months.map((item) => item.yearMonth)}
         current={yearMonth}
@@ -95,8 +90,7 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
           공유 링크에 이 달을 공개할까요? 지금은 링크를 받은 사람에게 이 달이 보이지 않아요.
           <button
             type="button"
-            className="secondary"
-            style={{ marginTop: 10 }}
+            className="secondary mt-10"
             onClick={state.handleShareThisMonth}
             disabled={state.isSharingMonth}
           >
@@ -104,7 +98,7 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
           </button>
         </div>
       )}
-      <div style={{ marginTop: 12 }}>
+      <div className="mt-12">
         <MonthGrid
           yearMonth={month.yearMonth}
           entries={month.entries}
@@ -121,7 +115,7 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
           {state.actionError}
         </div>
       )}
-      <div className="stack" style={{ marginTop: 16 }}>
+      <div className="stack mt-16">
         <Link href={`/calendar/${yearMonth}/share`} className="primary">
           공유·내보내기
         </Link>

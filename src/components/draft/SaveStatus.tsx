@@ -32,12 +32,12 @@ const SaveStatus = ({ saveState, saveMessage, onRetry, onReload }: SaveStatusPro
           <strong>{STATE_TEXT[saveState]}</strong>
           {saveMessage && <div>{saveMessage}</div>}
           {saveState === DraftSaveState.CONFLICT && (
-            <button type="button" className="secondary" style={{ marginTop: 10 }} onClick={onReload}>
+            <button type="button" className="secondary mt-10" onClick={onReload}>
               최신 내용 불러오기
             </button>
           )}
           {saveState === DraftSaveState.ERROR && (
-            <button type="button" className="secondary" style={{ marginTop: 10 }} onClick={onRetry}>
+            <button type="button" className="secondary mt-10" onClick={onRetry}>
               다시 저장
             </button>
           )}

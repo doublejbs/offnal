@@ -13,8 +13,8 @@ const CheckoutResultPage = async ({ params, searchParams }: CheckoutResultPagePr
   const { yearMonth } = await params;
   const query = await searchParams;
   const paymentKey = readParam(query.paymentKey);
-  const isFailure =
-    readParam(query.status) === 'fail' || (readParam(query.code) !== null && paymentKey === null);
+  const failureCode = readParam(query.code);
+  const isFailure = readParam(query.status) === 'fail' || (failureCode !== null && paymentKey === null);
 
   return (
     <CheckoutResultView
@@ -24,6 +24,8 @@ const CheckoutResultPage = async ({ params, searchParams }: CheckoutResultPagePr
         orderId: readParam(query.orderId),
         amount: readParam(query.amount),
         isFailure,
+        failureCode: isFailure ? failureCode : null,
+        failureMessage: isFailure ? readParam(query.message) : null,
         draftId: readParam(query.draftId),
       }}
     />

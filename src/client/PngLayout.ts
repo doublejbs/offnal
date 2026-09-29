@@ -1,8 +1,42 @@
-import { buildMonthWeeks } from '@/client/MonthLayout';
+import { formatDateTime, formatLegendText } from '@/client/DisplayText';
+import { buildMonthWeeks, WEEKDAY_LABELS } from '@/client/MonthLayout';
+import { type ExportDataResponse } from '@/domain/types/api/ExportDataResponse';
+import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
+import { formatYearMonthLabel, listDates } from '@/domain/YearMonth';
 
 /** CSS pixel width of the exported image; the canvas is drawn at PNG_SCALE for sharp text. */
 export const PNG_WIDTH = 1080;
 export const PNG_SCALE = 2;
+
+/** Font weights the renderer draws with. */
+export const PNG_WEIGHTS = [400, 500, 600];
+
+const WORDMARK = '오프날';
+
+export const buildPngTitle = (data: ExportDataResponse): string =>
+  `${data.displayName} · ${formatYearMonthLabel(data.yearMonth)}`;
+
+export const buildFooterText = (generatedAt: string): string => `생성 ${formatDateTime(generatedAt)}`;
+
+const DIGITS = '0123456789–';
+
+/**
+ * Every string the renderer draws, grouped by font weight, so each weight's font subset can be loaded
+ * for exactly those glyphs before drawing (names and custom labels are arbitrary Korean text).
+ */
+export const collectPngTexts = (
+  data: ExportDataResponse,
+  legend: ShiftDefinition[],
+): Record<number, string> => {
+  const codes = data.entries.map((entry) => entry.code ?? '').join('');
+  const dayNumbers = listDates(data.yearMonth).join('');
+
+  return {
+    400: `${legend.map(formatLegendText).join('')}${buildFooterText(data.generatedAt)}${DIGITS}`,
+    500: `${WEEKDAY_LABELS.join('')}${dayNumbers}${DIGITS}`,
+    600: `${WORDMARK}${buildPngTitle(data)}${codes}${legend.map((definition) => definition.code).join('')}${DIGITS}`,
+  };
+};
 
 const PADDING = 64;
 const HEADER_HEIGHT = 190;

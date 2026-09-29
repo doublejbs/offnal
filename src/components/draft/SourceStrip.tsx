@@ -1,5 +1,6 @@
 import { Fragment } from 'react';
 
+import { formatRawText } from '@/client/DisplayText';
 import { formatDayOnly } from '@/client/MonthLayout';
 import { type SourceCell } from '@/domain/types/SourceCell';
 
@@ -30,13 +31,9 @@ const SourceStrip = ({ sourceCells, reviewDates, selectedDate }: SourceStripProp
       <div className="crop">
         {sourceCells.map((cell) => (
           <Fragment key={cell.date}>
-            <span
-              style={cell.date === selectedDate ? { boxShadow: 'inset 0 -2px 0 var(--blue)' } : undefined}
-            >
-              {formatDayOnly(cell.date)}
-            </span>
+            <span data-selected={cell.date === selectedDate}>{formatDayOnly(cell.date)}</span>
             <span className="raw" data-review={review.has(cell.date)}>
-              {cell.rawText?.trim() ? cell.rawText : '빈칸'}
+              {formatRawText(cell.rawText)}
             </span>
           </Fragment>
         ))}

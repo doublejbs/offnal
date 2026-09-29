@@ -1,6 +1,6 @@
 'use client';
 
-import { type SyntheticEvent, useEffect, useRef } from 'react';
+import { type SyntheticEvent, useEffect, useId, useRef } from 'react';
 
 type ConfirmDialogProps = {
   isOpen: boolean;
@@ -13,7 +13,7 @@ type ConfirmDialogProps = {
   onCancel: () => void;
 };
 
-/** Native modal <dialog>: focus trapping and Escape handling come from the browser. */
+/** Native modal <dialog>: focus trapping comes from the browser; Escape cancels unless busy. */
 const ConfirmDialog = ({
   isOpen,
   title,
@@ -25,6 +25,8 @@ const ConfirmDialog = ({
   onCancel,
 }: ConfirmDialogProps) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const messageId = useId();
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -43,14 +45,24 @@ const ConfirmDialog = ({
   }, [isOpen]);
 
   const handleCancel = (event: SyntheticEvent) => {
+    // The dialog stays open (and state-driven); Escape during a request does nothing.
     event.preventDefault();
-    onCancel();
+
+    if (!isBusy) {
+      onCancel();
+    }
   };
 
   return (
-    <dialog ref={dialogRef} className="dialog" aria-labelledby="confirm-title" onCancel={handleCancel}>
-      <h2 id="confirm-title">{title}</h2>
-      <p>{message}</p>
+    <dialog
+      ref={dialogRef}
+      className="dialog"
+      aria-labelledby={titleId}
+      aria-describedby={messageId}
+      onCancel={handleCancel}
+    >
+      <h2 id={titleId}>{title}</h2>
+      <p id={messageId}>{message}</p>
       <div className="actionrow">
         <button type="button" className="secondary" onClick={onCancel} disabled={isBusy}>
           취소

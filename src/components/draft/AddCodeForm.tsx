@@ -33,7 +33,7 @@ const AddCodeForm = ({ submitLabel, onAdd, onCancel }: AddCodeFormProps) => {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="stack" style={{ marginTop: 12 }} aria-label="근무 코드 추가">
+    <form onSubmit={handleSubmit} className="stack mt-12" aria-label="근무 코드 추가">
       <div className="time-grid">
         <label className="inline-field">
           코드

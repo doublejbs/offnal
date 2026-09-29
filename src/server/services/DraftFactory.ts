@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { MAX_DISPLAY_NAME_LENGTH, MS_PER_DAY } from '@/domain/DomainLimits';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
