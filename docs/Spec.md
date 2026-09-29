@@ -11,7 +11,7 @@
 | 영역 | 결정 | 근거 |
 |---|---|---|
 | 프레임워크 | Next.js 16 App Router + TypeScript(strict), pnpm | Handoff 4장 제안. UI·서버 엔드포인트를 한 저장소에 |
-| DB | PostgreSQL + Drizzle ORM. 운영: `DATABASE_URL`(Supabase Postgres 등 일반 Postgres). 개발·테스트: PGlite(임베디드 Postgres, 파일 또는 메모리) | 로컬에 Postgres·Docker 데몬 없이도 실제 Postgres 문법·트랜잭션·유니크 제약으로 검증 |
+| DB | PostgreSQL + Drizzle ORM. preview·운영: `DATABASE_URL`(Supabase Postgres 등 일반 Postgres) 필수, `pnpm db:migrate`로 적용. 개발·테스트(`OFFNAL_ENV=development|test`)만 PGlite(임베디드 Postgres, 파일 또는 메모리) 허용 | 로컬에 Postgres·Docker 데몬 없이도 실제 Postgres 문법·트랜잭션·유니크 제약으로 검증 |
 | 마이그레이션 | `drizzle-kit generate`로 `drizzle/` 아래 SQL 생성·커밋, 앱 기동 시 또는 `pnpm db:migrate`로 적용 | |
 | 인증 | 자체 세션(HttpOnly 쿠키 + DB 세션 테이블) + `AuthProvider` 경계. 실제: Google OAuth(arctic 라이브러리, PKCE). 개발: `DevAuthProvider`(데모 전용 즉시 로그인) | 로그인 수단 미확정 → 제공자 교체가 쉬운 경계. 익명 작업 claim을 서버 세션으로 직접 통제 |
 | 원본 저장 | `ObjectStorage` 경계. 개발: 로컬 파일(`.data/storage`). 운영: S3 호환(Supabase Storage S3 엔드포인트 등) | 비공개 저장, 공개 URL 발급 안 함 |
@@ -122,7 +122,7 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 ### 4.1 규칙 (단위 테스트 대상)
 
 - `YearMonth`: `parseYearMonth('2026-10')` 검증(형식·월 1~12·연도 2000~2100), `daysInMonth`(윤년), `listDates`, `weekdayOf(date)`(Asia/Seoul 달력 기준, 0=일), `currentYearMonthInSeoul(now)`, `nextYearMonth`.
-- `ScheduleValidator.normalizeExtraction(extraction, yearMonth)` → `{ entries, definitions }`
+- `ScheduleValidator.normalizeExtraction(extraction, yearMonth)` → `{ entries, definitions, sourceCells }` (인자 yearMonth가 기준)
   - 대상 월 모든 날짜에 정확히 한 entry. 누락 날짜 → `code:null, reviewReasons:[MISSING_DATE]`
   - 중복 day → 첫 값 유지 대신 `code:null, [DUPLICATE_DATE]`
   - 월 범위 밖 day 무시
@@ -136,11 +136,11 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
   - 사용된 비휴무 코드의 startTime/endTime/endsNextDay 중 null → `MISSING_TIMES`
   - 정의되지 않은 code 사용 → `UNDEFINED_CODES`
   - `summarizeReview(entries)` → “확인 필요 2일” 문구용 `{ count, dates }`
-- `ShiftTime.toUtcRange(date, def, timezone='Asia/Seoul')` → `{ start: Date, end: Date }`. `endsNextDay`면 종료일 +1(월말·연말·윤년 경계). `endsNextDay=false`인데 end<=start면 오류. 시간대 변환은 `Intl`/오프셋 계산으로 구현하고 Asia/Seoul 고정 가정을 코드 한 곳에 둔다.
-- `IcsBuilder.build({ calendarId, displayName, yearMonth, entries, definitions, includeOff, generatedAt })` → ICS 문자열(`ics` 라이브러리). UID `${calendarId}-${date}@offnal`, 제목 `${label} (${code})`, 시간 이벤트는 UTC, 휴무는 `includeOff`일 때만 종일(end = 다음 날, 배타적). 설명에 “오프날에서 가져온 일정 · 이후 변경은 자동 반영되지 않아요”. PRODID·DTSTAMP 포함. 문자열 이스케이프는 라이브러리에 위임.
-- `EntitlementPolicy.decide({ hasEntitlementForMonth, trialUsedCount, freeMonthLimit })` → `MonthAccess`
-- `DraftMonthRemapper.remap(entries, fromYM, toYM)` → 같은 일(day) 번호로 이동, 새 달에 없는 날 제거, 새로 생긴 날 `code:null [MISSING_DATE]`
-- `ImageSignature.detect(bytes)` → `'image/jpeg'|'image/png'|'image/webp'|'image/heic'|null` (매직 바이트)
+- (시그니처는 실제 export 이름 기준) `ShiftTime.toUtcRange(date, def, timezone='Asia/Seoul')` → `{ start: Date, end: Date }`. `endsNextDay`면 종료일 +1(월말·연말·윤년 경계). `endsNextDay=false`인데 end<=start면 오류. 시간대 변환은 `Intl`/오프셋 계산으로 구현하고 Asia/Seoul 고정 가정을 코드 한 곳에 둔다.
+- `IcsBuilder.buildIcs({ calendarId, displayName, yearMonth, entries, definitions, includeOff, generatedAt })` → ICS 문자열(`ics` 라이브러리). UID `${calendarId}-${date}@offnal`, 제목 `${label} (${code})`, 시간 이벤트는 UTC, 휴무는 `includeOff`일 때만 종일(end = 다음 날, 배타적). 설명에 “오프날에서 가져온 일정 · 이후 변경은 자동 반영되지 않아요”. PRODID·DTSTAMP 포함. 문자열 이스케이프는 라이브러리에 위임.
+- `EntitlementPolicy.decideMonthAccess({ hasEntitlementForMonth, trialUsedCount, freeMonthLimit })` → `MonthAccess`
+- `DraftMonthRemapper.remapDraftMonth(entries, fromYM, toYM)` → 같은 일(day) 번호로 이동, 새 달에 없는 날 제거, 새로 생긴 날 `code:null [MISSING_DATE]`
+- `ImageSignature.detectImageSignature(bytes)` → `'image/jpeg'|'image/png'|'image/webp'|'image/heic'|null` (매직 바이트)
 
 ---
 
@@ -313,7 +313,7 @@ interface PaymentProvider {
 - YearMonth: 형식 검증, 2월 윤년(2028-02=29, 2026-02=28, 2100-02=28), 요일
 - ScheduleValidator: 누락·중복·범위 밖·빈칸/대시 null 유지(OFF 추측 없음)·ambiguous·미정의 코드 정의 추가·blockers 3종·summarizeReview
 - ShiftTime/IcsBuilder: 야간 10/31 → 11/01, 12/31 → 다음 해 1/1, 2028-02-28 야간 → 02-29, 2028-02-29 야간 → 03-01, KST→UTC 변환(07:00 KST = 전날 22:00Z), 휴무 기본 제외·포함 시 종일 배타 종료, 안정 UID, 이스케이프(쉼표·세미콜론 포함 라벨)
-- EntitlementPolicy, DraftMonthRemapper, ImageSignature, TokenCrypto(암복호·해시)
+- EntitlementPolicy, DraftMonthRemapper, ImageSignature, TokenCrypto(`generateToken`·`hashSha256Hex`·`encryptText`/`decryptText`·`isEqualConstantTime`)
 
 ### 11.2 통합 (`tests/integration`, PGlite 메모리 + mock 제공자, 라우트 핸들러 직접 호출)
 1. 비회원 업로드 → process → status에 이름·코드·연월 없음(응답 JSON 문자열 검사) → candidates 401 → dev 로그인(콜백 경로) → claim → candidates → extract → PATCH로 null 채움 → publish(trial 1)
