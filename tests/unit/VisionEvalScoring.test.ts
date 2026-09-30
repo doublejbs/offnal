@@ -4,7 +4,8 @@ import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { type ExtractedCell } from '@/domain/types/ExtractedCell';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
-import { parseEvalArgs, resolveResultsDir } from '@/server/vision/eval/EvalArgs';
+import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
+import { parseEvalArgs, resolveDebugDir, resolveResultsDir } from '@/server/vision/eval/EvalArgs';
 import { findCandidateRowId, scorePerson, scoreTable } from '@/server/vision/eval/EvalScoring';
 import { type EvalTruth, evalTruthSchema } from '@/server/vision/eval/EvalTruth';
 import { estimateCostUsd } from '@/server/vision/eval/ModelPrices';
@@ -155,6 +156,7 @@ describe('vision eval scoring', () => {
       ],
       people: null,
       repeat: 2,
+      pipelines: [VisionPipelineMode.WARP_STRIP],
     });
     expect(() => parseEvalArgs(['--models', 'a', '--repeat', '0'])).toThrow(/--repeat/);
     expect(() => parseEvalArgs([])).toThrow(/--models/);
@@ -197,5 +199,15 @@ describe('vision eval scoring', () => {
     expect(() => resolveResultsDir('eval', '/repo')).toThrow(/\.data\//);
     expect(() => resolveResultsDir('../elsewhere/.data', '/repo')).toThrow(/\.data\//);
     expect(() => resolveResultsDir('/tmp/eval', '/repo')).toThrow(/\.data\//);
+    expect(resolveDebugDir('.data/eval', '/repo')).toBe('/repo/.data/eval/debug');
+    expect(() => resolveDebugDir('eval', '/repo')).toThrow(/\.data\//);
+  });
+
+  it('parses --pipeline lists and defaults to warp-strip', () => {
+    expect(parseEvalArgs(['--models', 'gemini-x']).pipelines).toEqual([VisionPipelineMode.WARP_STRIP]);
+    expect(
+      parseEvalArgs(['--', '--models', 'gemini-x', '--pipeline', 'baseline,warp,warp-strip,warp']).pipelines,
+    ).toEqual([VisionPipelineMode.BASELINE, VisionPipelineMode.WARP, VisionPipelineMode.WARP_STRIP]);
+    expect(() => parseEvalArgs(['--models', 'gemini-x', '--pipeline', 'strip'])).toThrow(/--pipeline/);
   });
 });

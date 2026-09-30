@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
@@ -5,6 +6,10 @@ import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionEvalFailureKind } from '@/domain/enums/VisionEvalFailureKind';
 import { VisionEvalPersonOutcome } from '@/domain/enums/VisionEvalPersonOutcome';
 import { VisionEvalStatus } from '@/domain/enums/VisionEvalStatus';
+import { VisionPipelineFallback } from '@/domain/enums/VisionPipelineFallback';
+import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
+import { VisionPipelineRoute } from '@/domain/enums/VisionPipelineRoute';
+import { VisionPipelineStep } from '@/domain/enums/VisionPipelineStep';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { parseModelTarget } from '@/server/vision/eval/EvalArgs';
 import { type ModelSummary, sortSummaries, summarizeModel } from '@/server/vision/eval/EvalReport';
@@ -18,7 +23,12 @@ import {
   runSample,
 } from '@/server/vision/eval/EvalRunner';
 import { type EvalSample, evalTruthSchema } from '@/server/vision/eval/EvalTruth';
-import { type VisionImage, type VisionProvider, VisionProviderError } from '@/server/vision/VisionProvider';
+import {
+  type RowBand,
+  type VisionImage,
+  type VisionProvider,
+  VisionProviderError,
+} from '@/server/vision/VisionProvider';
 
 const USAGE = { inputTokens: 1000, outputTokens: 500, thinkingTokens: 100 };
 const IMAGE: VisionImage = { bytes: Buffer.from('x'), mime: ImageMimeType.JPEG };
@@ -161,13 +171,11 @@ type ProviderBehavior = {
   table: () => Promise<unknown>;
   /** rowId → cells, or an error to throw. */
   rows: Record<string, { code: string | null }[] | Error>;
+  band?: RowBand | null;
 };
 
-const createProvider = (behavior: ProviderBehavior): VisionProvider => ({
-  kind: VisionProviderType.GEMINI,
-  recognizeTable: async () =>
-    (await behavior.table()) as Awaited<ReturnType<VisionProvider['recognizeTable']>>,
-  extractPerson: async (_image, input) => {
+const createProvider = (behavior: ProviderBehavior): VisionProvider => {
+  const extractPerson: VisionProvider['extractPerson'] = async (_image, input) => {
     const row = behavior.rows[input.rowId];
 
     if (row instanceof Error || row === undefined) {
@@ -187,15 +195,20 @@ const createProvider = (behavior: ProviderBehavior): VisionProvider => ({
       })),
       usage: USAGE,
     };
-  },
-  locateRow: async () => ({ band: null }),
-  extractPersonFromStrip: async () => {
-    throw new Error('not used by the eval yet');
-  },
-});
+  };
 
-const run = (behavior: ProviderBehavior, repeat: number, people = ['가상하나', '가상두울']) =>
-  runSample({
+  return {
+    kind: VisionProviderType.GEMINI,
+    recognizeTable: async () =>
+      (await behavior.table()) as Awaited<ReturnType<VisionProvider['recognizeTable']>>,
+    extractPerson,
+    locateRow: async () => ({ band: behavior.band ?? null, usage: USAGE }),
+    extractPersonFromStrip: async (strip, _reference, input, signal) => extractPerson(strip, input, signal),
+  };
+};
+
+const run = async (behavior: ProviderBehavior, repeat: number, people = ['가상하나', '가상두울']) => {
+  const [result] = await runSample({
     context: createContext(1),
     provider: createProvider(behavior),
     sample: SAMPLE,
@@ -203,6 +216,9 @@ const run = (behavior: ProviderBehavior, repeat: number, people = ['가상하나
     people,
     repeat,
   });
+
+  return result!;
+};
 
 const PERFECT_ROW = [{ code: 'D' }, { code: 'OFF' }];
 
@@ -266,7 +282,7 @@ describe('runSample + summarizeModel', () => {
       accuracy: 1,
       fullMonthMatches: 1,
       personRuns: 1,
-      perPerson: { 가상하나: [2] },
+      perPerson: { 'synthetic/가상하나': [2] },
     });
     expect(summary.uploadCostUsd).toBeCloseTo(2 * ((1000 * 0.75 + 600 * 3.75) / 1_000_000));
 
@@ -278,5 +294,121 @@ describe('runSample + summarizeModel', () => {
       'cheap',
       'gemini-3.7-flash',
     ]);
+  });
+});
+
+const UNIT_COST = (1000 * 0.75 + 600 * 3.75) / 1_000_000;
+
+describe('runSample with pipelines', () => {
+  const GRID = {
+    topLeft: { x: 160, y: 260 },
+    topRight: { x: 895, y: 212 },
+    bottomRight: { x: 957, y: 695 },
+    bottomLeft: { x: 140, y: 720 },
+  };
+
+  const createPhoto = async (): Promise<VisionImage> => ({
+    bytes: await sharp({ create: { width: 1536, height: 1152, channels: 3, background: '#ffffff' } })
+      .jpeg()
+      .toBuffer(),
+    mime: ImageMimeType.JPEG,
+  });
+
+  it('shares pass 1, records every pass-2 call and saves debug images per pipeline', async () => {
+    const debug = vi.fn(async (_name: string, _image: VisionImage) => undefined);
+    const runs = await runSample({
+      context: createContext(1),
+      provider: createProvider({
+        table: async () => ({ ...OK_TABLE, value: { ...OK_TABLE.value, grid: GRID } }),
+        rows: { r1: PERFECT_ROW },
+        band: { top: 400, bottom: 450, headerBottom: 120 },
+      }),
+      sample: SAMPLE,
+      image: await createPhoto(),
+      people: ['가상하나'],
+      repeat: 1,
+      pipelines: [VisionPipelineMode.BASELINE, VisionPipelineMode.WARP, VisionPipelineMode.WARP_STRIP],
+      debug,
+    });
+
+    expect(runs.map((item) => [item.pipeline, item.status, item.warpApplied])).toEqual([
+      [VisionPipelineMode.BASELINE, VisionEvalStatus.OK, false],
+      [VisionPipelineMode.WARP, VisionEvalStatus.OK, true],
+      [VisionPipelineMode.WARP_STRIP, VisionEvalStatus.OK, true],
+    ]);
+    expect(runs.map((item) => item.people[0]?.route)).toEqual([
+      VisionPipelineRoute.ORIGINAL,
+      VisionPipelineRoute.WARPED,
+      VisionPipelineRoute.STRIP,
+    ]);
+    // The same pass-1 record is attributed to every pipeline.
+    expect(new Set(runs.map((item) => item.tableCall))).toHaveProperty('size', 1);
+    expect(runs[2]?.people[0]?.calls.map((call) => call.step)).toEqual([
+      VisionPipelineStep.LOCATE_ROW,
+      VisionPipelineStep.EXTRACT_STRIP,
+    ]);
+    expect(debug.mock.calls.map(([name]) => name)).toEqual([
+      'grid.jpg',
+      'warped.jpg',
+      'warp-strip-p1-strip.jpg',
+    ]);
+
+    const strip = summarizeModel('gemini-3.7-flash', [runs[2]!], null, VisionPipelineMode.WARP_STRIP);
+    const baseline = summarizeModel('gemini-3.7-flash', [runs[0]!], null, VisionPipelineMode.BASELINE);
+
+    expect(strip).toMatchObject({
+      pipeline: VisionPipelineMode.WARP_STRIP,
+      callsPerUpload: 3,
+      routes: { [VisionPipelineRoute.STRIP]: 1 },
+      endToEndAccuracy: 1,
+    });
+    // Pass 1 + locate + strip extract.
+    expect(strip.uploadCostUsd).toBeCloseTo(3 * UNIT_COST);
+    expect(strip.uploadInputTokens).toBe(3000);
+    expect(baseline).toMatchObject({ callsPerUpload: 2 });
+    expect(baseline.uploadCostUsd).toBeCloseTo(2 * UNIT_COST);
+  });
+
+  it('falls back to the original image without a grid and to the warped table without a row', async () => {
+    const noGrid = await runSample({
+      context: createContext(1),
+      provider: createProvider({ table: async () => OK_TABLE, rows: { r1: PERFECT_ROW } }),
+      sample: SAMPLE,
+      image: IMAGE,
+      people: ['가상하나'],
+      repeat: 1,
+      pipelines: [VisionPipelineMode.WARP_STRIP],
+    });
+
+    expect(noGrid[0]?.people[0]).toMatchObject({
+      route: VisionPipelineRoute.ORIGINAL,
+      fallback: VisionPipelineFallback.NO_GRID,
+    });
+
+    const noRow = await runSample({
+      context: createContext(1),
+      provider: createProvider({
+        table: async () => ({ ...OK_TABLE, value: { ...OK_TABLE.value, grid: GRID } }),
+        rows: { r1: PERFECT_ROW },
+        band: null,
+      }),
+      sample: SAMPLE,
+      image: await createPhoto(),
+      people: ['가상하나'],
+      repeat: 1,
+      pipelines: [VisionPipelineMode.WARP_STRIP],
+    });
+    const person = noRow[0]?.people[0];
+
+    expect(person).toMatchObject({
+      route: VisionPipelineRoute.WARPED,
+      fallback: VisionPipelineFallback.ROW_NOT_FOUND,
+      outcome: VisionEvalPersonOutcome.SCORED,
+    });
+    expect(person?.calls.map((call) => call.step)).toEqual([
+      VisionPipelineStep.LOCATE_ROW,
+      VisionPipelineStep.EXTRACT,
+    ]);
+    expect(summarizeModel('m', noRow, null).fallbacks).toEqual({ [VisionPipelineFallback.ROW_NOT_FOUND]: 1 });
   });
 });

@@ -4,8 +4,15 @@ import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionEvalFailureKind } from '@/domain/enums/VisionEvalFailureKind';
 import { VisionEvalPersonOutcome } from '@/domain/enums/VisionEvalPersonOutcome';
 import { VisionEvalStatus } from '@/domain/enums/VisionEvalStatus';
+import { type VisionPipelineFallback } from '@/domain/enums/VisionPipelineFallback';
+import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
+import { type VisionPipelineRoute } from '@/domain/enums/VisionPipelineRoute';
+import { VisionPipelineStep } from '@/domain/enums/VisionPipelineStep';
 import { normalizeExtraction } from '@/domain/ScheduleValidator';
+import { type GridCorners } from '@/domain/types/GridCorners';
+import { type TableRecognition } from '@/domain/types/TableRecognition';
 import { type EvalModelTarget } from '@/server/vision/eval/EvalArgs';
+import { renderGridOverlay } from '@/server/vision/eval/EvalDebugImages';
 import {
   findCandidateRowId,
   type PersonScore,
@@ -15,6 +22,12 @@ import {
 } from '@/server/vision/eval/EvalScoring';
 import { type EvalSample } from '@/server/vision/eval/EvalTruth';
 import { estimateCostUsd } from '@/server/vision/eval/ModelPrices';
+import {
+  extractPersonWithPipeline,
+  type PipelineCallRunner,
+  type PreparedPipelineImage,
+  preparePipelineImage,
+} from '@/server/vision/VisionPipeline';
 import {
   getProviderErrorStatus,
   type VisionImage,
@@ -35,6 +48,8 @@ const RETRYABLE_STATUSES = new Set([429, 500, 503]);
 const MODEL_UNAVAILABLE_STATUSES = new Set([400, 403, 404]);
 
 export type CallRecord = {
+  /** Pass-2 pipeline step; absent for pass 1. */
+  step?: VisionPipelineStep;
   ok: boolean;
   latencyMs: number;
   retries: number;
@@ -47,11 +62,17 @@ export type CallRecord = {
 export type PersonRun = {
   score: PersonScore;
   outcome: VisionEvalPersonOutcome;
+  /** Final extract call (null when the name was not found or pass 1 failed). */
   call: CallRecord | null;
+  /** Every pass-2 call of this person in order (locate + extract), for tokens, cost and latency. */
+  calls: CallRecord[];
+  route: VisionPipelineRoute | null;
+  fallback: VisionPipelineFallback | null;
 };
 
 export type EvalRun = {
   model: string;
+  pipeline: VisionPipelineMode;
   sampleId: string;
   repeat: number;
   status: VisionEvalStatus;
@@ -60,6 +81,10 @@ export type EvalRun = {
   failureKind: VisionEvalFailureKind | null;
   tableCall: CallRecord | null;
   table: TableScore | null;
+  /** Pass-1 grid corners (null when not returned). */
+  grid: GridCorners | null;
+  /** Whether the warped table was usable for this run (always false for baseline). */
+  warpApplied: boolean;
   people: PersonRun[];
 };
 
@@ -233,6 +258,9 @@ const toPersonOutcome = (record: CallRecord): VisionEvalPersonOutcome => {
     : VisionEvalPersonOutcome.INFRA_FAILURE;
 };
 
+/** Receives debug images (warped table, strips) of a run; the eval writes them under `.data/`. */
+export type EvalDebugSink = (fileName: string, image: VisionImage) => Promise<void>;
+
 export type RunSampleInput = {
   context: EvalCallContext;
   provider: VisionProvider;
@@ -240,14 +268,129 @@ export type RunSampleInput = {
   image: VisionImage;
   people: string[];
   repeat: number;
+  /** Pipelines compared on the same pass-1 result (default: baseline only). */
+  pipelines?: VisionPipelineMode[];
+  debug?: EvalDebugSink;
 };
 
+/** A pass-2 call that failed after retries (its record is already kept). */
+class EvalCallFailure extends Error {
+  readonly record: CallRecord;
+
+  constructor(record: CallRecord) {
+    super(record.error ?? 'call failed');
+    this.name = 'EvalCallFailure';
+    this.record = record;
+  }
+}
+
+const isExtractStep = (record: CallRecord): boolean =>
+  record.step === VisionPipelineStep.EXTRACT || record.step === VisionPipelineStep.EXTRACT_STRIP;
+
+type PersonContext = {
+  input: RunSampleInput;
+  table: TableRecognition;
+  prepared: PreparedPipelineImage;
+  name: string;
+  index: number;
+};
+
+const runPerson = async ({ input, table, prepared, name, index }: PersonContext): Promise<PersonRun> => {
+  const { context, provider, sample, repeat, debug } = input;
+  const { truth } = sample;
+  const label = `[${context.target.label}] ${sample.id} #${repeat} ${prepared.mode} pass2 ${name}`;
+  const rowId = findCandidateRowId(table.candidates, name);
+
+  if (rowId === null) {
+    // Missing name: the model's miss, scored as all days wrong.
+    return {
+      score: scorePerson(truth, name, null, null),
+      outcome: VisionEvalPersonOutcome.SCORED,
+      call: null,
+      calls: [],
+      route: null,
+      fallback: null,
+    };
+  }
+
+  const candidateName = table.candidates.find((candidate) => candidate.rowId === rowId)?.name ?? name;
+  const calls: CallRecord[] = [];
+  const runCall: PipelineCallRunner = async (step, run) => {
+    const result = await callWithRetry(context, run);
+
+    calls.push({ ...result.record, step });
+
+    if (result.value === null) {
+      throw new EvalCallFailure(result.record);
+    }
+
+    return result.value;
+  };
+
+  try {
+    const result = await extractPersonWithPipeline(
+      provider,
+      prepared,
+      { rowId, name: candidateName, yearMonth: truth.yearMonth, definitions: table.definitions },
+      runCall,
+    );
+    const score = scorePerson(truth, name, rowId, normalizeExtraction(result.extraction, truth.yearMonth));
+
+    if (result.strip && debug) {
+      await debug(`${prepared.mode}-p${index + 1}-strip.jpg`, result.strip);
+    }
+
+    const latencyMs = calls.reduce((sum, call) => sum + call.latencyMs, 0);
+
+    context.log(
+      `${label} ${score.correctDays}/${score.totalDays} via ${result.route}${
+        result.fallback ? ` (fallback ${result.fallback})` : ''
+      } ${formatSeconds(latencyMs)}`,
+    );
+
+    return {
+      score,
+      outcome: VisionEvalPersonOutcome.SCORED,
+      call: calls.findLast(isExtractStep) ?? null,
+      calls,
+      route: result.route,
+      fallback: result.fallback,
+    };
+  } catch (error: unknown) {
+    if (!(error instanceof EvalCallFailure)) {
+      throw error;
+    }
+
+    context.log(`${label} FAILED (${error.record.failureKind}) ${error.record.error}`);
+
+    return {
+      score: scorePerson(truth, name, rowId, null),
+      outcome: toPersonOutcome(error.record),
+      call: error.record,
+      calls,
+      route: null,
+      fallback: null,
+    };
+  }
+};
+
+const failedPersonRun = (truth: EvalSample['truth'], name: string, outcome: VisionEvalPersonOutcome) => ({
+  score: scorePerson(truth, name, null, null),
+  outcome,
+  call: null,
+  calls: [],
+  route: null,
+  fallback: null,
+});
+
 /**
- * Same two-pass flow as the service: pass 1 once, then pass 2 per scored person with the matching
- * candidate row and the pass-1 legend, normalized with the true (user-chosen) month.
+ * Same flow as the service: pass 1 once (shared by every compared pipeline), then pass 2 per scored person
+ * and pipeline with the matching candidate row and the pass-1 legend, normalized with the true
+ * (user-chosen) month. Returns one run per pipeline.
  */
-export const runSample = async (input: RunSampleInput): Promise<EvalRun> => {
-  const { context, provider, sample, image, people, repeat } = input;
+export const runSample = async (input: RunSampleInput): Promise<EvalRun[]> => {
+  const { context, provider, sample, image, people, repeat, debug } = input;
+  const pipelines = input.pipelines ?? [VisionPipelineMode.BASELINE];
   const { target, log } = context;
   const { truth } = sample;
   const base = { model: target.label, sampleId: sample.id, repeat };
@@ -268,73 +411,75 @@ export const runSample = async (input: RunSampleInput): Promise<EvalRun> => {
 
     log(`[${target.label}] ${sample.id} #${repeat} pass1 FAILED (${failureKind}) ${error}`);
 
-    return {
+    return pipelines.map((pipeline) => ({
       ...base,
+      pipeline,
       status: VisionEvalStatus.FAILED,
       error: `pass1: ${error}`,
       failureKind,
       tableCall: pass1.record,
       table: scoreTable(truth, null),
-      people: people.map((name) => ({ score: scorePerson(truth, name, null, null), outcome, call: null })),
-    };
+      grid: null,
+      warpApplied: false,
+      people: people.map((name) => failedPersonRun(truth, name, outcome)),
+    }));
   }
 
   const table = tableResult.value;
+  const grid = table.grid ?? null;
+  // One warp per run, shared by the warp pipelines (same pass-1 corners).
+  const warped = pipelines.some((pipeline) => pipeline !== VisionPipelineMode.BASELINE)
+    ? await preparePipelineImage(VisionPipelineMode.WARP, image, grid)
+    : null;
 
-  log(`[${target.label}] ${sample.id} #${repeat} pass1 ok ${formatSeconds(pass1.record.latencyMs)}`);
+  log(
+    `[${target.label}] ${sample.id} #${repeat} pass1 ok ${formatSeconds(pass1.record.latencyMs)} grid ${
+      grid ? (warped?.warp ? 'warped' : `unusable (${warped?.fallback})`) : 'null'
+    }`,
+  );
 
-  const personRuns: PersonRun[] = [];
-  let failure: { error: string; kind: VisionEvalFailureKind } | null = null;
-
-  for (const name of people) {
-    const rowId = findCandidateRowId(table.candidates, name);
-
-    if (rowId === null) {
-      // Missing name: the model's miss, scored as all days wrong.
-      personRuns.push({
-        score: scorePerson(truth, name, null, null),
-        outcome: VisionEvalPersonOutcome.SCORED,
-        call: null,
-      });
-
-      continue;
-    }
-
-    const candidateName = table.candidates.find((candidate) => candidate.rowId === rowId)?.name ?? name;
-    const pass2 = await callWithRetry(context, (signal) =>
-      provider.extractPerson(
-        image,
-        { rowId, name: candidateName, yearMonth: truth.yearMonth, definitions: table.definitions },
-        signal,
-      ),
-    );
-    const schedule = pass2.value ? normalizeExtraction(pass2.value, truth.yearMonth) : null;
-    const score = scorePerson(truth, name, rowId, schedule);
-
-    if (!pass2.record.ok) {
-      failure ??= {
-        error: `pass2 ${name}: ${pass2.record.error}`,
-        kind: pass2.record.failureKind ?? VisionEvalFailureKind.INFRA,
-      };
-    }
-
-    log(
-      `[${target.label}] ${sample.id} #${repeat} pass2 ${name} ${
-        pass2.record.ok
-          ? `${score.correctDays}/${score.totalDays}`
-          : `FAILED (${pass2.record.failureKind}) ${pass2.record.error}`
-      } ${formatSeconds(pass2.record.latencyMs)}`,
-    );
-    personRuns.push({ score, outcome: toPersonOutcome(pass2.record), call: pass2.record });
+  if (debug && grid) {
+    await debug('grid.jpg', await renderGridOverlay(image, grid, warped?.warp?.quad ?? null));
   }
 
-  return {
-    ...base,
-    status: failure ? VisionEvalStatus.FAILED : VisionEvalStatus.OK,
-    error: failure?.error ?? null,
-    failureKind: failure?.kind ?? null,
-    tableCall: pass1.record,
-    table: scoreTable(truth, table),
-    people: personRuns,
-  };
+  if (warped?.warp && debug) {
+    await debug('warped.jpg', warped.warp.image);
+  }
+
+  const runs: EvalRun[] = [];
+
+  for (const pipeline of pipelines) {
+    const prepared =
+      pipeline === VisionPipelineMode.BASELINE || !warped
+        ? await preparePipelineImage(VisionPipelineMode.BASELINE, image, grid)
+        : { ...warped, mode: pipeline };
+    const personRuns: PersonRun[] = [];
+
+    for (const [index, name] of people.entries()) {
+      personRuns.push(await runPerson({ input, table, prepared, name, index }));
+    }
+
+    const failed = personRuns.find((person) => person.call !== null && !person.call.ok);
+    const failure = failed?.call
+      ? {
+          error: `pass2 ${failed.score.name}: ${failed.call.error}`,
+          kind: failed.call.failureKind ?? VisionEvalFailureKind.INFRA,
+        }
+      : null;
+
+    runs.push({
+      ...base,
+      pipeline,
+      status: failure ? VisionEvalStatus.FAILED : VisionEvalStatus.OK,
+      error: failure?.error ?? null,
+      failureKind: failure?.kind ?? null,
+      tableCall: pass1.record,
+      table: scoreTable(truth, table),
+      grid,
+      warpApplied: prepared.warp !== null,
+      people: personRuns,
+    });
+  }
+
+  return runs;
 };

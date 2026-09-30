@@ -1,10 +1,14 @@
 import { VisionEvalFailureKind } from '@/domain/enums/VisionEvalFailureKind';
 import { VisionEvalPersonOutcome } from '@/domain/enums/VisionEvalPersonOutcome';
 import { VisionEvalStatus } from '@/domain/enums/VisionEvalStatus';
-import { type CallRecord, type EvalRun } from '@/server/vision/eval/EvalRunner';
+import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
+import { type CallRecord, type EvalRun, type PersonRun } from '@/server/vision/eval/EvalRunner';
 
 export type ModelSummary = {
   model: string;
+  pipeline: VisionPipelineMode;
+  /** Set for per-sample summaries, null for totals. */
+  sampleId: string | null;
   runs: number;
   okRuns: number;
   /** okRuns / runs. */
@@ -41,14 +45,21 @@ export type ModelSummary = {
   definitionsCorrect: number;
   definitionsTotal: number;
   pass1LatencyMs: number | null;
+  /** Average pass-2 time of one person = every pass-2 call (locate + extract). */
   pass2LatencyMs: number | null;
+  /** Average provider calls of one upload = pass 1 + one person's pass-2 calls. */
+  callsPerUpload: number | null;
+  /** Pass-2 input actually used (route → persons), over fully successful runs. */
+  routes: Record<string, number>;
+  /** Fallback reasons (reason → persons), over fully successful runs. */
+  fallbacks: Record<string, number>;
   /** Average tokens of one upload = pass 1 + one pass 2. */
   uploadInputTokens: number | null;
   uploadOutputTokens: number | null;
   uploadThinkingTokens: number | null;
   /** Estimated paid-tier USD of one upload = pass 1 + one pass 2. */
   uploadCostUsd: number | null;
-  /** name → correct days per OK run (in run order). */
+  /** `sample/name` → correct days per OK run (in run order). */
   perPerson: Record<string, number[]>;
 };
 
@@ -61,12 +72,53 @@ const sumOrNull = (a: number | null, b: number | null): number | null =>
 const okCalls = (calls: (CallRecord | null)[]): CallRecord[] =>
   calls.filter((call): call is CallRecord => call !== null && call.ok);
 
-export const summarizeModel = (model: string, runs: EvalRun[], skipped: string | null): ModelSummary => {
+const sumUsage = (calls: CallRecord[], pick: (call: CallRecord) => number | null): number | null =>
+  calls.reduce<number | null>((sum, call) => sumOrNull(sum, call.ok ? pick(call) : 0), 0);
+
+/** One person's pass 2 as a single record: latency of every call, usage/cost of the successful ones. */
+const aggregatePersonCalls = (person: PersonRun): CallRecord => ({
+  ok: true,
+  latencyMs: person.calls.reduce((sum, call) => sum + call.latencyMs, 0),
+  retries: person.calls.reduce((sum, call) => sum + call.retries, 0),
+  usage: {
+    inputTokens: sumUsage(person.calls, (call) => call.usage?.inputTokens ?? null) ?? 0,
+    outputTokens: sumUsage(person.calls, (call) => call.usage?.outputTokens ?? null) ?? 0,
+    thinkingTokens: sumUsage(person.calls, (call) => call.usage?.thinkingTokens ?? null),
+  },
+  costUsd: sumUsage(person.calls, (call) => call.costUsd),
+  error: null,
+  failureKind: null,
+});
+
+/** Names repeat across samples (same ward, different months), so people are keyed per sample. */
+export const personKey = (sampleId: string, name: string): string => `${sampleId}/${name}`;
+
+const countBy = (values: (string | null)[]): Record<string, number> => {
+  const counts: Record<string, number> = {};
+
+  for (const value of values) {
+    if (value !== null) {
+      counts[value] = (counts[value] ?? 0) + 1;
+    }
+  }
+
+  return counts;
+};
+
+export const summarizeModel = (
+  model: string,
+  runs: EvalRun[],
+  skipped: string | null,
+  pipeline: VisionPipelineMode = VisionPipelineMode.BASELINE,
+  sampleId: string | null = null,
+): ModelSummary => {
   const ok = runs.filter((run) => run.status === VisionEvalStatus.OK);
-  const people = ok.flatMap((run) => run.people.map((person) => person.score));
+  const okPeople = ok.flatMap((run) => run.people);
+  const people = okPeople.map((person) => person.score);
   const tables = ok.flatMap((run) => (run.table ? [run.table] : []));
   const pass1 = okCalls(ok.map((run) => run.tableCall));
-  const pass2 = okCalls(ok.flatMap((run) => run.people.map((person) => person.call)));
+  const pass2People = okPeople.filter((person) => person.calls.length > 0);
+  const pass2 = pass2People.map(aggregatePersonCalls);
   const endToEnd = runs.flatMap((run) =>
     run.people.flatMap((person) =>
       person.outcome === VisionEvalPersonOutcome.INFRA_FAILURE ? [] : [person.score],
@@ -95,12 +147,20 @@ export const summarizeModel = (model: string, runs: EvalRun[], skipped: string |
       }),
     );
 
-  for (const person of people) {
-    perPerson[person.name] = [...(perPerson[person.name] ?? []), person.correctDays];
+  for (const run of ok) {
+    for (const { score } of run.people) {
+      const key = personKey(run.sampleId, score.name);
+
+      perPerson[key] = [...(perPerson[key] ?? []), score.correctDays];
+    }
   }
+
+  const pass2CallCount = average(pass2People.map((person) => person.calls.length));
 
   return {
     model,
+    pipeline,
+    sampleId,
     runs: runs.length,
     okRuns: ok.length,
     successRate: runs.length === 0 ? null : ok.length / runs.length,
@@ -129,6 +189,9 @@ export const summarizeModel = (model: string, runs: EvalRun[], skipped: string |
     definitionsTotal: tables.reduce((sum, table) => sum + table.definitionsTotal, 0),
     pass1LatencyMs: average(pass1.map((call) => call.latencyMs)),
     pass2LatencyMs: average(pass2.map((call) => call.latencyMs)),
+    callsPerUpload: pass1.length === 0 || pass2CallCount === null ? null : 1 + pass2CallCount,
+    routes: countBy(okPeople.map((person) => person.route)),
+    fallbacks: countBy(okPeople.map((person) => person.fallback)),
     uploadInputTokens: sumOrNull(
       tokens(pass1, (call) => call.usage?.inputTokens ?? null),
       tokens(pass2, (call) => call.usage?.inputTokens ?? null),
@@ -182,7 +245,15 @@ const formatSeconds = (ms: number | null): string => (ms === null ? '-' : `${(ms
 
 const formatUsd = (value: number | null): string => (value === null ? '-' : `$${value.toFixed(4)}`);
 
+/** `strip 9, warped 1` (sorted by count). */
+export const formatCounts = (counts: Record<string, number>): string =>
+  Object.entries(counts)
+    .sort(([, a], [, b]) => b - a)
+    .map(([key, count]) => `${key} ${count}`)
+    .join(', ') || '-';
+
 const SUMMARY_HEADER = [
+  'pipeline',
   'model',
   'success',
   'e2e accuracy',
@@ -197,6 +268,8 @@ const SUMMARY_HEADER = [
   'legend',
   'p1',
   'p2',
+  'calls/upload',
+  'p2 input',
   'tok in/out/think per upload',
   '$/upload',
   '$/1k uploads',
@@ -211,11 +284,13 @@ export const formatSummaryTable = (summaries: ModelSummary[]): string =>
     summaries.map((summary) =>
       summary.skipped
         ? [
+            summary.pipeline,
             summary.model,
             `skipped: ${summary.skipped}`,
-            ...Array.from({ length: SUMMARY_HEADER.length - 2 }, () => ''),
+            ...Array.from({ length: SUMMARY_HEADER.length - 3 }, () => ''),
           ]
         : [
+            summary.pipeline,
             summary.model,
             `${summary.okRuns}/${summary.runs} (${formatPercent(summary.successRate)})`,
             formatPercent(summary.endToEndAccuracy),
@@ -230,6 +305,8 @@ export const formatSummaryTable = (summaries: ModelSummary[]): string =>
             `${summary.definitionsCorrect}/${summary.definitionsTotal}`,
             formatSeconds(summary.pass1LatencyMs),
             formatSeconds(summary.pass2LatencyMs),
+            summary.callsPerUpload === null ? '-' : summary.callsPerUpload.toFixed(2),
+            formatCounts(summary.routes),
             `${formatNumber(summary.uploadInputTokens)}/${formatNumber(summary.uploadOutputTokens)}/${formatNumber(
               summary.uploadThinkingTokens,
             )}`,
@@ -241,12 +318,46 @@ export const formatSummaryTable = (summaries: ModelSummary[]): string =>
     ),
   );
 
-export const formatPersonTable = (summaries: ModelSummary[], people: string[], totalDays: number): string =>
+/** Per-sample rows (pipeline × model × sample): sample 1 is an extreme perspective case, others typical. */
+export const formatSampleTable = (summaries: ModelSummary[]): string =>
   formatTable(
-    ['model', ...people],
+    [
+      'sample',
+      'pipeline',
+      'model',
+      'success',
+      'e2e accuracy',
+      'full month',
+      'wrong',
+      '추측',
+      'null',
+      'p2 input',
+      'fallbacks',
+    ],
     summaries
       .filter((summary) => !summary.skipped)
       .map((summary) => [
+        summary.sampleId ?? '(all)',
+        summary.pipeline,
+        summary.model,
+        `${summary.okRuns}/${summary.runs}`,
+        formatPercent(summary.endToEndAccuracy),
+        `${summary.fullMonthMatches}/${summary.personRuns}`,
+        String(summary.wrongCells),
+        String(summary.guessedCells),
+        String(summary.nullCells),
+        formatCounts(summary.routes),
+        formatCounts(summary.fallbacks),
+      ]),
+  );
+
+export const formatPersonTable = (summaries: ModelSummary[], people: string[], totalDays: number): string =>
+  formatTable(
+    ['pipeline', 'model', ...people],
+    summaries
+      .filter((summary) => !summary.skipped)
+      .map((summary) => [
+        summary.pipeline,
         summary.model,
         ...people.map((name) => {
           const days = summary.perPerson[name] ?? [];
@@ -275,7 +386,7 @@ export const formatCellErrors = (runs: EvalRun[]): string =>
         const nulls = nullDates.map((date) => `${date.slice(8)}: null`);
 
         return [
-          `[${run.model} #${run.repeat}] ${person.score.name}: ${[...wrong, ...guessed, ...nulls].join(', ')}`,
+          `[${run.pipeline} ${run.model} ${run.sampleId} #${run.repeat}] ${person.score.name}: ${[...wrong, ...guessed, ...nulls].join(', ')}`,
         ];
       }),
     )
