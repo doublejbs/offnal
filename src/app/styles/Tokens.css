@@ -1,0 +1,62 @@
+/* Palette and components ported from docs/Handoff.md Appendix B (light values first, dark overrides below). */
+:root {
+  color-scheme: light dark;
+  --bg: #fff;
+  --ink: #172034;
+  --sub: #667085;
+  --line: #e7ebf2;
+  --soft: #f4f6fb;
+  --blue: #3155e7;
+  --bluefill: #edf1ff;
+  /* Kakao login brand colors: fixed in light and dark themes (Kakao Login design guide). */
+  --kakao-bg: #fee500;
+  --kakao-ink: rgb(0 0 0 / 85%);
+  --kakao-symbol: #000;
+  --primary-bg: #3155e7;
+  --primary-ink: #fff;
+  --shadow: #17203415;
+  --warn-ink: #8c5310;
+  --warn-bg: #fff2df;
+  --danger: #b4231a;
+  --tone-day-ink: #2455be;
+  --tone-day-bg: #e9f1ff;
+  --tone-evening-ink: #7844a7;
+  --tone-evening-bg: #f1e9fa;
+  --tone-night-ink: #384c79;
+  --tone-night-bg: #e5eaf4;
+  --tone-middle-ink: #8c611f;
+  --tone-middle-bg: #fff0d8;
+  --tone-unknown-ink: #99550d;
+  --tone-unknown-bg: #fff0dc;
+  --font-body:
+    var(--font-noto-sans-kr, 'Pretendard'), -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo',
+    'Segoe UI', 'Noto Sans KR', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #151a25;
+    --ink: #eef2fc;
+    --sub: #a2adc0;
+    --line: #30394b;
+    --soft: #202839;
+    --blue: #91a7ff;
+    --bluefill: #28345a;
+    --primary-bg: #91a7ff;
+    --primary-ink: #15214b;
+    --shadow: #00000030;
+    --warn-ink: #ffce94;
+    --warn-bg: #453626;
+    --danger: #ff9a8f;
+    --tone-day-ink: #a9c8ff;
+    --tone-day-bg: #263a5b;
+    --tone-evening-ink: #d6b5ff;
+    --tone-evening-bg: #433054;
+    --tone-night-ink: #bdd0ff;
+    --tone-night-bg: #2e3955;
+    --tone-middle-ink: #f1d09e;
+    --tone-middle-bg: #4a3b27;
+    --tone-unknown-ink: #ffcb87;
+    --tone-unknown-bg: #493722;
+  }
+}

@@ -1,0 +1,251 @@
+import { describe, expect, it } from 'vitest';
+
+import { buildIcs } from '@/domain/IcsBuilder';
+import { type IcsBuildInput } from '@/domain/types/IcsBuildInput';
+import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
+import { type ShiftEntry } from '@/domain/types/ShiftEntry';
+import { getEvents, unfold } from '../helpers/IcsTestUtils';
+
+const DEFINITIONS: ShiftDefinition[] = [
+  { code: 'D', label: '데이', startTime: '07:00', endTime: '16:00', endsNextDay: false, isOff: false },
+  { code: 'N', label: '나이트', startTime: '22:00', endTime: '07:00', endsNextDay: true, isOff: false },
+  { code: 'OFF', label: '휴무', startTime: null, endTime: null, endsNextDay: null, isOff: true },
+  {
+    code: 'S',
+    label: 'Day, early; shift',
+    startTime: '09:00',
+    endTime: '18:00',
+    endsNextDay: false,
+    isOff: false,
+  },
+];
+
+const entry = (date: string, code: string): ShiftEntry => ({
+  date,
+  code,
+  reviewReasons: [],
+  confirmed: true,
+});
+
+const buildInput = (overrides: Partial<IcsBuildInput> = {}): IcsBuildInput => ({
+  calendarId: 'cal-123',
+  displayName: '김하루',
+  yearMonth: '2026-10',
+  entries: [entry('2026-10-01', 'D'), entry('2026-10-02', 'OFF'), entry('2026-10-31', 'N')],
+  definitions: DEFINITIONS,
+  includeOff: false,
+  generatedAt: new Date('2026-09-29T03:04:05Z'),
+  ...overrides,
+});
+
+describe('IcsBuilder.buildIcs', () => {
+  it('builds a calendar with PRODID and DTSTAMP', () => {
+    const ics = unfold(buildIcs(buildInput()));
+
+    expect(ics).toContain('BEGIN:VCALENDAR');
+    expect(ics).toContain('PRODID:-//Offnal//Offnal MVP//KO\r\n');
+    expect(ics).toContain('DTSTAMP:20260929T030405Z');
+    expect(ics).toContain('X-WR-CALNAME:오프날 · 김하루 2026년 10월\r\n');
+  });
+
+  it('omits X-PUBLISHED-TTL and declares the Seoul timezone once in the header', () => {
+    const ics = unfold(buildIcs(buildInput()));
+    const header = ics.slice(0, ics.indexOf('BEGIN:VEVENT'));
+
+    expect(ics).not.toContain('X-PUBLISHED-TTL');
+    expect(header).toContain('X-WR-TIMEZONE:Asia/Seoul\r\n');
+    expect(ics.match(/X-WR-TIMEZONE/g)).toHaveLength(1);
+  });
+
+  it('keeps the timezone header for an empty calendar', () => {
+    const ics = unfold(buildIcs(buildInput({ entries: [] })));
+
+    expect(ics).toContain('X-WR-TIMEZONE:Asia/Seoul\r\nEND:VCALENDAR');
+    expect(ics).not.toContain('X-PUBLISHED-TTL');
+  });
+
+  it('escapes commas, semicolons and backslashes in the calendar name', () => {
+    const ics = unfold(buildIcs(buildInput({ displayName: 'Kim, Haru; A\\B' })));
+
+    expect(ics).toContain('X-WR-CALNAME:오프날 · Kim\\, Haru\\; A\\\\B 2026년 10월\r\n');
+  });
+
+  it('excludes off days by default', () => {
+    const events = getEvents(buildIcs(buildInput()));
+
+    expect(events).toHaveLength(2);
+    expect(events.some((event) => event.includes('휴무'))).toBe(false);
+  });
+
+  it('includes off days as all-day events with exclusive end', () => {
+    const events = getEvents(buildIcs(buildInput({ includeOff: true })));
+    const off = events.find((event) => event.includes('UID:cal-123-2026-10-02@offnal'));
+
+    expect(events).toHaveLength(3);
+    expect(off).toContain('DTSTART;VALUE=DATE:20261002');
+    expect(off).toContain('DTEND;VALUE=DATE:20261003');
+    expect(off).toContain('SUMMARY:휴무 (OFF)');
+  });
+
+  it('writes timed events in UTC with KST conversion', () => {
+    const events = getEvents(buildIcs(buildInput()));
+    const day = events.find((event) => event.includes('UID:cal-123-2026-10-01@offnal'));
+
+    expect(day).toContain('DTSTART:20260930T220000Z');
+    expect(day).toContain('DTEND:20261001T070000Z');
+    expect(day).toContain('SUMMARY:데이 (D)');
+    expect(day).toContain('DESCRIPTION:오프날에서 가져온 일정 · 이후 변경은 자동 반영되지 않아요');
+  });
+
+  it('ends the 10/31 night shift on 11/01', () => {
+    const events = getEvents(buildIcs(buildInput()));
+    const night = events.find((event) => event.includes('UID:cal-123-2026-10-31@offnal'));
+
+    expect(night).toContain('DTSTART:20261031T130000Z');
+    expect(night).toContain('DTEND:20261031T220000Z');
+  });
+
+  it('ends the 12/31 night shift in the next year', () => {
+    const ics = buildIcs(
+      buildInput({
+        yearMonth: '2026-12',
+        entries: [entry('2026-12-31', 'N')],
+        definitions: [{ ...DEFINITIONS[1]!, endTime: '10:00' }],
+      }),
+    );
+
+    expect(unfold(ics)).toContain('DTEND:20270101T010000Z');
+  });
+
+  it('handles leap-day night shifts', () => {
+    const ics = unfold(
+      buildIcs(
+        buildInput({
+          yearMonth: '2028-02',
+          entries: [entry('2028-02-28', 'N'), entry('2028-02-29', 'N')],
+          definitions: [{ ...DEFINITIONS[1]!, endTime: '10:00' }],
+        }),
+      ),
+    );
+
+    expect(ics).toContain('DTEND:20280229T010000Z');
+    expect(ics).toContain('DTEND:20280301T010000Z');
+  });
+
+  it('uses stable UIDs across builds', () => {
+    const first = getEvents(buildIcs(buildInput()));
+    const second = getEvents(buildIcs(buildInput({ generatedAt: new Date('2026-10-05T00:00:00Z') })));
+    const extractUids = (events: string[]) => events.map((event) => /UID:(.*)/.exec(event)?.[1]?.trim());
+
+    expect(extractUids(first)).toEqual(['cal-123-2026-10-01@offnal', 'cal-123-2026-10-31@offnal']);
+    expect(extractUids(second)).toEqual(extractUids(first));
+  });
+
+  it('escapes commas and semicolons in labels', () => {
+    const ics = unfold(buildIcs(buildInput({ entries: [entry('2026-10-05', 'S')] })));
+
+    expect(ics).toContain('SUMMARY:Day\\, early\\; shift (S)');
+  });
+
+  const assertWellFormed = (raw: string, expectedEvents: number): void => {
+    const lines = unfold(raw).split('\r\n');
+    const headerEnd = lines.findIndex((line) => line === 'BEGIN:VEVENT' || line === 'END:VCALENDAR');
+    const header = lines.slice(0, headerEnd);
+
+    expect(lines.filter((line) => line === 'BEGIN:VCALENDAR')).toHaveLength(1);
+    expect(lines.filter((line) => line === 'END:VCALENDAR')).toHaveLength(1);
+    expect(lines[0]).toBe('BEGIN:VCALENDAR');
+    expect(lines.filter((line) => line === 'BEGIN:VEVENT')).toHaveLength(expectedEvents);
+    expect(lines.filter((line) => line === 'END:VEVENT')).toHaveLength(expectedEvents);
+    expect(header.filter((line) => line.startsWith('X-PUBLISHED-TTL:'))).toHaveLength(0);
+    expect(header.filter((line) => line === 'X-WR-TIMEZONE:Asia/Seoul')).toHaveLength(1);
+    expect(lines.filter((line) => line.startsWith('X-PUBLISHED-TTL:'))).toHaveLength(0);
+  };
+
+  it('stays well-formed when the display name contains BEGIN:VEVENT', () => {
+    const ics = buildIcs(buildInput({ displayName: 'BEGIN:VEVENT' }));
+
+    assertWellFormed(ics, 2);
+    expect(unfold(ics)).toContain('X-WR-CALNAME:오프날 · BEGIN:VEVENT 2026년 10월\r\n');
+  });
+
+  it('stays well-formed when the display name or a label contains X-PUBLISHED-TTL:PT1H', () => {
+    const definitions = [{ ...DEFINITIONS[0]!, label: 'X-PUBLISHED-TTL:PT1H' }, ...DEFINITIONS.slice(1)];
+    const ics = buildIcs(buildInput({ displayName: 'X-PUBLISHED-TTL:PT1H', definitions }));
+
+    assertWellFormed(ics, 2);
+    expect(unfold(ics)).toContain('SUMMARY:X-PUBLISHED-TTL:PT1H (D)');
+    expect(unfold(ics)).toContain('X-WR-CALNAME:오프날 · X-PUBLISHED-TTL:PT1H 2026년 10월');
+  });
+
+  it('stays well-formed with a long display name that gets folded', () => {
+    const ics = buildIcs(buildInput({ displayName: `${'BEGIN:VEVENT '.repeat(10)}X-PUBLISHED-TTL:PT1H` }));
+
+    assertWellFormed(ics, 2);
+  });
+
+  it('writes the 2100-12-31 off day with an exclusive end on 2101-01-01', () => {
+    const ics = unfold(
+      buildIcs(buildInput({ yearMonth: '2100-12', includeOff: true, entries: [entry('2100-12-31', 'OFF')] })),
+    );
+
+    expect(ics).toContain('DTSTART;VALUE=DATE:21001231');
+    expect(ics).toContain('DTEND;VALUE=DATE:21010101');
+  });
+
+  it('skips entries without a code or definition', () => {
+    const ics = buildIcs(
+      buildInput({
+        entries: [
+          { date: '2026-10-03', code: null, reviewReasons: [], confirmed: false },
+          entry('2026-10-04', 'Q'),
+        ],
+      }),
+    );
+
+    expect(getEvents(ics)).toHaveLength(0);
+    expect(ics).toContain('BEGIN:VCALENDAR');
+  });
+});
+
+describe('IcsBuilder shared-view options', () => {
+  const extractUids = (ics: string) => getEvents(ics).map((event) => /UID:(.*)/.exec(event)?.[1]?.trim());
+
+  it('prefixes every event title with the given prefix', () => {
+    const ics = unfold(buildIcs(buildInput({ includeOff: true, titlePrefix: '김하루' })));
+
+    expect(ics).toContain('SUMMARY:김하루 · 데이 (D)\r\n');
+    expect(ics).toContain('SUMMARY:김하루 · 휴무 (OFF)\r\n');
+    expect(ics).toContain('SUMMARY:김하루 · 나이트 (N)\r\n');
+  });
+
+  it('escapes the title prefix like any other text', () => {
+    const ics = unfold(buildIcs(buildInput({ titlePrefix: '하루, 둘; 셋' })));
+
+    expect(ics).toContain('SUMMARY:하루\\, 둘\\; 셋 · 데이 (D)');
+  });
+
+  it('uses uidBase instead of the calendarId for UIDs', () => {
+    const ics = buildIcs(buildInput({ uidBase: '0123456789abcdef' }));
+
+    expect(extractUids(ics)).toEqual([
+      '0123456789abcdef-2026-10-01@offnal',
+      '0123456789abcdef-2026-10-31@offnal',
+    ]);
+    expect(ics).not.toContain('cal-123');
+  });
+
+  it('uses calendarName instead of the default calendar name', () => {
+    const ics = unfold(buildIcs(buildInput({ calendarName: '김하루님의 근무 · 2026년 10월' })));
+
+    expect(ics).toContain('X-WR-CALNAME:김하루님의 근무 · 2026년 10월\r\n');
+    expect(ics).not.toContain('오프날 · 김하루');
+  });
+
+  it('keeps the owner output unchanged without options', () => {
+    const ics = unfold(buildIcs(buildInput()));
+
+    expect(ics).toContain('SUMMARY:데이 (D)\r\n');
+    expect(extractUids(ics)).toEqual(['cal-123-2026-10-01@offnal', 'cal-123-2026-10-31@offnal']);
+  });
+});

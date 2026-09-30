@@ -1,0 +1,1 @@
+ALTER TABLE "drafts" ADD COLUMN "base_published_revision" integer;

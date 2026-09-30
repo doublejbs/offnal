@@ -1,0 +1,35 @@
+@media (max-width: 360px) {
+  .main {
+    padding: 16px 13px 24px;
+  }
+
+  .app-header,
+  .demo-banner {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .day {
+    min-height: 64px;
+  }
+
+  .badge {
+    min-width: 0;
+    font-size: 11px;
+  }
+
+  .time-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

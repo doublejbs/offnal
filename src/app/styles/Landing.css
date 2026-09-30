@@ -1,0 +1,131 @@
+/* Signed-out service guide on the entry screen (Spec §17). Reuses .block cards and color tokens. */
+.landing-guide {
+  margin: 28px 0;
+  /* Break Korean between words, not syllables; body's overflow-wrap still guards long strings. */
+  word-break: keep-all;
+}
+
+.landing-section {
+  margin: 20px 0;
+}
+
+.landing-section:not(.block) {
+  padding: 0 4px;
+}
+
+.landing-section h3 {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.landing-item-body {
+  min-width: 0;
+}
+
+.landing-item-body p {
+  font-size: 14px;
+  margin: 4px 0 0;
+}
+
+.landing-steps,
+.landing-methods,
+.landing-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.landing-step,
+.landing-method {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.landing-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary-bg);
+  color: var(--primary-ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.landing-method-icon {
+  display: inline-flex;
+  color: var(--blue);
+  background: var(--bluefill);
+  border-radius: 12px;
+  padding: 9px;
+}
+
+.landing-points {
+  gap: 10px;
+}
+
+.landing-points li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--sub);
+}
+
+.landing-points li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.65em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+
+.landing-faqs {
+  border-top: 1px solid var(--line);
+}
+
+.landing-faq {
+  border-bottom: 1px solid var(--line);
+}
+
+.landing-faq summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 10px 0;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.landing-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.landing-faq-chevron {
+  flex: none;
+  color: var(--sub);
+  transition: transform 0.2s ease;
+}
+
+.landing-faq[open] .landing-faq-chevron {
+  transform: rotate(180deg);
+}
+
+.landing-faq p {
+  margin: 0 0 14px;
+}

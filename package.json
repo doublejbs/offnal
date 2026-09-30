@@ -1,0 +1,70 @@
+{
+  "name": "offnal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.22.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "dev:https": "next dev --experimental-https",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:pg": "OFFNAL_REQUIRE_TEST_PG=1 vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/db/Migrate.ts",
+    "db:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/db/DbCheck.ts",
+    "storage:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/storage/StorageCheck.ts",
+    "brand:images": "tsx scripts/GenerateBrandImages.ts",
+    "vision:eval": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/vision/eval/VisionEval.ts"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "esbuild",
+      "@electric-sql/pglite",
+      "unrs-resolver"
+    ]
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.129.0",
+    "@aws-sdk/client-s3": "^3.1142.0",
+    "@electric-sql/pglite": "^0.5.8",
+    "@google/genai": "^2.24.0",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.117.2",
+    "drizzle-orm": "^0.45.3",
+    "ics": "^3.12.0",
+    "lucide-react": "^1.48.0",
+    "next": "^16.3.7",
+    "pg": "^8.23.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^22.20.4",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitest/coverage-v8": "^5.0.2",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.7",
+    "eslint-plugin-check-file": "^3.3.2",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.2"
+  }
+}
