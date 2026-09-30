@@ -54,6 +54,7 @@ const SUMMARY_HEADER = [
   'p2',
   'calls/upload',
   'p2 input',
+  'neighbour reads',
   'tok in/out/think per upload',
   '$/upload',
   '$/1k uploads',
@@ -91,6 +92,7 @@ export const formatSummaryTable = (summaries: ModelSummary[]): string =>
             formatSeconds(summary.pass2LatencyMs),
             summary.callsPerUpload === null ? '-' : summary.callsPerUpload.toFixed(2),
             formatCounts(summary.routes),
+            `${summary.neighbourReads}/${summary.neighbourChecks}`,
             `${formatNumber(summary.uploadInputTokens)}/${formatNumber(summary.uploadOutputTokens)}/${formatNumber(
               summary.uploadThinkingTokens,
             )}`,
@@ -118,6 +120,7 @@ export const formatSampleTable = (summaries: ModelSummary[]): string =>
       'p2 input',
       'fallbacks',
       'unverified rows',
+      'neighbour reads',
     ],
     summaries
       .filter((summary) => !summary.skipped)
@@ -134,6 +137,7 @@ export const formatSampleTable = (summaries: ModelSummary[]): string =>
         formatCounts(summary.routes),
         formatCounts(summary.fallbacks),
         String(summary.unverifiedRows),
+        `${summary.neighbourReads}/${summary.neighbourChecks}`,
       ]),
   );
 

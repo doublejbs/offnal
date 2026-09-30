@@ -7,7 +7,9 @@ import { VisionPipelineFallback } from '@/domain/enums/VisionPipelineFallback';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { VisionPipelineRoute } from '@/domain/enums/VisionPipelineRoute';
 import { VisionPipelineStep } from '@/domain/enums/VisionPipelineStep';
+import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
+import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { type GridCorners } from '@/domain/types/GridCorners';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import {
@@ -65,6 +67,8 @@ const widthOf = async (image: VisionImage) => (await sharp(image.bytes).metadata
 
 type FakeOptions = {
   band?: RowBand | null | Error;
+  /** Name locateRow reports at the band (default: none). */
+  locatedName?: string | null;
   /** What the strip call reports it read (default: the target, in the strip). */
   stripReading?: Partial<RowReading>;
   /** What the full-image call reports it read (default: no name). */
@@ -102,7 +106,7 @@ const createFakeProvider = (options: FakeOptions = {}) => {
       throw options.band;
     }
 
-    return { band: options.band === undefined ? null : options.band };
+    return { band: options.band === undefined ? null : options.band, rowName: options.locatedName ?? null };
   });
   const extractPersonFromStrip = vi.fn(
     async (_strip: VisionImage, _reference: VisionImage, input: PersonExtractionInput) => ({
@@ -322,22 +326,77 @@ describe('extractPersonWithPipeline row identity', () => {
     }
   });
 
-  it('requires the same-name occurrence to match for duplicate names', async () => {
+  it('requires the same-name occurrence on the strip and on the full-table re-read', async () => {
     const duplicate: PersonExtractionInput = {
       ...INPUT,
       rowContext: { sameNameOrdinal: 2, sameNameCount: 2, above: '가상두울', below: null },
     };
-    const wrong = await run(
-      { stripReading: { sameNameOrdinal: 1 }, fullReading: { rowName: '가상하나' } },
-      duplicate,
-    );
-    const missing = await run({ stripReading: {}, fullReading: { rowName: '가상하나' } }, duplicate);
     const right = await run({ stripReading: { sameNameOrdinal: 2 } }, duplicate);
 
-    expect(wrong.result.fallback).toBe(VisionPipelineFallback.STRIP_ROW_MISMATCH);
-    expect(missing.result.fallback).toBe(VisionPipelineFallback.STRIP_ROW_MISMATCH);
     expect(right.result).toMatchObject({ route: VisionPipelineRoute.STRIP, identityVerified: true });
+    expect(allAmbiguous(right.result)).toBe(false);
     expect(right.fake.extractPersonFromStrip.mock.calls[0]?.[2].rowContext).toEqual(duplicate.rowContext);
+
+    // Strip rejected (wrong/missing occurrence) → full-table re-read, which also gets the context.
+    const reread = await run(
+      { stripReading: { sameNameOrdinal: 1 }, fullReading: { rowName: '가상하나', sameNameOrdinal: 2 } },
+      duplicate,
+    );
+
+    expect(reread.result).toMatchObject({
+      fallback: VisionPipelineFallback.STRIP_ROW_MISMATCH,
+      identityVerified: true,
+    });
+    expect(reread.fake.extractPerson.mock.calls[0]?.[1].rowContext).toEqual(duplicate.rowContext);
+    expect(allAmbiguous(reread.result)).toBe(false);
+
+    // The re-read names the target but a same-name neighbour could pass on name alone: without the right
+    // occurrence the whole month must be reviewed (AMBIGUOUS → not confirmed).
+    for (const fullReading of [
+      { rowName: '가상하나', sameNameOrdinal: 1 },
+      { rowName: '가상하나', sameNameOrdinal: null },
+    ]) {
+      const { result } = await run({ stripReading: {}, fullReading }, duplicate);
+      const schedule = normalizeExtraction(result.extraction, '2026-10');
+
+      expect(result).toMatchObject({
+        fallback: VisionPipelineFallback.STRIP_ROW_MISMATCH,
+        identityVerified: false,
+      });
+      expect(
+        schedule.entries.every(
+          (entry) => !entry.confirmed && entry.reviewReasons.includes(ShiftReviewReason.AMBIGUOUS),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it('treats a located band with another name as a failed locate', async () => {
+    const { result, steps } = await run({ locatedName: '가상두울', fullReading: { rowName: '가상하나' } });
+
+    expect(result).toMatchObject({
+      route: VisionPipelineRoute.WARPED,
+      fallback: VisionPipelineFallback.LOCATE_FAILED,
+      identityVerified: true,
+    });
+    expect(steps).toEqual([VisionPipelineStep.LOCATE_ROW, VisionPipelineStep.EXTRACT]);
+
+    const sameName = await run({ locatedName: '가상 하나' });
+
+    expect(sameName.result.route).toBe(VisionPipelineRoute.STRIP);
+  });
+
+  it('requires the name after row-not-found: an unnamed full-table read is flagged', async () => {
+    const unnamed = await run({ band: null });
+    const named = await run({ band: null, fullReading: { rowName: '가상하나' } });
+
+    expect(unnamed.result).toMatchObject({
+      fallback: VisionPipelineFallback.ROW_NOT_FOUND,
+      identityVerified: false,
+    });
+    expect(allAmbiguous(unnamed.result)).toBe(true);
+    expect(named.result.identityVerified).toBe(true);
+    expect(allAmbiguous(named.result)).toBe(false);
   });
 
   it('flags a full-image read that names another row, but keeps an unnamed one as is', async () => {

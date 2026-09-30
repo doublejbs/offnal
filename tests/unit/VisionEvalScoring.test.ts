@@ -6,7 +6,13 @@ import { type ExtractedCell } from '@/domain/types/ExtractedCell';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { parseEvalArgs, resolveDebugDir, resolveResultsDir } from '@/server/vision/eval/EvalArgs';
-import { findCandidateRowId, scorePerson, scoreTable } from '@/server/vision/eval/EvalScoring';
+import {
+  detectNeighbourRead,
+  findCandidateRowId,
+  NEIGHBOUR_READ_MARGIN_DAYS,
+  scorePerson,
+  scoreTable,
+} from '@/server/vision/eval/EvalScoring';
 import { type EvalTruth, evalTruthSchema } from '@/server/vision/eval/EvalTruth';
 import { estimateCostUsd } from '@/server/vision/eval/ModelPrices';
 
@@ -209,5 +215,41 @@ describe('vision eval scoring', () => {
       parseEvalArgs(['--', '--models', 'gemini-x', '--pipeline', 'baseline,warp,warp-strip,warp']).pipelines,
     ).toEqual([VisionPipelineMode.BASELINE, VisionPipelineMode.WARP, VisionPipelineMode.WARP_STRIP]);
     expect(() => parseEvalArgs(['--models', 'gemini-x', '--pipeline', 'strip'])).toThrow(/--pipeline/);
+  });
+});
+
+describe('detectNeighbourRead', () => {
+  const days = Array.from({ length: 10 }, (_, index) => `2026-02-${String(index + 1).padStart(2, '0')}`);
+  const row = (codes: string) => Object.fromEntries(days.map((date, index) => [date, codes[index] ?? null]));
+  // Target and neighbour differ on every day; 가상셋 has no truth (not scored).
+  const truth = evalTruthSchema.parse({
+    yearMonth: '2026-02',
+    allNames: ['가상하나', '가상두울', '가상셋'],
+    definitions: {},
+    people: { 가상하나: row('DDDDDDDDDD'), 가상두울: row('EEEEEEEEEE') },
+  });
+  const schedule = (codes: string) => ({
+    entries: days.map((date, index) => ({
+      date,
+      code: codes[index] === '.' ? null : (codes[index] ?? null),
+      reviewReasons: [],
+      confirmed: true,
+    })),
+    definitions: [],
+    sourceCells: [],
+  });
+
+  it('flags cells that match a neighbouring truth row by a clear margin', () => {
+    expect(detectNeighbourRead(truth, '가상하나', ['가상 두울', null], schedule('EEEEEEEEEE'))).toBe(true);
+    expect(detectNeighbourRead(truth, '가상하나', [null, '가상두울'], schedule('EEEEEEDDDD'))).toBe(false);
+    expect(NEIGHBOUR_READ_MARGIN_DAYS).toBe(5);
+    // Exactly the margin (7 vs 2) counts; null cells are ignored.
+    expect(detectNeighbourRead(truth, '가상하나', ['가상두울'], schedule('EEEEEEEDD.'))).toBe(true);
+  });
+
+  it('does not flag a correct read and is not checkable without a neighbour truth', () => {
+    expect(detectNeighbourRead(truth, '가상하나', ['가상두울'], schedule('DDDDDDDDDD'))).toBe(false);
+    expect(detectNeighbourRead(truth, '가상하나', ['가상셋', null], schedule('EEEEEEEEEE'))).toBeNull();
+    expect(detectNeighbourRead(truth, '가상하나', [null, null], schedule('EEEEEEEEEE'))).toBeNull();
   });
 });

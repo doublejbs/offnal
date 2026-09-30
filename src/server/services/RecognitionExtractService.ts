@@ -4,16 +4,12 @@ import { and, eq, isNull } from 'drizzle-orm';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
-import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { type CandidatesResponse } from '@/domain/types/api/CandidatesResponse';
 import { type ExtractRecognitionRequest } from '@/domain/types/api/ExtractRecognitionRequest';
 import { type ExtractRecognitionResponse } from '@/domain/types/api/ExtractRecognitionResponse';
-import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
-import { type PersonExtraction } from '@/domain/types/PersonExtraction';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
-import { getAppConfig } from '@/server/config/AppConfig';
 import { type Db, type DbExecutor } from '@/server/db/Database';
 import { drafts, type RecognitionJobRow, users } from '@/server/db/Schema';
 import { ApiError, SOURCE_GONE_MESSAGE } from '@/server/errors/ApiError';
@@ -21,15 +17,8 @@ import { type LoggedInContext, type RequestContext } from '@/server/http/Request
 import { buildDraftInsert } from '@/server/services/DraftFactory';
 import { assertExtractAllowed, chargeExtract } from '@/server/services/RateLimitService';
 import { isSourceAvailable, requireLoggedInOwnedJob } from '@/server/services/RecognitionOwnership';
-import { loadSourceForVision, readSourceBytes } from '@/server/services/RecognitionProcessService';
-import { buildRowContext } from '@/server/vision/RowIdentity';
-import { getVisionProvider } from '@/server/vision/VisionFactory';
-import {
-  extractPersonWithPipeline,
-  type PipelineCallRunner,
-  preparePipelineImage,
-} from '@/server/vision/VisionPipeline';
-import { toRecognitionErrorCode } from '@/server/vision/VisionProvider';
+import { extractPersonSchedule } from '@/server/services/RecognitionPersonExtractor';
+import { readSourceBytes } from '@/server/services/RecognitionProcessService';
 
 /**
  * Same-process single flight per (job, row, month): concurrent identical extracts share one provider
@@ -80,64 +69,6 @@ export const readSourceImage = async (
   }
 
   return { bytes, mime: job.sourceMime };
-};
-
-const toProviderApiError = (code: RecognitionErrorCode): ApiError => {
-  if (code === RecognitionErrorCode.PROVIDER_NOT_CONFIGURED) {
-    return new ApiError(ApiErrorCode.PROVIDER_NOT_CONFIGURED);
-  }
-
-  if (code === RecognitionErrorCode.SOURCE_MISSING) {
-    return new ApiError(ApiErrorCode.EXPIRED, { message: SOURCE_GONE_MESSAGE });
-  }
-
-  return new ApiError(ApiErrorCode.PROVIDER_ERROR, { details: { reason: code } });
-};
-
-/** Provider call only; normalization runs outside the try so bugs surface as 500, not 502. */
-const extractPersonSchedule = async (
-  job: RecognitionJobRow,
-  table: TableRecognition,
-  rowId: string,
-  name: string,
-  yearMonth: string,
-): Promise<NormalizedSchedule> => {
-  if (!isSourceAvailable(job)) {
-    throw new ApiError(ApiErrorCode.EXPIRED, { message: SOURCE_GONE_MESSAGE });
-  }
-
-  const source = await loadSourceForVision(job);
-
-  if (!source.ok) {
-    throw toProviderApiError(source.errorCode);
-  }
-
-  const config = getAppConfig();
-  // One budget for every call of the pipeline (locate + extract), like the single call before §15.
-  const signal = AbortSignal.timeout(config.visionTimeoutMs);
-  const runCall: PipelineCallRunner = (_step, run) => run(signal);
-  // The warped image lives only in memory for this request (source lifetime rules unchanged).
-  const prepared = await preparePipelineImage(config.visionPipeline, source.image, table.grid);
-  let extraction: PersonExtraction;
-
-  try {
-    ({ extraction } = await extractPersonWithPipeline(
-      getVisionProvider(),
-      prepared,
-      {
-        rowId,
-        name,
-        yearMonth,
-        definitions: table.definitions,
-        rowContext: buildRowContext(table.candidates, rowId),
-      },
-      runCall,
-    ));
-  } catch (error: unknown) {
-    throw toProviderApiError(toRecognitionErrorCode(error, signal));
-  }
-
-  return normalizeExtraction(extraction, yearMonth);
 };
 
 const buildRowIdentity = (jobId: string, rowId: string, yearMonth: string) =>

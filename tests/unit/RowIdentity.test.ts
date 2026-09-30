@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildRowContext, isStripReadingVerified, matchesTargetName } from '@/server/vision/RowIdentity';
+import { buildRowContext, isReadingVerified, matchesTargetName } from '@/server/vision/RowIdentity';
+import { buildPersonUserPrompt } from '@/server/vision/VisionPrompts';
 import { buildStripPersonPrompt } from '@/server/vision/VisionRowPrompts';
 
 const CANDIDATES = [
@@ -24,6 +25,11 @@ describe('buildRowContext', () => {
   });
 });
 
+const verifyStrip = (
+  reading: Parameters<typeof isReadingVerified>[0],
+  input: Parameters<typeof isReadingVerified>[1],
+) => isReadingVerified(reading, input, { requireInStrip: true });
+
 describe('row identity checks', () => {
   it('compares names after NFC and whitespace normalization and never accepts null', () => {
     expect(matchesTargetName('가상하나', '가상 하나')).toBe(true);
@@ -36,22 +42,39 @@ describe('row identity checks', () => {
     const input = { ...INPUT, rowContext: buildRowContext(CANDIDATES, 'r3') };
     const reading = { rowName: '가상하나', targetInStrip: true, sameNameOrdinal: 2 };
 
-    expect(isStripReadingVerified(reading, input)).toBe(true);
-    expect(isStripReadingVerified({ ...reading, sameNameOrdinal: 1 }, input)).toBe(false);
-    expect(isStripReadingVerified({ ...reading, sameNameOrdinal: null }, input)).toBe(false);
-    expect(isStripReadingVerified({ ...reading, targetInStrip: false }, input)).toBe(false);
-    expect(isStripReadingVerified({ ...reading, targetInStrip: null }, input)).toBe(false);
-    expect(isStripReadingVerified({ ...reading, rowName: null }, input)).toBe(false);
-    expect(isStripReadingVerified(undefined, input)).toBe(false);
+    expect(verifyStrip(reading, input)).toBe(true);
+    expect(verifyStrip({ ...reading, sameNameOrdinal: 1 }, input)).toBe(false);
+    expect(verifyStrip({ ...reading, sameNameOrdinal: null }, input)).toBe(false);
+    expect(verifyStrip({ ...reading, targetInStrip: false }, input)).toBe(false);
+    expect(verifyStrip({ ...reading, targetInStrip: null }, input)).toBe(false);
+    expect(verifyStrip({ ...reading, rowName: null }, input)).toBe(false);
+    expect(verifyStrip(undefined, input)).toBe(false);
     // Unique name: the ordinal is not required.
-    expect(isStripReadingVerified({ ...reading, sameNameOrdinal: null }, INPUT)).toBe(true);
+    expect(verifyStrip({ ...reading, sameNameOrdinal: null }, INPUT)).toBe(true);
   });
 
-  it('tells the strip prompt about neighbours and the duplicate occurrence as quoted data', () => {
-    const prompt = buildStripPersonPrompt({ ...INPUT, rowContext: buildRowContext(CANDIDATES, 'r3') });
+  it('requires the reported occurrence for duplicate names on full-table reads too', () => {
+    const input = { ...INPUT, rowContext: buildRowContext(CANDIDATES, 'r3') };
+    const fullRead = (sameNameOrdinal: number | null) =>
+      isReadingVerified({ rowName: '가상하나', targetInStrip: null, sameNameOrdinal }, input, {
+        requireInStrip: false,
+      });
 
-    expect(prompt).toContain('{"above":"가상두울","below":null}');
-    expect(prompt).toContain('2 rows share this name; the target is occurrence 2 from the top');
+    expect(fullRead(2)).toBe(true);
+    expect(fullRead(1)).toBe(false);
+    expect(fullRead(null)).toBe(false);
+  });
+
+  it('gives both prompts the neighbours and the duplicate count, never the expected occurrence', () => {
+    const input = { ...INPUT, rowContext: buildRowContext(CANDIDATES, 'r3') };
+
+    for (const prompt of [buildStripPersonPrompt(input), buildPersonUserPrompt(input)]) {
+      expect(prompt).toContain('{"above":"가상두울","below":null}');
+      expect(prompt).toContain('2 rows share this name');
+      expect(prompt).toContain('which of the 2 same-name rows you read (1 = topmost)');
+      expect(prompt).not.toMatch(/occurrence 2|ordinal 2/u);
+    }
+
     expect(buildStripPersonPrompt(INPUT)).not.toContain('share this name');
   });
 });

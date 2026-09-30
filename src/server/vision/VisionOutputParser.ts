@@ -102,7 +102,11 @@ export const parsePersonOutput = (raw: unknown, input: PersonExtractionInput): V
     displayName: input.name,
     definitions: parsed.data.definitions.map(sanitizeDefinition),
     cells: parsed.data.cells,
-    reading: { rowName: parsed.data.rowName, targetInStrip: null, sameNameOrdinal: null },
+    reading: {
+      rowName: parsed.data.rowName,
+      targetInStrip: null,
+      sameNameOrdinal: parsed.data.sameNameOrdinal,
+    },
   };
 };
 

@@ -25,19 +25,31 @@ export const buildRowContext = (candidates: RecognitionCandidate[], rowId: strin
 export const matchesTargetName = (rowName: string | null, targetName: string): boolean =>
   rowName !== null && normalizePersonName(rowName) === normalizePersonName(targetName);
 
+export const hasDuplicateName = (input: PersonExtractionInput): boolean =>
+  (input.rowContext?.sameNameCount ?? 0) > 1;
+
+type VerifyOptions = {
+  /** Strip readings must also confirm the target is visible in the strip. */
+  requireInStrip: boolean;
+};
+
 /**
- * A strip reading counts only when the model says the target is in the strip, the name it read matches,
- * and — for duplicate names — it picked the same ordinal as pass 1.
+ * A reading counts only when the name it read back matches the target, for duplicate names the
+ * occurrence it reports (the prompt never reveals the expected one) equals pass 1's, and — for strips —
+ * the model says the target is in the strip.
  */
-export const isStripReadingVerified = (
+export const isReadingVerified = (
   reading: RowReading | undefined,
   input: PersonExtractionInput,
+  options: VerifyOptions,
 ): boolean => {
-  if (!reading || reading.targetInStrip !== true || !matchesTargetName(reading.rowName, input.name)) {
+  if (!reading || !matchesTargetName(reading.rowName, input.name)) {
     return false;
   }
 
-  const context = input.rowContext;
+  if (options.requireInStrip && reading.targetInStrip !== true) {
+    return false;
+  }
 
-  return !context || context.sameNameCount <= 1 || reading.sameNameOrdinal === context.sameNameOrdinal;
+  return !hasDuplicateName(input) || reading.sameNameOrdinal === input.rowContext?.sameNameOrdinal;
 };

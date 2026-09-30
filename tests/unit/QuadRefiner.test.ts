@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { solveHomography } from '@/server/vision/Homography';
 import { warpRaw } from '@/server/vision/PerspectiveWarp';
-import { isPlausibleRefinement, refineQuad } from '@/server/vision/QuadRefiner';
+import {
+  isPlausibleRefinement,
+  refineQuad,
+  SCORE_TIE_EPSILON,
+  selectTilt,
+} from '@/server/vision/QuadRefiner';
 import { type PixelPoint, type Quad, type RawImage } from '@/server/vision/VisionGeometry';
 
 const COLUMNS = 31;
@@ -99,5 +104,39 @@ describe('refineQuad', () => {
     expect(isPlausibleRefinement(quad, shifted(70))).toBe(true);
     expect(isPlausibleRefinement(quad, shifted(80))).toBe(false);
     expect(isPlausibleRefinement(quad, [null, quad[1], quad[2], quad[3]])).toBe(false);
+  });
+
+  it('picks the best tilt and breaks near-ties toward the smaller |tilt|', () => {
+    expect(
+      selectTilt([
+        { tiltDeg: -3, score: 10 },
+        { tiltDeg: 2, score: 20 },
+        { tiltDeg: 0, score: 5 },
+      ]),
+    ).toBe(2);
+
+    // Scores within the epsilon count as equal: the smaller rotation wins regardless of sweep order.
+    const nearTie = 1000 * (1 + SCORE_TIE_EPSILON / 2);
+
+    expect(
+      selectTilt([
+        { tiltDeg: -4, score: nearTie },
+        { tiltDeg: 1, score: 1000 },
+      ]),
+    ).toBe(1);
+    expect(
+      selectTilt([
+        { tiltDeg: 0.4, score: 1000 },
+        { tiltDeg: -0.2, score: nearTie },
+      ]),
+    ).toBe(-0.2);
+    // Blank bands (all zero) keep the untouched edge.
+    expect(
+      selectTilt([
+        { tiltDeg: -15, score: 0 },
+        { tiltDeg: 0, score: 0 },
+        { tiltDeg: 15, score: 0 },
+      ]),
+    ).toBe(0);
   });
 });

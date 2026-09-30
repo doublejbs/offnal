@@ -35,6 +35,8 @@ export type PersonRun = {
   fallback: VisionPipelineFallback | null;
   /** The model confirmed the row by reading its name back (null when pass 2 did not run). */
   identityVerified: boolean | null;
+  /** The cells match a neighbouring truth row clearly better than the target (null = not checkable). */
+  neighbourRead: boolean | null;
 };
 
 export type EvalRun = {

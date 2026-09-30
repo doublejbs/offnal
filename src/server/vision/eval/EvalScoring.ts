@@ -202,3 +202,61 @@ export const scorePerson = (
     definitionsCorrect,
   };
 };
+
+/**
+ * Extracted codes must match a neighbour this many more discriminating days than the target before the
+ * run counts as a neighbour-row read (a model can report the target's name while copying a neighbour).
+ */
+export const NEIGHBOUR_READ_MARGIN_DAYS = 5;
+
+/** Truth person whose normalized name equals `name`, or null (only scored people have truths). */
+const findTruthName = (truth: EvalTruth, name: string): string | null => {
+  const target = normalizePersonName(name);
+
+  return Object.keys(truth.people).find((truthName) => normalizePersonName(truthName) === target) ?? null;
+};
+
+/**
+ * Compares the extracted codes with the truth rows directly above/below (pass-1 order) on the days where
+ * that neighbour's code differs from the target's. Null when no neighbour has a truth (not checkable).
+ */
+export const detectNeighbourRead = (
+  truth: EvalTruth,
+  name: string,
+  neighbourNames: (string | null)[],
+  schedule: NormalizedSchedule,
+): boolean | null => {
+  const expected = truth.people[name] ?? {};
+  const gotByDate = new Map(schedule.entries.map((entry) => [entry.date, entry.code]));
+  const neighbours = neighbourNames.flatMap((neighbour) => {
+    const truthName = neighbour === null ? null : findTruthName(truth, neighbour);
+
+    return truthName === null || truthName === name ? [] : [truth.people[truthName] ?? {}];
+  });
+
+  if (neighbours.length === 0) {
+    return null;
+  }
+
+  const normalizeOrNull = (code: string | null | undefined) => (code ? normalizeCode(code) : null);
+
+  return neighbours.some((neighbour) => {
+    let targetMatches = 0;
+    let neighbourMatches = 0;
+
+    for (const [date, targetCode] of Object.entries(expected)) {
+      const target = normalizeOrNull(targetCode);
+      const other = normalizeOrNull(neighbour[date]);
+      const got = normalizeOrNull(gotByDate.get(date));
+
+      if (got === null || target === other) {
+        continue;
+      }
+
+      targetMatches += got === target ? 1 : 0;
+      neighbourMatches += got === other ? 1 : 0;
+    }
+
+    return neighbourMatches >= targetMatches + NEIGHBOUR_READ_MARGIN_DAYS;
+  });
+};

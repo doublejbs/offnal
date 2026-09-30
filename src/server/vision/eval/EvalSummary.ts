@@ -55,6 +55,9 @@ export type ModelSummary = {
   fallbacks: Record<string, number>;
   /** Persons whose row the model did not confirm by reading the name back (fully successful runs). */
   unverifiedRows: number;
+  /** Persons whose cells clearly match a neighbouring truth row instead of theirs / persons checkable. */
+  neighbourReads: number;
+  neighbourChecks: number;
   /** Average tokens of one upload = pass 1 + one pass 2. */
   uploadInputTokens: number | null;
   uploadOutputTokens: number | null;
@@ -195,6 +198,8 @@ export const summarizeModel = (
     routes: countBy(okPeople.map((person) => person.route)),
     fallbacks: countBy(okPeople.map((person) => person.fallback)),
     unverifiedRows: okPeople.filter((person) => person.identityVerified === false).length,
+    neighbourReads: okPeople.filter((person) => person.neighbourRead === true).length,
+    neighbourChecks: okPeople.filter((person) => person.neighbourRead !== null).length,
     uploadInputTokens: sumOrNull(
       tokens(pass1, (call) => call.usage?.inputTokens ?? null),
       tokens(pass2, (call) => call.usage?.inputTokens ?? null),

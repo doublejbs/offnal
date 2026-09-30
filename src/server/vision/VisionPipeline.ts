@@ -6,7 +6,7 @@ import { VisionPipelineStep } from '@/domain/enums/VisionPipelineStep';
 import { type GridCorners } from '@/domain/types/GridCorners';
 import { type PersonExtraction } from '@/domain/types/PersonExtraction';
 import { type WarpResult, warpToGrid } from '@/server/vision/PerspectiveWarp';
-import { isStripReadingVerified, matchesTargetName } from '@/server/vision/RowIdentity';
+import { hasDuplicateName, isReadingVerified, matchesTargetName } from '@/server/vision/RowIdentity';
 import { buildRowStrip, computeStripPlan } from '@/server/vision/RowStrip';
 import {
   type PersonExtractionInput,
@@ -115,7 +115,11 @@ type IdentityPolicy = {
   requireName: boolean;
 };
 
-/** Checks the name the model read back; a contradiction (or, when required, no name) flags every cell. */
+/**
+ * Checks the row the model read back. Every cell is flagged when it names another row, when a name is
+ * required (after a strip-path fallback) but not confirmed, and always for duplicate names unless the
+ * reported occurrence matches pass 1's.
+ */
 const applyIdentityCheck = (
   result: VisionPersonResult,
   input: PersonExtractionInput,
@@ -123,8 +127,9 @@ const applyIdentityCheck = (
 ): { extraction: PersonExtraction; identityVerified: boolean } => {
   const extraction = toPersonExtraction(result);
   const rowName = result.reading?.rowName ?? null;
-  const identityVerified = matchesTargetName(rowName, input.name);
-  const distrusted = !identityVerified && (rowName !== null || policy.requireName);
+  const identityVerified = isReadingVerified(result.reading, input, { requireInStrip: false });
+  const contradicted = rowName !== null && !matchesTargetName(rowName, input.name);
+  const distrusted = !identityVerified && (contradicted || policy.requireName || hasDuplicateName(input));
 
   return { extraction: distrusted ? markAllCellsAmbiguous(extraction) : extraction, identityVerified };
 };
@@ -139,11 +144,15 @@ const buildStripForRow = async (
   runCall: PipelineCallRunner,
 ): Promise<StripAttempt> => {
   let band: RowBand | null;
+  let locatedName: string | null;
 
   try {
-    ({ band } = await runCall(VisionPipelineStep.LOCATE_ROW, (signal) =>
+    const located = await runCall(VisionPipelineStep.LOCATE_ROW, (signal) =>
       provider.locateRow(warp.image, { rowId: input.rowId, name: input.name }, signal),
-    ));
+    );
+
+    band = located.band;
+    locatedName = located.rowName ?? null;
   } catch (error: unknown) {
     if (isFatalLocateError(error)) {
       throw error;
@@ -154,6 +163,11 @@ const buildStripForRow = async (
 
   if (!band) {
     return { ok: false, fallback: VisionPipelineFallback.ROW_NOT_FOUND };
+  }
+
+  // The model says it located a different person: do not build a strip around that band.
+  if (locatedName !== null && !matchesTargetName(locatedName, input.name)) {
+    return { ok: false, fallback: VisionPipelineFallback.LOCATE_FAILED };
   }
 
   const plan = computeStripPlan(
@@ -206,10 +220,9 @@ export const extractPersonWithPipeline = async (
     const result = await runCall(VisionPipelineStep.EXTRACT, (signal) =>
       provider.extractPerson(warp.image, input, signal),
     );
-    // After a rejected strip the full-table read must positively confirm the row.
-    const checked = applyIdentityCheck(result, input, {
-      requireName: fallback === VisionPipelineFallback.STRIP_ROW_MISMATCH,
-    });
+    // Any strip-path fallback (row not found, locate failed, strip rejected) means the row identity is in
+    // doubt, so the full-table read must positively confirm it.
+    const checked = applyIdentityCheck(result, input, { requireName: fallback !== null });
 
     return {
       extraction: withPassOneLegend(checked.extraction, input),
@@ -235,7 +248,7 @@ export const extractPersonWithPipeline = async (
     provider.extractPersonFromStrip(attempt.strip, warp.image, input, signal),
   );
 
-  if (!isStripReadingVerified(result.reading, input)) {
+  if (!isReadingVerified(result.reading, input, { requireInStrip: true })) {
     // Not verifiably the target row (wrong name/occurrence, or not in the strip): read the full table.
     return { ...(await extractWarped(VisionPipelineFallback.STRIP_ROW_MISMATCH)), strip: attempt.strip };
   }

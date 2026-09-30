@@ -32,8 +32,12 @@ export const MAX_CORNER_SHIFT_SHARE = 0.15;
 
 /** Parallel-line determinant below this = no intersection. */
 const PARALLEL_EPSILON = 1e-9;
-/** Relative score gain needed to prefer another tilt (ties keep the smaller tilt). */
-const SCORE_TIE_EPSILON = 1e-9;
+
+/** Scores within this relative distance are a tie; ties prefer the smaller |tilt| (the untouched edge). */
+export const SCORE_TIE_EPSILON = 1e-6;
+
+/** Float slack for the loop end of the tilt sweep. */
+const SWEEP_EPSILON = 1e-9;
 /** Floats per ink sample: along, across, weight. */
 const SAMPLE_STRIDE = 3;
 
@@ -152,6 +156,23 @@ const collectInk = (gray: GrayImage, band: BandGeometry): InkSamples => {
   return { values, count };
 };
 
+export type TiltScore = { tiltDeg: number; score: number };
+
+/** Highest score wins; near-ties (within SCORE_TIE_EPSILON) prefer the smaller |tilt|. */
+export const selectTilt = (scores: TiltScore[]): number => {
+  let best: TiltScore = { tiltDeg: 0, score: -1 };
+
+  for (const candidate of scores) {
+    const tie = Math.abs(candidate.score - best.score) <= Math.abs(best.score) * SCORE_TIE_EPSILON;
+
+    if (tie ? Math.abs(candidate.tiltDeg) < Math.abs(best.tiltDeg) : candidate.score > best.score) {
+      best = candidate;
+    }
+  }
+
+  return best.tiltDeg;
+};
+
 /**
  * Projection-profile deskew: the tilt (relative to the rough edge) at which the ink projected across the
  * edge forms the sharpest peaks, i.e. where the grid lines near the edge run parallel to it.
@@ -159,10 +180,9 @@ const collectInk = (gray: GrayImage, band: BandGeometry): InkSamples => {
 const findTilt = (ink: InkSamples, halfBand: number): number => {
   const binOffset = Math.ceil(halfBand * 2) + 2;
   const bins = new Float64Array(binOffset * 2 + 1);
-  let bestTilt = 0;
-  let bestScore = -1;
+  const scores: TiltScore[] = [];
 
-  for (let tiltDeg = -MAX_TILT_DEG; tiltDeg <= MAX_TILT_DEG + SCORE_TIE_EPSILON; tiltDeg += TILT_STEP_DEG) {
+  for (let tiltDeg = -MAX_TILT_DEG; tiltDeg <= MAX_TILT_DEG + SWEEP_EPSILON; tiltDeg += TILT_STEP_DEG) {
     const sin = Math.sin(tiltDeg * DEG);
     const cos = Math.cos(tiltDeg * DEG);
 
@@ -183,16 +203,10 @@ const findTilt = (ink: InkSamples, halfBand: number): number => {
       score += value * value;
     }
 
-    if (
-      score > bestScore * (1 + SCORE_TIE_EPSILON) ||
-      (score === bestScore && Math.abs(tiltDeg) < Math.abs(bestTilt))
-    ) {
-      bestScore = score;
-      bestTilt = tiltDeg;
-    }
+    scores.push({ tiltDeg, score });
   }
 
-  return bestTilt * DEG;
+  return selectTilt(scores) * DEG;
 };
 
 /** The edge rotated about its midpoint to follow the nearby grid lines. */

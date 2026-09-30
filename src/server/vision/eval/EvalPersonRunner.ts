@@ -4,7 +4,7 @@ import { VisionPipelineStep } from '@/domain/enums/VisionPipelineStep';
 import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
 import { callWithRetry } from '@/server/vision/eval/EvalCallRetry';
-import { findCandidateRowId, scorePerson } from '@/server/vision/eval/EvalScoring';
+import { detectNeighbourRead, findCandidateRowId, scorePerson } from '@/server/vision/eval/EvalScoring';
 import { type EvalSample } from '@/server/vision/eval/EvalTruth';
 import {
   type CallRecord,
@@ -48,6 +48,7 @@ export const buildFailedPersonRun = (
   route: null,
   fallback: null,
   identityVerified: null,
+  neighbourRead: null,
 });
 
 export type PersonRunInput = {
@@ -128,13 +129,23 @@ export const runPerson = async (input: PersonRunInput): Promise<PersonRun> => {
       return failPerson(recovered);
     }
 
-    const score = scorePerson(truth, name, rowId, normalizeExtraction(result.extraction, truth.yearMonth));
+    const schedule = normalizeExtraction(result.extraction, truth.yearMonth);
+    const score = scorePerson(truth, name, rowId, schedule);
+    const rowContext = buildRowContext(table.candidates, rowId);
+    const neighbourRead = detectNeighbourRead(
+      truth,
+      name,
+      [rowContext?.above ?? null, rowContext?.below ?? null],
+      schedule,
+    );
     const latencyMs = calls.reduce((sum, call) => sum + call.latencyMs, 0);
 
     context.log(
       `${label} ${score.correctDays}/${score.totalDays} via ${result.route}${
         result.fallback ? ` (fallback ${result.fallback})` : ''
-      }${result.identityVerified ? '' : ' (row unverified)'} ${formatSeconds(latencyMs)}`,
+      }${result.identityVerified ? '' : ' (row unverified)'}${neighbourRead ? ' (NEIGHBOUR ROW)' : ''} ${formatSeconds(
+        latencyMs,
+      )}`,
     );
 
     return {
@@ -145,6 +156,7 @@ export const runPerson = async (input: PersonRunInput): Promise<PersonRun> => {
       route: result.route,
       fallback: result.fallback,
       identityVerified: result.identityVerified,
+      neighbourRead,
     };
   } catch (error: unknown) {
     const record = failures.get(error);
