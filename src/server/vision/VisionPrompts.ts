@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { MAX_LABEL_LENGTH } from '@/domain/DomainLimits';
 import { VisionTableOutcome } from '@/domain/enums/VisionTableOutcome';
+import { MAX_CODE_LENGTH } from '@/domain/ScheduleValidator';
 import { isValidTime } from '@/domain/ShiftTime';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { isValidYearMonth } from '@/domain/YearMonth';
@@ -19,10 +20,17 @@ export const VISION_SYSTEM_PROMPT = [
   '- Times use 24-hour HH:mm. endsNextDay is true only when the shift clearly ends on the following day.',
   '- Codes are copied as written (trimmed). Keep Korean codes as-is.',
   'Codes not in the legend:',
-  '- If a cell shows clearly readable text, return it exactly as written as the code (trimmed, at most 12 characters) even when it is not in the legend, e.g. W, 연차, M.',
+  `- If a cell shows clearly readable text, return it exactly as written as the code (trimmed, at most ${MAX_CODE_LENGTH} characters) even when it is not in the legend, e.g. W, 연차, M.`,
   '- Never replace such a code with OFF or another legend code, and never leave it null because it is missing from the legend.',
   '- Use null only when the cell text is blurry or unreadable. Blank cells and dashes stay null.',
 ].join('\n');
+
+/**
+ * Spec §16: which codes belong in `definitions` (pass 1 and the full-table pass 2). OFF is the one
+ * exception so day offs do not all need confirming.
+ */
+export const LEGEND_DEFINITIONS_RULE =
+  'Definitions: only codes explained in the printed legend (usually below or beside the table, with times or a meaning). Do not add codes that only appear in cells; they are handled later. Exception: the literal code OFF may be added as a day off (isOff=true, no times) when it appears in cells. Do not treat any other unexplained code as a day off.';
 
 export const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: 'null' }] });
 
@@ -36,7 +44,10 @@ const DEFINITION_JSON_SCHEMA = {
     startTime: nullable({ type: 'string', description: 'HH:mm, null when not written' }),
     endTime: nullable({ type: 'string', description: 'HH:mm, null when not written' }),
     endsNextDay: nullable({ type: 'boolean' }),
-    isOff: { type: 'boolean', description: 'True only for codes the legend defines as a day off' },
+    isOff: {
+      type: 'boolean',
+      description: 'True only for codes the legend defines as a day off, or the literal code OFF',
+    },
   },
 };
 
@@ -85,8 +96,7 @@ export const TABLE_JSON_SCHEMA: Record<string, unknown> = {
     },
     definitions: {
       type: 'array',
-      description:
-        'Only codes explained in the printed legend (plus OFF as a day off), not codes that only appear in cells',
+      description: LEGEND_DEFINITIONS_RULE,
       items: DEFINITION_JSON_SCHEMA,
     },
     dayHeaders: {
@@ -223,8 +233,7 @@ export const TABLE_USER_PROMPT = [
   'Read this shift roster image.',
   'Return every person row as a candidate (rowId r1, r2, … from top to bottom) with the name as written.',
   'Return the roster month as YYYY-MM if it is shown, the shift code legend (codes, labels, times if written) and the day column headers.',
-  'definitions: only codes explained in the printed legend (usually below or beside the table, with times or a meaning). Do not add codes that only appear in cells; they are handled later.',
-  'Exception: the literal code OFF may be added as a day off (isOff=true, no times) when it appears in cells. Do not treat any other unexplained code as a day off.',
+  LEGEND_DEFINITIONS_RULE,
   'Set outcome to no_table if the image is not a roster table, unreadable if it is too blurry to read, no_names if no person names are visible.',
   'Also return grid: the four corners of the day-cell grid only (not the name column, title or legend).',
   '- topLeft: where the left border of the day-1 column meets the top border of the date header.',
@@ -271,6 +280,7 @@ export const buildPersonUserPrompt = (input: PersonExtractionInput): string =>
     `Known code legend from the first pass (data): ${JSON.stringify(input.definitions)}`,
     'For each day column return day number, rawText exactly as seen, the code, and ambiguous=true when unsure.',
     CELL_CODE_RULE,
-    'Return the code legend again, corrected if needed: only codes explained in the printed legend (plus OFF as a day off), not codes that only appear in cells.',
+    'Return the code legend again, corrected if needed.',
+    LEGEND_DEFINITIONS_RULE,
     'Return rowName = the name cell of the row you read, exactly as written (null if not readable).',
   ].join('\n');

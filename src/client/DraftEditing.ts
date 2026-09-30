@@ -87,7 +87,7 @@ export const updateDefinition = (
     return next;
   });
 
-export type DefinitionsAndEntries = {
+type DefinitionsAndEntries = {
   definitions: ShiftDefinition[];
   entries: ShiftEntry[];
 };
@@ -96,14 +96,14 @@ export type DefinitionsAndEntries = {
  * `updateDefinition` + the same `resolveDefinedCodes` the server applies on PATCH, so dates of a code
  * outside the legend are confirmed on screen as soon as its definition is complete (Spec §16).
  */
-export const updateDefinitionAndResolve = <T extends DefinitionsAndEntries>(
-  draft: T,
+export const updateDefinitionAndResolve = (
+  draft: DefinitionsAndEntries,
   code: string,
   patch: DefinitionPatch,
-): T => {
+): DefinitionsAndEntries => {
   const definitions = updateDefinition(draft.definitions, code, patch);
 
-  return { ...draft, definitions, entries: resolveDefinedCodes(draft.entries, definitions) };
+  return { definitions, entries: resolveDefinedCodes(draft.entries, definitions) };
 };
 
 export const isCodeUsed = (entries: ShiftEntry[], code: string): boolean =>

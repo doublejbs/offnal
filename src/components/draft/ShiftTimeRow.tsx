@@ -3,7 +3,7 @@
 import { Trash2 } from 'lucide-react';
 import { useRef } from 'react';
 
-import { formatShiftTime } from '@/client/DisplayText';
+import { formatShiftTime, UNDEFINED_CODE_HINT } from '@/client/DisplayText';
 import { type DefinitionPatch } from '@/client/DraftEditing';
 import { getShiftTone, toneClassName } from '@/client/ShiftStyle';
 import { MAX_LABEL_LENGTH } from '@/domain/DomainLimits';
@@ -71,9 +71,7 @@ const ShiftTimeRow = ({
       </div>
       {isUndefined && !definition.isOff && (
         <>
-          <div className="tiny mb-8">
-            근무표에 설명이 없는 코드예요. 근무 시간을 넣거나 휴무로 처리해 주세요.
-          </div>
+          <div className="tiny mb-8">{UNDEFINED_CODE_HINT}</div>
           <button
             type="button"
             className="secondary mb-8"

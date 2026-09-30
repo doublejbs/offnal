@@ -29,13 +29,17 @@ type DraftEditorViewProps = {
 const findTimeRow = (container: HTMLElement | null, code: string): HTMLElement | null =>
   container?.querySelector<HTMLElement>(`[data-code="${CSS.escape(code)}"]`) ?? null;
 
-/** Focus after React has rendered the newly selected date / opened section. */
+/**
+ * Focus after React has rendered the newly selected date / opened section. Focus does not scroll by itself
+ * (it would jump before the smooth scroll); the scroll is instant when the user prefers reduced motion.
+ */
 const focusLater = (element: () => HTMLElement | null) => {
   window.requestAnimationFrame(() => {
     const target = element();
+    const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    target?.focus();
-    target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: 'center', behavior: prefersReducedMotion ? 'auto' : 'smooth' });
   });
 };
 

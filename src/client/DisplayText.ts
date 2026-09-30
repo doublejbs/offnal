@@ -65,6 +65,9 @@ export const formatReviewWarning = (review: ReviewSummary): string | null => {
   return `확인 필요한 날짜가 ${review.count}일 있어요: ${formatDayList(review.dates)}`;
 };
 
+/** Shown on a time-editor row of a code outside the legend (Spec §16). */
+export const UNDEFINED_CODE_HINT = '근무표에 설명이 없는 코드예요. 근무 시간을 넣거나 휴무로 처리해 주세요.';
+
 /** Spec §16: "처음 보는 코드 2개: W, 연차 — 근무 시간 또는 휴무를 정해 주세요". */
 export const formatUndefinedCodesWarning = (codes: string[]): string | null => {
   if (codes.length === 0) {

@@ -39,6 +39,8 @@ export type ModelSummary = {
   undefinedKept: number;
   undefinedFlagged: number;
   undefinedTotal: number;
+  /** (person run, code) pairs where an out-of-legend code came back defined (legend absorption). */
+  legendAbsorbed: number;
   yearMonthMatches: number;
   namesFound: number;
   namesTotal: number;
@@ -187,6 +189,7 @@ export const summarizeModel = (
     undefinedKept: undefinedCells.filter((cell) => cell.kept).length,
     undefinedFlagged: undefinedCells.filter((cell) => cell.flagged).length,
     undefinedTotal: undefinedCells.length,
+    legendAbsorbed: people.reduce((sum, person) => sum + person.absorbedCodes.length, 0),
     yearMonthMatches: tables.filter((table) => table.yearMonthMatch).length,
     namesFound: tables.reduce((sum, table) => sum + table.namesFound, 0),
     namesTotal: tables.reduce((sum, table) => sum + table.namesTotal, 0),

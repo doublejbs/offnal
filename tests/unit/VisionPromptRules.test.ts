@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { MAX_CODE_LENGTH } from '@/domain/ScheduleValidator';
 import {
   buildPersonUserPrompt,
   CELL_JSON_SCHEMA,
+  LEGEND_DEFINITIONS_RULE,
   TABLE_JSON_SCHEMA,
   TABLE_USER_PROMPT,
   VISION_SYSTEM_PROMPT,
@@ -23,7 +25,7 @@ describe('vision prompt rules for codes outside the legend', () => {
     expect(VISION_SYSTEM_PROMPT).toMatch(/exactly as written/i);
     expect(VISION_SYSTEM_PROMPT).toContain('W, 연차, M');
     expect(VISION_SYSTEM_PROMPT).toMatch(/never (replace|convert|map)[^.]*OFF[^.]*another legend code/i);
-    expect(VISION_SYSTEM_PROMPT).toMatch(/12 characters/);
+    expect(VISION_SYSTEM_PROMPT).toContain(`at most ${MAX_CODE_LENGTH} characters`);
 
     for (const prompt of [buildPersonUserPrompt(INPUT), buildStripPersonPrompt(INPUT)]) {
       expect(prompt).toMatch(/not in the (known )?(code )?legend/i);
@@ -50,6 +52,7 @@ describe('vision prompt rules for codes outside the legend', () => {
     const definitions = (TABLE_JSON_SCHEMA.properties as Record<string, { description?: string }>)
       .definitions;
 
-    expect(definitions?.description ?? '').toMatch(/printed legend/i);
+    expect(definitions?.description).toBe(LEGEND_DEFINITIONS_RULE);
+    expect(buildPersonUserPrompt(INPUT)).toContain(LEGEND_DEFINITIONS_RULE);
   });
 });

@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test';
 
+import { MOCK_UNDEFINED_CODE_DAYS } from '@/domain/MockFixtureDays';
 import { formatYearMonthLabel } from '@/domain/YearMonth';
 
 import {
@@ -8,7 +9,6 @@ import {
   countWorkAndOff,
   DEFAULT_FIXES,
   MOCK_NAMES,
-  UNDEFINED_CODE_DAYS,
   uniqueName,
   UNREADABLE_DAY,
 } from './support/ApiFlow';
@@ -97,7 +97,7 @@ test('업로드 → 블러 → 데모 로그인 → 이름 선택 → 확인 필
   // Draft: two review days + two codes outside the legend (Spec §16), save blocked until fixed.
   await expect(page).toHaveURL(/\/drafts\/[0-9a-f-]{36}$/);
 
-  const undefinedDays = Object.keys(UNDEFINED_CODE_DAYS).map(Number);
+  const undefinedDays = Object.keys(MOCK_UNDEFINED_CODE_DAYS).map(Number);
   const reviewDays = [...undefinedDays, AMBIGUOUS_DAY, UNREADABLE_DAY].sort((left, right) => left - right);
 
   await expect(

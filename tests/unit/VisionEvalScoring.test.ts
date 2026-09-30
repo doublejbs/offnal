@@ -8,6 +8,7 @@ import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { parseEvalArgs, resolveDebugDir, resolveResultsDir } from '@/server/vision/eval/EvalArgs';
 import {
   detectNeighbourRead,
+  findAbsorbedCodes,
   findCandidateRowId,
   NEIGHBOUR_READ_MARGIN_DAYS,
   scorePerson,
@@ -145,6 +146,51 @@ describe('vision eval scoring', () => {
 
     expect(mapped.wrongCells).toEqual([{ date: '2026-02-04', expected: 'W', got: 'OFF' }]);
     expect(mapped.flaggedCorrectDays).toBe(0);
+  });
+
+  it('counts an out-of-legend code returned as a defined legend entry as legend absorption', () => {
+    const placeholder = {
+      code: 'W',
+      label: 'W',
+      startTime: null,
+      endTime: null,
+      endsNextDay: null,
+      isOff: false,
+    };
+
+    expect(findAbsorbedCodes(TRUTH, [...DEFINITIONS, placeholder])).toEqual([]);
+    expect(findAbsorbedCodes(TRUTH, [...DEFINITIONS, { ...placeholder, code: 'w', isOff: true }])).toEqual([
+      'W',
+    ]);
+    expect(findAbsorbedCodes(TRUTH, [...DEFINITIONS, { ...placeholder, startTime: '09:00' }])).toEqual(['W']);
+
+    const table = scoreTable(TRUTH, {
+      yearMonth: '2026-02',
+      candidates: [],
+      definitions: [...DEFINITIONS, { ...placeholder, isOff: true }],
+      dayHeaders: [],
+    });
+
+    expect(table.absorbedCodes).toEqual(['W']);
+
+    const absorbed = scorePerson(
+      TRUTH,
+      '가상하나',
+      'r1',
+      normalizeExtraction(
+        {
+          yearMonth: TRUTH.yearMonth,
+          rowId: 'r1',
+          displayName: '가상하나',
+          definitions: [...DEFINITIONS, { ...placeholder, isOff: true }],
+          cells: [cell(1, 'D'), cell(2, 'N'), cell(3, 'OFF'), cell(4, 'W')],
+        },
+        TRUTH.yearMonth,
+      ),
+    );
+
+    expect(absorbed.absorbedCodes).toEqual(['W']);
+    expect(scorePerson(TRUTH, '가상하나', 'r1', buildSchedule([cell(4, 'W')])).absorbedCodes).toEqual([]);
   });
 
   it('treats a missing name as every day wrong', () => {

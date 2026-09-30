@@ -1,13 +1,8 @@
 import { expect, type Locator, type Page } from '@playwright/test';
 
-import {
-  AMBIGUOUS_DAY,
-  LEAVE_CODE,
-  UNREADABLE_DAY,
-  W_END_TIME,
-  W_START_TIME,
-  WORK_CODE_OUTSIDE_LEGEND,
-} from './ApiFlow';
+import { MOCK_LEAVE_CODE, MOCK_WORK_CODE_OUTSIDE_LEGEND } from '@/domain/MockFixtureDays';
+
+import { AMBIGUOUS_DAY, UNREADABLE_DAY, W_END_TIME, W_START_TIME } from './ApiFlow';
 
 export const getDayButton = (page: Page, yearMonth: string, day: number): Locator => {
   const month = Number(yearMonth.slice(5));
@@ -31,12 +26,12 @@ export const getTimeRow = (page: Page, code: string): Locator =>
  */
 export const defineUndefinedCodesInUi = async (page: Page): Promise<void> => {
   await page.getByRole('button', { name: /^처음 보는 코드 2개: 연차, W/ }).click();
-  await expect(getTimeRow(page, LEAVE_CODE)).toBeFocused();
-  await getTimeRow(page, LEAVE_CODE)
-    .getByRole('button', { name: `${LEAVE_CODE} 휴무로 처리` })
+  await expect(getTimeRow(page, MOCK_LEAVE_CODE)).toBeFocused();
+  await getTimeRow(page, MOCK_LEAVE_CODE)
+    .getByRole('button', { name: `${MOCK_LEAVE_CODE} 휴무로 처리` })
     .click();
 
-  const wRow = getTimeRow(page, WORK_CODE_OUTSIDE_LEGEND);
+  const wRow = getTimeRow(page, MOCK_WORK_CODE_OUTSIDE_LEGEND);
 
   await wRow.getByLabel('시작').fill(W_START_TIME);
   await wRow.getByLabel('종료').fill(W_END_TIME);

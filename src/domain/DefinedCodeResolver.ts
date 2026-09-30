@@ -28,12 +28,29 @@ export const resolveDefinedCodes = (entries: ShiftEntry[], definitions: ShiftDef
   });
 };
 
-/** Codes still flagged UNDEFINED_CODE, each once, in date order (the "처음 보는 코드" warning). */
-export const listUndefinedCodes = (entries: ShiftEntry[]): string[] => {
-  const codes = entries
-    .filter((entry) => entry.reviewReasons.includes(ShiftReviewReason.UNDEFINED_CODE))
+/**
+ * Codes the draft screen lists as "처음 보는 코드": used by an entry while their definition is missing or
+ * incomplete, or still flagged UNDEFINED_CODE. Each once, in date order. Server-side resolution is one-way
+ * (UNDEFINED_CODE never comes back), so this is based on the definition: un-checking 휴무 or clearing a
+ * time brings the code back here, and publishing stays blocked by MISSING_TIMES meanwhile.
+ */
+export const listUnresolvedCodes = (entries: ShiftEntry[], definitions: ShiftDefinition[]): string[] => {
+  const definitionByCode = new Map(definitions.map((definition) => [definition.code, definition]));
+  const codes = [...entries]
     .sort((left, right) => left.date.localeCompare(right.date))
-    .flatMap((entry) => (entry.code === null ? [] : [entry.code]));
+    .flatMap((entry) => {
+      if (entry.code === null) {
+        return [];
+      }
+
+      const definition = definitionByCode.get(entry.code);
+      const isUnresolved =
+        entry.reviewReasons.includes(ShiftReviewReason.UNDEFINED_CODE) ||
+        definition === undefined ||
+        !hasCompleteTimes(definition);
+
+      return isUnresolved ? [entry.code] : [];
+    });
 
   return [...new Set(codes)];
 };

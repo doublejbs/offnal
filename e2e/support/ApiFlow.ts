@@ -2,6 +2,11 @@ import { randomBytes } from 'node:crypto';
 
 import { type APIRequestContext, expect } from '@playwright/test';
 
+import {
+  MOCK_LEAVE_CODE,
+  MOCK_UNDEFINED_CODE_DAYS,
+  MOCK_WORK_CODE_OUTSIDE_LEGEND,
+} from '@/domain/MockFixtureDays';
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
 import { type PublishDraftResponse } from '@/domain/types/api/PublishDraftResponse';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
@@ -25,11 +30,7 @@ export const MOCK_NAMES = ['김하루', '이여름', '박지우', '남궁하늘�
 export const AMBIGUOUS_DAY = 14;
 export const UNREADABLE_DAY = 20;
 
-/** Mock provider fixture: codes outside the legend (Spec §16), same days for every row. */
-export const LEAVE_CODE = '연차';
-export const WORK_CODE_OUTSIDE_LEGEND = 'W';
-export const UNDEFINED_CODE_DAYS: Record<number, string> = { 3: LEAVE_CODE, 25: WORK_CODE_OUTSIDE_LEGEND };
-/** How the tests define them: 연차 as a day off, W with these times. */
+/** How the tests define the fixture's codes outside the legend (MockFixtureDays): 연차 off, W timed. */
 export const W_START_TIME = '09:00';
 export const W_END_TIME = '18:00';
 
@@ -67,13 +68,13 @@ export const buildExpectedCodes = (
 
     return (
       overrides[day] ??
-      UNDEFINED_CODE_DAYS[day] ??
+      MOCK_UNDEFINED_CODE_DAYS[day] ??
       SHIFT_PATTERN[(day - 1 + rowIndex * 3) % SHIFT_PATTERN.length] ??
       OFF_CODE
     );
   });
 
-export const countWorkAndOff = (codes: string[], offCodes: string[] = [OFF_CODE, LEAVE_CODE]) => {
+export const countWorkAndOff = (codes: string[], offCodes: string[] = [OFF_CODE, MOCK_LEAVE_CODE]) => {
   const offCount = codes.filter((code) => offCodes.includes(code)).length;
 
   return { workCount: codes.length - offCount, offCount };
@@ -141,11 +142,11 @@ export const getDraftViaApi = async (request: APIRequestContext, draftId: string
 /** Defines the fixture's codes outside the legend the way a user would (연차 off, W timed). */
 export const defineUndefinedCodes = (definitions: ShiftDefinition[]): ShiftDefinition[] =>
   definitions.map((definition) => {
-    if (definition.code === LEAVE_CODE) {
+    if (definition.code === MOCK_LEAVE_CODE) {
       return { ...definition, isOff: true };
     }
 
-    if (definition.code === WORK_CODE_OUTSIDE_LEGEND) {
+    if (definition.code === MOCK_WORK_CODE_OUTSIDE_LEGEND) {
       return { ...definition, startTime: W_START_TIME, endTime: W_END_TIME, endsNextDay: false };
     }
 

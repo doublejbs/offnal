@@ -23,6 +23,8 @@ export type TableScore = {
   /** Legend codes found with matching start/end/endsNextDay. */
   definitionsCorrect: number;
   definitionsTotal: number;
+  /** Out-of-legend codes pass 1 returned as a defined legend entry (legend absorption, Spec §16). */
+  absorbedCodes: string[];
 };
 
 export type WrongCell = {
@@ -66,6 +68,8 @@ export type PersonScore = {
   undefinedCodeCells: UndefinedCodeCell[];
   /** Legend codes whose times in the final (pass 2) definitions match the truth. */
   definitionsCorrect: number;
+  /** Out-of-legend codes that came back defined (off or with times) in the final definitions. */
+  absorbedCodes: string[];
 };
 
 export const findCandidateRowId = (candidates: RecognitionCandidate[], name: string): string | null => {
@@ -92,6 +96,22 @@ const scoreDefinitions = (truth: EvalTruth, definitions: ShiftDefinition[]): Def
   });
 };
 
+/**
+ * Legend absorption (Spec §16): a code the truth lists as outside the legend came back as a definition that
+ * is off or has any time, instead of the time-less placeholder `normalizeExtraction` adds.
+ */
+export const findAbsorbedCodes = (truth: EvalTruth, definitions: ShiftDefinition[]): string[] => {
+  const outsideLegend = new Set(truth.undefinedCodesInTable.map(normalizeCode));
+
+  return definitions
+    .filter(
+      (definition) =>
+        outsideLegend.has(normalizeCode(definition.code)) &&
+        (definition.isOff || definition.startTime !== null || definition.endTime !== null),
+    )
+    .map((definition) => normalizeCode(definition.code));
+};
+
 /** Pass 1 score. `table` null means pass 1 failed. */
 export const scoreTable = (truth: EvalTruth, table: TableRecognition | null): TableScore => {
   const candidates = table?.candidates ?? [];
@@ -107,6 +127,7 @@ export const scoreTable = (truth: EvalTruth, table: TableRecognition | null): Ta
     definitions,
     definitionsCorrect: definitions.filter((definition) => definition.timesMatch).length,
     definitionsTotal: definitions.length,
+    absorbedCodes: findAbsorbedCodes(truth, table?.definitions ?? []),
   };
 };
 
@@ -200,6 +221,7 @@ export const scorePerson = (
     flaggedCorrectDays,
     undefinedCodeCells,
     definitionsCorrect,
+    absorbedCodes: findAbsorbedCodes(truth, schedule?.definitions ?? []),
   };
 };
 

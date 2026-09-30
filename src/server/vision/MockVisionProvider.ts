@@ -3,6 +3,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import sharp from 'sharp';
 
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
+import { MOCK_UNDEFINED_CODE_DAYS } from '@/domain/MockFixtureDays';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { type DayHeader } from '@/domain/types/DayHeader';
 import { type ExtractedCell } from '@/domain/types/ExtractedCell';
@@ -28,12 +29,6 @@ export const MOCK_DEFINITIONS: ShiftDefinition[] = [
   { code: 'S', label: '상근', startTime: '09:00', endTime: '18:00', endsNextDay: false, isOff: false },
   { code: 'OFF', label: '휴무', startTime: null, endTime: null, endsNextDay: null, isOff: true },
 ];
-
-/**
- * Codes written in cells but not in the legend (Spec §16): kept as read, flagged UNDEFINED_CODE and
- * confirmed once the user defines them. Same days for every row.
- */
-export const MOCK_UNDEFINED_CODE_DAYS: Readonly<Record<number, string>> = { 3: '연차', 25: 'W' };
 
 const MIN_TABLE_WIDTH = 300;
 const AMBIGUOUS_DAY = 14;

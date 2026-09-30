@@ -60,7 +60,7 @@ import {
   uploadImage,
 } from '../helpers/OffnalFlows';
 
-const MOCK_CODES = ['"D"', '"E"', '"N"', '"S"', '"OFF"'];
+const MOCK_CODES = ['"D"', '"E"', '"N"', '"S"', '"OFF"', '"W"', '"연차"'];
 
 let env: IntegrationEnvironment;
 

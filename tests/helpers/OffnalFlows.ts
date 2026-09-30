@@ -8,6 +8,7 @@ import { POST as processRoute } from '@/app/api/recognitions/[id]/process/route'
 import { POST as uploadRoute } from '@/app/api/recognitions/route';
 import { POST as devLoginRoute } from '@/app/auth/dev-login/route';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
+import { MOCK_LEAVE_CODE, MOCK_WORK_CODE_OUTSIDE_LEGEND } from '@/domain/MockFixtureDays';
 import { type CreateRecognitionResponse } from '@/domain/types/api/CreateRecognitionResponse';
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
 import { type ExtractRecognitionResponse } from '@/domain/types/api/ExtractRecognitionResponse';
@@ -104,11 +105,11 @@ export const resolveEntries = (entries: ShiftEntry[], fillCode = 'OFF'): ShiftEn
 /** The mock fixture's codes outside the legend (Spec §16) defined the way a user would: 연차 off, W timed. */
 export const defineMockUndefinedCodes = (definitions: ShiftDefinition[]): ShiftDefinition[] =>
   definitions.map((definition) => {
-    if (definition.code === '연차') {
+    if (definition.code === MOCK_LEAVE_CODE) {
       return { ...definition, isOff: true };
     }
 
-    if (definition.code === 'W') {
+    if (definition.code === MOCK_WORK_CODE_OUTSIDE_LEGEND) {
       return { ...definition, startTime: '09:00', endTime: '18:00', endsNextDay: false };
     }
 

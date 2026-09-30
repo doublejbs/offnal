@@ -8,7 +8,7 @@ import { isAbortError, toScreenLoadState } from '@/client/LoadState';
 import { useDraftAutosave } from '@/components/draft/UseDraftAutosave';
 import { toLocalDraft, useDraftEditing } from '@/components/draft/UseDraftEditing';
 import { useDraftPublish } from '@/components/draft/UseDraftPublish';
-import { listUndefinedCodes } from '@/domain/DefinedCodeResolver';
+import { listUnresolvedCodes } from '@/domain/DefinedCodeResolver';
 import { DraftFocusTarget } from '@/domain/enums/DraftFocusTarget';
 import { DraftSaveState } from '@/domain/enums/DraftSaveState';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
@@ -102,8 +102,11 @@ export const useDraftReviewState = (draftId: string) => {
     [local],
   );
   const review = useMemo(() => summarizeReview(local?.entries ?? []), [local]);
-  // Spec §16: codes outside the legend still waiting for a definition (time or day off).
-  const undefinedCodes = useMemo(() => listUndefinedCodes(local?.entries ?? []), [local]);
+  // Spec §16: used codes still waiting for a complete definition (time or day off).
+  const undefinedCodes = useMemo(
+    () => (local ? listUnresolvedCodes(local.entries, local.definitions) : []),
+    [local],
+  );
   // Recognized times must be confirmed by the user (client-side check; the server checks completeness).
   const needsTimeConfirmation = server?.jobId !== null && server?.jobId !== undefined && !isTimeConfirmed;
   const canPublish = blockers.length === 0 && !needsTimeConfirmation && !editing.isLocked;

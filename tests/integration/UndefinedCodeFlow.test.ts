@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PublishBlockReason } from '@/domain/enums/PublishBlockReason';
 import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
-import { MOCK_UNDEFINED_CODE_DAYS } from '@/server/vision/MockVisionProvider';
+import { MOCK_UNDEFINED_CODE_DAYS } from '@/domain/MockFixtureDays';
 import {
   createApiTestClient,
   type IntegrationEnvironment,
@@ -90,7 +90,7 @@ describe('codes outside the legend', () => {
     expect((await publishDraft(client, draftId, ready.draft.revision)).status).toBe(200);
   });
 
-  it('keeps other review reasons and an incomplete definition unconfirmed', async () => {
+  it('keeps dates unconfirmed while the definition is incomplete (no next-day flag)', async () => {
     const client = createApiTestClient();
     const jobId = await createLoggedInJob(client, '범례 밖 코드 미완성');
     const draftId = await extractRow(client, jobId, YEAR_MONTH);

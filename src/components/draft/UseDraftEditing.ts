@@ -117,7 +117,7 @@ export const useDraftEditing = ({
   };
 
   const handleUpdateDefinition = (code: string, definitionPatch: DefinitionPatch) =>
-    updateLocal((current) => updateDefinitionAndResolve(current, code, definitionPatch));
+    updateLocal((current) => ({ ...current, ...updateDefinitionAndResolve(current, code, definitionPatch) }));
 
   const handleRemoveDefinition = (code: string) =>
     updateLocal((current) => ({

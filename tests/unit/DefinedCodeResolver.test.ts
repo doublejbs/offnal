@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { listUndefinedCodes, resolveDefinedCodes } from '@/domain/DefinedCodeResolver';
+import { listUnresolvedCodes, resolveDefinedCodes } from '@/domain/DefinedCodeResolver';
 import { PublishBlockReason } from '@/domain/enums/PublishBlockReason';
 import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
 import { getPublishBlockers } from '@/domain/ScheduleValidator';
@@ -127,16 +127,34 @@ describe('resolveDefinedCodes', () => {
   });
 });
 
-describe('listUndefinedCodes', () => {
-  it('lists codes still flagged UNDEFINED_CODE once, in date order', () => {
+describe('listUnresolvedCodes', () => {
+  it('lists used codes with an incomplete definition once, in date order', () => {
     const entries = [
       { date: '2026-11-01', code: 'D', reviewReasons: [], confirmed: true },
-      undefinedEntry('2026-11-02', '연차'),
-      undefinedEntry('2026-11-03', 'W', [ShiftReviewReason.AMBIGUOUS]),
       undefinedEntry('2026-11-04', '연차'),
+      undefinedEntry('2026-11-03', 'W', [ShiftReviewReason.AMBIGUOUS]),
+      undefinedEntry('2026-11-02', '연차'),
     ];
 
-    expect(listUndefinedCodes(entries)).toEqual(['연차', 'W']);
-    expect(listUndefinedCodes([])).toEqual([]);
+    expect(listUnresolvedCodes(entries, [D, definition('W'), definition('연차')])).toEqual(['연차', 'W']);
+    expect(listUnresolvedCodes([], [D])).toEqual([]);
+  });
+
+  it('drops a code once it is defined and brings it back when the definition becomes incomplete', () => {
+    const entries = [undefinedEntry('2026-11-02', '연차'), undefinedEntry('2026-11-05', 'M')];
+    const off = [D, definition('연차', { isOff: true }), definition('M')];
+    const resolved = resolveDefinedCodes(entries, off);
+
+    expect(listUnresolvedCodes(resolved, off)).toEqual(['M']);
+    // Server-side resolution is one-way: UNDEFINED_CODE is gone, the incomplete definition still counts.
+    expect(listUnresolvedCodes(resolved, [D, definition('연차'), definition('M')])).toEqual(['연차', 'M']);
+  });
+
+  it('ignores unused definitions and entries without a code', () => {
+    const entries: ShiftEntry[] = [
+      { date: '2026-11-01', code: null, reviewReasons: [ShiftReviewReason.UNREADABLE], confirmed: false },
+    ];
+
+    expect(listUnresolvedCodes(entries, [D, definition('W')])).toEqual([]);
   });
 });
