@@ -16,12 +16,33 @@ export type LabeledVisionImage = {
   image: VisionImage;
 };
 
+/** Where the target row sits among pass-1 candidates (names are data read from the image). */
+export type RowContext = {
+  /** 1-based position among rows with the same normalized name, top to bottom. */
+  sameNameOrdinal: number;
+  sameNameCount: number;
+  above: string | null;
+  below: string | null;
+};
+
 export type PersonExtractionInput = {
   rowId: string;
   name: string;
   /** YYYY-MM chosen by the user. */
   yearMonth: string;
   definitions: ShiftDefinition[];
+  /** Neighbour/duplicate-name context for identifying the row; absent = unknown. */
+  rowContext?: RowContext | null;
+};
+
+/** What the model says it read: lets the server verify that the right row was transcribed. */
+export type RowReading = {
+  /** Name cell of the transcribed row as written, null when not readable. */
+  rowName: string | null;
+  /** Strip only: whether the target row is in the strip (null for full-table reads). */
+  targetInStrip: boolean | null;
+  /** Strip only: ordinal among same-name rows the model identified, null when not given. */
+  sameNameOrdinal: number | null;
 };
 
 /** Token usage of one provider call (used by the model comparison eval; never stored). */
@@ -42,7 +63,7 @@ export type VisionModelCallResult = {
 /** `usage` sits beside `value`, so storing `result.value` never persists it. */
 export type VisionTableResult = TableRecognitionResult & { usage?: VisionUsage };
 
-export type VisionPersonResult = PersonExtraction & { usage?: VisionUsage };
+export type VisionPersonResult = PersonExtraction & { usage?: VisionUsage; reading?: RowReading };
 
 /** Target row of `locateRow` (the name is data read from the image). */
 export type RowLocationInput = {
@@ -58,8 +79,11 @@ export type RowBand = {
   headerBottom: number | null;
 };
 
-/** `band` null = the row was not found (the pipeline falls back to the full warped image). */
-export type VisionRowLocationResult = { band: RowBand | null; usage?: VisionUsage };
+/**
+ * `band` null = the row was not found (the pipeline falls back to the full warped image). `rowName` is the
+ * name the model saw at that row (advisory: the strip keeps neighbours, and the strip reading is verified).
+ */
+export type VisionRowLocationResult = { band: RowBand | null; rowName?: string | null; usage?: VisionUsage };
 
 /** Server-only image recognition boundary (Spec §8). */
 export type VisionProvider = {

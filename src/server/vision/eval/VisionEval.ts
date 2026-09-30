@@ -9,77 +9,39 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { GeminiTier } from '@/domain/enums/GeminiTier';
-import { VisionEffort } from '@/domain/enums/VisionEffort';
 import { VisionEvalStatus } from '@/domain/enums/VisionEvalStatus';
-import { VisionProviderType } from '@/domain/enums/VisionProviderType';
-import { createAnthropicVisionProvider } from '@/server/vision/AnthropicVisionProvider';
 import { type VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
+import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import {
   type EvalModelTarget,
   parseEvalArgs,
   resolveDebugDir,
   resolveResultsDir,
 } from '@/server/vision/eval/EvalArgs';
+import { ModelUnavailableError } from '@/server/vision/eval/EvalCallRetry';
+import { createDebugSink } from '@/server/vision/eval/EvalDebugImages';
+import { createProvider, readEnv } from '@/server/vision/eval/EvalProviders';
 import {
   formatCellErrors,
   formatPersonTable,
   formatSampleTable,
   formatSummaryTable,
+} from '@/server/vision/eval/EvalReport';
+import { runSample } from '@/server/vision/eval/EvalRunner';
+import {
   type ModelSummary,
   personKey,
   sortSummaries,
   summarizeModel,
-} from '@/server/vision/eval/EvalReport';
-import {
-  type EvalDebugSink,
-  type EvalRun,
-  ModelUnavailableError,
-  runSample,
-} from '@/server/vision/eval/EvalRunner';
+} from '@/server/vision/eval/EvalSummary';
 import { type EvalSample, loadEvalSamples } from '@/server/vision/eval/EvalTruth';
+import { type EvalRun } from '@/server/vision/eval/EvalTypes';
 import { MODEL_PRICES, MODEL_PRICES_AS_OF } from '@/server/vision/eval/ModelPrices';
-import { createGeminiVisionProvider } from '@/server/vision/GeminiVisionProvider';
 import { prepareImageForVision } from '@/server/vision/VisionImagePreparer';
-import { type VisionImage, type VisionProvider } from '@/server/vision/VisionProvider';
-
-const PROVIDER_TIMEOUT_MS = 240_000;
+import { type VisionImage } from '@/server/vision/VisionProvider';
 
 const log = (line: string): void => {
   console.error(line);
-};
-
-const readEnv = (key: string): string | null => {
-  const value = process.env[key]?.trim();
-
-  return value ? value : null;
-};
-
-/** Provider for a target, or the reason it is skipped (missing key). Keys are never printed. */
-const createProvider = (target: EvalModelTarget): VisionProvider | string => {
-  if (target.provider === VisionProviderType.ANTHROPIC) {
-    const apiKey = readEnv('ANTHROPIC_API_KEY');
-
-    if (!apiKey) {
-      return 'ANTHROPIC_API_KEY is not set';
-    }
-
-    const effort = Object.values(VisionEffort).find((value) => value === readEnv('VISION_EFFORT'));
-
-    return createAnthropicVisionProvider({
-      apiKey,
-      model: target.model,
-      effort: effort ?? VisionEffort.MEDIUM,
-      timeoutMs: PROVIDER_TIMEOUT_MS,
-    });
-  }
-
-  const apiKey = readEnv('GEMINI_API_KEY');
-
-  if (!apiKey) {
-    return 'GEMINI_API_KEY is not set';
-  }
-
-  return createGeminiVisionProvider({ apiKey, model: target.model, timeoutMs: PROVIDER_TIMEOUT_MS });
 };
 
 type PreparedSample = {
@@ -91,23 +53,6 @@ type PreparedSample = {
 type ModelResult = {
   runs: EvalRun[];
   skipped: string | null;
-};
-
-const toSafeFileName = (value: string): string => value.replace(/[^a-zA-Z0-9._-]+/gu, '_');
-
-/** Writes one run's debug images under `<debugRoot>/<model>/<sample>-r<repeat>/`. */
-const createDebugSink = (
-  debugRoot: string,
-  model: string,
-  sampleId: string,
-  repeat: number,
-): EvalDebugSink => {
-  const dir = path.join(debugRoot, toSafeFileName(model), `${toSafeFileName(sampleId)}-r${repeat}`);
-
-  return async (fileName, image) => {
-    await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, toSafeFileName(fileName)), image.bytes);
-  };
 };
 
 type RunOptions = {

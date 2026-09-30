@@ -11,6 +11,7 @@ import { type CandidatesResponse } from '@/domain/types/api/CandidatesResponse';
 import { type ExtractRecognitionRequest } from '@/domain/types/api/ExtractRecognitionRequest';
 import { type ExtractRecognitionResponse } from '@/domain/types/api/ExtractRecognitionResponse';
 import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
+import { type PersonExtraction } from '@/domain/types/PersonExtraction';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { type Db, type DbExecutor } from '@/server/db/Database';
@@ -21,6 +22,7 @@ import { buildDraftInsert } from '@/server/services/DraftFactory';
 import { assertExtractAllowed, chargeExtract } from '@/server/services/RateLimitService';
 import { isSourceAvailable, requireLoggedInOwnedJob } from '@/server/services/RecognitionOwnership';
 import { loadSourceForVision, readSourceBytes } from '@/server/services/RecognitionProcessService';
+import { buildRowContext } from '@/server/vision/RowIdentity';
 import { getVisionProvider } from '@/server/vision/VisionFactory';
 import {
   extractPersonWithPipeline,
@@ -116,13 +118,19 @@ const extractPersonSchedule = async (
   const runCall: PipelineCallRunner = (_step, run) => run(signal);
   // The warped image lives only in memory for this request (source lifetime rules unchanged).
   const prepared = await preparePipelineImage(config.visionPipeline, source.image, table.grid);
-  let extraction;
+  let extraction: PersonExtraction;
 
   try {
     ({ extraction } = await extractPersonWithPipeline(
       getVisionProvider(),
       prepared,
-      { rowId, name, yearMonth, definitions: table.definitions },
+      {
+        rowId,
+        name,
+        yearMonth,
+        definitions: table.definitions,
+        rowContext: buildRowContext(table.candidates, rowId),
+      },
       runCall,
     ));
   } catch (error: unknown) {

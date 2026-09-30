@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  type PixelPoint,
-  type Quad,
-  type RawImage,
-  solveHomography,
-  warpRaw,
-} from '@/server/vision/PerspectiveWarp';
-import { refineQuad } from '@/server/vision/QuadRefiner';
+import { solveHomography } from '@/server/vision/Homography';
+import { warpRaw } from '@/server/vision/PerspectiveWarp';
+import { isPlausibleRefinement, refineQuad } from '@/server/vision/QuadRefiner';
+import { type PixelPoint, type Quad, type RawImage } from '@/server/vision/VisionGeometry';
 
 const COLUMNS = 31;
 const ROWS = 17;
@@ -88,5 +84,20 @@ describe('refineQuad', () => {
     ];
 
     expect(refineQuad(blank, quad)).toEqual(quad);
+  });
+
+  it('rejects refinements that move a corner beyond MAX_CORNER_SHIFT_SHARE or lose an intersection', () => {
+    const quad: Quad = [
+      { x: 0, y: 0 },
+      { x: 300, y: 0 },
+      { x: 300, y: 400 },
+      { x: 0, y: 400 },
+    ];
+    // Diagonal 500 → max shift 75 px.
+    const shifted = (dx: number): Quad => [{ x: dx, y: 0 }, quad[1], quad[2], quad[3]];
+
+    expect(isPlausibleRefinement(quad, shifted(70))).toBe(true);
+    expect(isPlausibleRefinement(quad, shifted(80))).toBe(false);
+    expect(isPlausibleRefinement(quad, [null, quad[1], quad[2], quad[3]])).toBe(false);
   });
 });

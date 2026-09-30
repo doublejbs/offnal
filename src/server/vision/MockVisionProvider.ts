@@ -89,6 +89,11 @@ export const createMockVisionProvider = (options: MockVisionOptions): VisionProv
       displayName: input.name,
       definitions: MOCK_DEFINITIONS.map((definition) => ({ ...definition })),
       cells: Array.from({ length: dayCount }, (_, index) => buildCell(index + 1, rowIndex)),
+      reading: {
+        rowName: input.name,
+        targetInStrip: true,
+        sameNameOrdinal: input.rowContext?.sameNameOrdinal ?? null,
+      },
     };
   };
 
@@ -121,7 +126,7 @@ export const createMockVisionProvider = (options: MockVisionOptions): VisionProv
     locateRow: async (_image, _input, signal) => {
       await waitFor(options.delayMs, signal);
 
-      return { band: null };
+      return { band: null, rowName: null };
     },
     extractPersonFromStrip: async (strip, _reference, input, signal) => extractPerson(strip, input, signal),
   };

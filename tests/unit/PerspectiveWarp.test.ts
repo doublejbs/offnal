@@ -3,19 +3,16 @@ import { describe, expect, it } from 'vitest';
 
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { type GridCorners } from '@/domain/types/GridCorners';
+import { applyHomography, solveHomography } from '@/server/vision/Homography';
 import {
-  applyHomography,
   isValidQuad,
-  type PixelPoint,
   planWarp,
-  type Quad,
-  type RawImage,
-  solveHomography,
   toPixelQuad,
   WARP_MARGINS,
   warpRaw,
   warpToGrid,
 } from '@/server/vision/PerspectiveWarp';
+import { type PixelPoint, type Quad, type RawImage } from '@/server/vision/VisionGeometry';
 
 const SQUARE: Quad = [
   { x: 0, y: 0 },
@@ -270,26 +267,63 @@ describe('warpToGrid', () => {
     expect(await warpToGrid(image, tiny)).toBeNull();
   });
 
-  it('warps to a 2576px-wide output in reasonable time', async () => {
-    const width = 4000;
-    const height = 3000;
-    const quad: Quad = [
-      { x: 700, y: 500 },
-      { x: 3900, y: 350 },
-      { x: 3950, y: 2600 },
-      { x: 600, y: 2800 },
-    ];
-    const pattern = buildPattern();
-    const photo = projectPattern(pattern, quad, width, height);
-    const bytes = await encodeJpeg(photo);
-    const startedAt = performance.now();
-    const result = await warpToGrid({ bytes, mime: ImageMimeType.JPEG }, toGrid(quad, width, height));
-    const elapsedMs = performance.now() - startedAt;
+  it('caps a large grid at 2576px and finishes quickly', async () => {
+    // Plain white sheet with a dark border: only size and completion matter here (correctness above).
+    const width = 3200;
+    const height = 1800;
+    const data = Buffer.alloc(width * height * 3, 255);
 
-    expect(result).not.toBeNull();
-    expect(result!.raw.width).toBe(2576);
-    // Timing is informative only (machines differ); correctness is asserted above.
-    console.info(`[PerspectiveWarp] 2576px warp incl. decode/encode: ${Math.round(elapsedMs)}ms`);
+    data.fill(20, 0, width * 3 * 4);
+
+    const quad: Quad = [
+      { x: 100, y: 100 },
+      { x: 3100, y: 80 },
+      { x: 3120, y: 1700 },
+      { x: 90, y: 1720 },
+    ];
+    const bytes = await encodeJpeg({ data, width, height });
+    const result = await warpToGrid({ bytes, mime: ImageMimeType.JPEG }, toGrid(quad, width, height));
+
+    expect(result?.raw.width).toBe(2576);
+    expect(result!.raw.height).toBeLessThan(2576);
+  });
+});
+
+describe('warpRaw', () => {
+  // 2×2 source: red, green / blue, black.
+  const source: RawImage = {
+    data: Buffer.from([255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0]),
+    width: 2,
+    height: 2,
+  };
+  const pixelAt = (raw: RawImage, x: number, y: number) => [
+    ...raw.data.subarray((y * raw.width + x) * 3, (y * raw.width + x) * 3 + 3),
+  ];
+  const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+
+  it('samples pixel centers exactly, including the last row and column, and leaves outside white', () => {
+    const out = warpRaw(source, 3, 3, IDENTITY);
+
+    expect(pixelAt(out, 0, 0)).toEqual([255, 0, 0]);
+    expect(pixelAt(out, 1, 0)).toEqual([0, 255, 0]);
+    expect(pixelAt(out, 0, 1)).toEqual([0, 0, 255]);
+    expect(pixelAt(out, 1, 1)).toEqual([0, 0, 0]);
+    expect(pixelAt(out, 2, 0)).toEqual([255, 255, 255]);
+    expect(pixelAt(out, 0, 2)).toEqual([255, 255, 255]);
+    expect(pixelAt(out, 2, 2)).toEqual([255, 255, 255]);
+  });
+
+  it('blends bilinearly between centers', () => {
+    // Output pixel center 0.5 maps to source 1.0 = halfway between the two source centers of the row.
+    const out = warpRaw(source, 1, 1, [1, 0, 0.5, 0, 1, 0, 0, 0, 1]);
+
+    expect(pixelAt(out, 0, 0)).toEqual([128, 128, 0]);
+  });
+
+  it('leaves points behind the projection (w ≤ 0) white', () => {
+    const out = warpRaw(source, 2, 2, [1, 0, 0, 0, 1, 0, 0, 0, -1]);
+
+    expect(out.data.every((value) => value === 255)).toBe(true);
   });
 });
 

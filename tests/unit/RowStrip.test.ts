@@ -2,7 +2,7 @@ import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
-import { type RawImage } from '@/server/vision/PerspectiveWarp';
+import { type RawImage } from '@/server/vision/VisionGeometry';
 import { buildRowStrip, computeStripPlan, STRIP_SEPARATOR_PX } from '@/server/vision/RowStrip';
 
 // Warped image 1200×1000 whose day grid spans y 40…970 (height 930).

@@ -1,7 +1,8 @@
 import sharp from 'sharp';
 
 import { ImageMimeType } from '@/domain/enums/ImageMimeType';
-import { type PixelRect, type RawImage } from '@/server/vision/PerspectiveWarp';
+import { PIPELINE_JPEG_QUALITY } from '@/server/vision/RawImageCodec';
+import { CHANNELS, NORMALIZED_MAX, type PixelRect, type RawImage } from '@/server/vision/VisionGeometry';
 import { VISION_MAX_EDGE_PX } from '@/server/vision/VisionImagePreparer';
 import { type RowBand, type VisionImage } from '@/server/vision/VisionProvider';
 
@@ -21,8 +22,6 @@ export const ROW_MARGIN_RATIO = 1.25;
 export const STRIP_SEPARATOR_PX = 6;
 
 const STRIP_SCALE = 2;
-const JPEG_QUALITY = 90;
-const NORMALIZED_MAX = 1000;
 const SEPARATOR_GRAY = 128;
 /** A single person row is never taller than this share of the grid. */
 const MAX_ROW_SHARE = 0.34;
@@ -99,7 +98,7 @@ export const buildRowStrip = async (
   plan: StripPlan,
   maxEdge: number = VISION_MAX_EDGE_PX,
 ): Promise<VisionImage> => {
-  const rowBytes = raw.width * 3;
+  const rowBytes = raw.width * CHANNELS;
   const separator = Buffer.alloc(STRIP_SEPARATOR_PX * rowBytes, SEPARATOR_GRAY);
   const parts = plan.bands.flatMap((band, index) => {
     const slice = raw.data.subarray(band.top * rowBytes, band.bottom * rowBytes);
@@ -109,14 +108,14 @@ export const buildRowStrip = async (
   const stacked = Buffer.concat(parts);
   const height = stacked.length / rowBytes;
   const scale = Math.min(STRIP_SCALE, maxEdge / raw.width, maxEdge / height);
-  const bytes = await sharp(stacked, { raw: { width: raw.width, height, channels: 3 } })
+  const bytes = await sharp(stacked, { raw: { width: raw.width, height, channels: CHANNELS } })
     .resize({
       width: Math.round(raw.width * scale),
       height: Math.round(height * scale),
       kernel: 'lanczos3',
       fit: 'fill',
     })
-    .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+    .jpeg({ quality: PIPELINE_JPEG_QUALITY, mozjpeg: true })
     .toBuffer();
 
   return { bytes, mime: ImageMimeType.JPEG };

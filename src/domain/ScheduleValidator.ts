@@ -80,23 +80,28 @@ export type AlignedCells = {
   cells: ExtractedCell[];
   /** False when the model returned more or fewer cells than the month has days. */
   countMatches: boolean;
+  /** True when the count and every returned day number match their position (day = index + 1). */
+  aligned: boolean;
 };
 
 /**
  * Strip extraction (Spec §15) asks for day 1…N in order, so position is the day. Extra cells are dropped,
- * missing trailing days stay absent (→ MISSING_DATE in `normalizeExtraction`), and on a count mismatch
- * every kept cell is marked ambiguous because the column alignment is uncertain. Codes are never invented.
+ * missing trailing days stay absent (→ MISSING_DATE in `normalizeExtraction`). When the count differs, or
+ * any returned day number disagrees with its position, the column alignment is uncertain and every kept
+ * cell is marked ambiguous (review). Codes are never invented.
  */
 export const alignCellsToMonth = (cells: ExtractedCell[], yearMonth: string): AlignedCells => {
   const dayCount = daysInMonth(yearMonth);
   const countMatches = cells.length === dayCount;
+  const aligned = countMatches && cells.every((cell, index) => cell.day === index + 1);
 
   return {
     countMatches,
+    aligned,
     cells: cells.slice(0, dayCount).map((cell, index) => ({
       ...cell,
       day: index + 1,
-      ambiguous: countMatches ? cell.ambiguous : true,
+      ambiguous: aligned ? cell.ambiguous : true,
     })),
   };
 };

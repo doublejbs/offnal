@@ -5,20 +5,18 @@ import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { createGeminiVisionProvider, toGeminiJsonSchema } from '@/server/vision/GeminiVisionProvider';
-import {
-  PERSON_JSON_SCHEMA,
-  REFERENCE_IMAGE_LABEL,
-  ROW_LOCATION_JSON_SCHEMA,
-  STRIP_IMAGE_LABEL,
-  STRIP_PERSON_JSON_SCHEMA,
-  TABLE_JSON_SCHEMA,
-  VISION_SYSTEM_PROMPT,
-} from '@/server/vision/VisionPrompts';
+import { PERSON_JSON_SCHEMA, TABLE_JSON_SCHEMA, VISION_SYSTEM_PROMPT } from '@/server/vision/VisionPrompts';
 import {
   getProviderErrorStatus,
   type VisionImage,
   VisionProviderError,
 } from '@/server/vision/VisionProvider';
+import {
+  REFERENCE_IMAGE_LABEL,
+  ROW_LOCATION_JSON_SCHEMA,
+  STRIP_IMAGE_LABEL,
+  STRIP_PERSON_JSON_SCHEMA,
+} from '@/server/vision/VisionRowPrompts';
 
 const { generateContentMock, constructorMock } = vi.hoisted(() => ({
   generateContentMock: vi.fn(),
@@ -231,6 +229,8 @@ describe('createGeminiVisionProvider', () => {
       displayName: '가상두울',
       definitions: [],
       cells: PERSON_OUTPUT.cells,
+      // No rowName in the output: accepted, but the row is not verified.
+      reading: { rowName: null, targetInStrip: null, sameNameOrdinal: null },
       usage: { inputTokens: 10, outputTokens: 5, thinkingTokens: 0 },
     });
   });
@@ -279,6 +279,7 @@ describe('createGeminiVisionProvider', () => {
 
     expect(found).toEqual({
       band: { top: 410, bottom: 452, headerBottom: 118 },
+      rowName: null,
       usage: { inputTokens: 1200, outputTokens: 300, thinkingTokens: 450 },
     });
     expect(missing.band).toBeNull();

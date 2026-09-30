@@ -10,4 +10,6 @@ export enum VisionPipelineFallback {
   INVALID_ROW = 'invalid-row',
   /** locateRow call failed or the strip could not be built. */
   LOCATE_FAILED = 'locate-failed',
+  /** The strip reading was not verifiably the target row (name/ordinal mismatch or not in the strip). */
+  STRIP_ROW_MISMATCH = 'strip-row-mismatch',
 }

@@ -1,4 +1,5 @@
 import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
+import { normalizePersonName } from '@/domain/PersonName';
 import { normalizeCode } from '@/domain/ScheduleValidator';
 import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
 import { type RecognitionCandidate } from '@/domain/types/RecognitionCandidate';
@@ -67,13 +68,10 @@ export type PersonScore = {
   definitionsCorrect: number;
 };
 
-/** Names compare after NFC and whitespace removal (models sometimes space out Korean names). */
-export const normalizeName = (name: string): string => name.normalize('NFC').replace(/\s+/gu, '');
-
 export const findCandidateRowId = (candidates: RecognitionCandidate[], name: string): string | null => {
-  const target = normalizeName(name);
+  const target = normalizePersonName(name);
 
-  return candidates.find((candidate) => normalizeName(candidate.name) === target)?.rowId ?? null;
+  return candidates.find((candidate) => normalizePersonName(candidate.name) === target)?.rowId ?? null;
 };
 
 const scoreDefinitions = (truth: EvalTruth, definitions: ShiftDefinition[]): DefinitionScore[] => {

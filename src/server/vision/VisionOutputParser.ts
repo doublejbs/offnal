@@ -3,22 +3,21 @@ import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionTableOutcome } from '@/domain/enums/VisionTableOutcome';
 import { alignCellsToMonth } from '@/domain/ScheduleValidator';
 import { type GridCorners } from '@/domain/types/GridCorners';
-import { type PersonExtraction } from '@/domain/types/PersonExtraction';
 import { type TableRecognitionResult } from '@/domain/types/TableRecognitionResult';
 import {
   gridOutputSchema,
   personOutputSchema,
-  rowLocationOutputSchema,
   sanitizeDefinition,
   sanitizeYearMonth,
-  stripPersonOutputSchema,
   tableOutputSchema,
 } from '@/server/vision/VisionPrompts';
 import {
   type PersonExtractionInput,
   type RowBand,
   VisionProviderError,
+  type VisionPersonResult,
 } from '@/server/vision/VisionProvider';
+import { rowLocationOutputSchema, stripPersonOutputSchema } from '@/server/vision/VisionRowPrompts';
 
 const FAILURE_BY_OUTCOME: Record<VisionTableOutcome, RecognitionErrorCode | null> = {
   [VisionTableOutcome.OK]: null,
@@ -89,8 +88,8 @@ export const parseTableOutput = (raw: unknown): TableRecognitionResult => {
   };
 };
 
-/** Re-validates second-pass model JSON. Throws PROVIDER_ERROR on mismatch. */
-export const parsePersonOutput = (raw: unknown, input: PersonExtractionInput): PersonExtraction => {
+/** Re-validates second-pass model JSON (plus the row name it read). Throws PROVIDER_ERROR on mismatch. */
+export const parsePersonOutput = (raw: unknown, input: PersonExtractionInput): VisionPersonResult => {
   const parsed = personOutputSchema.safeParse(raw);
 
   if (!parsed.success) {
@@ -103,27 +102,28 @@ export const parsePersonOutput = (raw: unknown, input: PersonExtractionInput): P
     displayName: input.name,
     definitions: parsed.data.definitions.map(sanitizeDefinition),
     cells: parsed.data.cells,
+    reading: { rowName: parsed.data.rowName, targetInStrip: null, sameNameOrdinal: null },
   };
 };
 
 /** Re-validates `locateRow` JSON. Null top/bottom = row not found; the band's geometry is checked by RowStrip. */
-export const parseRowLocationOutput = (raw: unknown): RowBand | null => {
+export const parseRowLocationOutput = (raw: unknown): { band: RowBand | null; rowName: string | null } => {
   const parsed = rowLocationOutputSchema.safeParse(raw);
 
   if (!parsed.success) {
     throw new VisionProviderError(RecognitionErrorCode.PROVIDER_ERROR);
   }
 
-  const { top, bottom, headerBottom } = parsed.data;
+  const { top, bottom, headerBottom, rowName } = parsed.data;
 
-  return top === null || bottom === null ? null : { top, bottom, headerBottom };
+  return { band: top === null || bottom === null ? null : { top, bottom, headerBottom }, rowName };
 };
 
 /**
- * Re-validates strip extraction JSON: cells are aligned to day 1…N by position (count checked), and the
- * legend is pass 1's (the strip does not show it).
+ * Re-validates strip extraction JSON: cells are aligned to day 1…N by position (count checked), the legend
+ * is pass 1's (the strip does not show it) and the row identity the model reports is kept for verification.
  */
-export const parseStripPersonOutput = (raw: unknown, input: PersonExtractionInput): PersonExtraction => {
+export const parseStripPersonOutput = (raw: unknown, input: PersonExtractionInput): VisionPersonResult => {
   const parsed = stripPersonOutputSchema.safeParse(raw);
 
   if (!parsed.success) {
@@ -136,5 +136,10 @@ export const parseStripPersonOutput = (raw: unknown, input: PersonExtractionInpu
     displayName: input.name,
     definitions: input.definitions.map((definition) => ({ ...definition })),
     cells: alignCellsToMonth(parsed.data.cells, input.yearMonth).cells,
+    reading: {
+      rowName: parsed.data.rowName,
+      targetInStrip: parsed.data.targetInStrip,
+      sameNameOrdinal: parsed.data.sameNameOrdinal,
+    },
   };
 };

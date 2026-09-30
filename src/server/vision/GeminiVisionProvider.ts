@@ -16,13 +16,7 @@ import {
 } from '@/server/vision/VisionOutputParser';
 import {
   buildPersonUserPrompt,
-  buildRowLocationPrompt,
-  buildStripPersonPrompt,
   PERSON_JSON_SCHEMA,
-  REFERENCE_IMAGE_LABEL,
-  ROW_LOCATION_JSON_SCHEMA,
-  STRIP_IMAGE_LABEL,
-  STRIP_PERSON_JSON_SCHEMA,
   TABLE_JSON_SCHEMA,
   TABLE_USER_PROMPT,
   VISION_SYSTEM_PROMPT,
@@ -37,6 +31,14 @@ import {
   type VisionTableResult,
   type VisionUsage,
 } from '@/server/vision/VisionProvider';
+import {
+  buildRowLocationPrompt,
+  buildStripPersonPrompt,
+  REFERENCE_IMAGE_LABEL,
+  ROW_LOCATION_JSON_SCHEMA,
+  STRIP_IMAGE_LABEL,
+  STRIP_PERSON_JSON_SCHEMA,
+} from '@/server/vision/VisionRowPrompts';
 
 /** Output cap including thinking tokens (Gemini counts thoughts toward maxOutputTokens). */
 const MAX_OUTPUT_TOKENS = 32000;
@@ -205,7 +207,7 @@ export const createGeminiVisionProvider = (config: GeminiVisionConfig): VisionPr
         signal,
       );
 
-      return { band: parseRowLocationOutput(output), usage };
+      return { ...parseRowLocationOutput(output), usage };
     },
     extractPersonFromStrip: async (strip, reference, input, signal): Promise<VisionPersonResult> => {
       const { output, usage } = await callModel(

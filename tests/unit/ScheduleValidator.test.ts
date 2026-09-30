@@ -382,16 +382,23 @@ describe('ScheduleValidator.alignCellsToMonth', () => {
     ambiguous: false,
   });
 
-  it('numbers strip cells by position when the count equals the days of the month', () => {
-    // The model mislabeled day numbers but returned exactly 30 cells in order.
+  it('keeps cells as read when the count and every day number match their position', () => {
+    const aligned = alignCellsToMonth(buildCells(30), '2026-11');
+
+    expect(aligned).toMatchObject({ countMatches: true, aligned: true });
+    expect(aligned.cells.every((item) => !item.ambiguous)).toBe(true);
+  });
+
+  it('numbers by position but flags the whole row when a day number disagrees with its position', () => {
+    // Exactly 30 cells, but the 5th is labeled day 4: the model may have skipped or doubled a column.
     const cells = Array.from({ length: 30 }, (_, index) => cell(index === 4 ? 4 : index + 1, 'D'));
     const aligned = alignCellsToMonth(cells, '2026-11');
 
-    expect(aligned.countMatches).toBe(true);
+    expect(aligned).toMatchObject({ countMatches: true, aligned: false });
     expect(aligned.cells.map((item) => item.day)).toEqual(
       Array.from({ length: 30 }, (_, index) => index + 1),
     );
-    expect(aligned.cells.every((item) => !item.ambiguous)).toBe(true);
+    expect(aligned.cells.every((item) => item.ambiguous)).toBe(true);
   });
 
   it('leaves missing trailing days empty (MISSING_DATE) and flags the rest for review when too short', () => {

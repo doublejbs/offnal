@@ -18,6 +18,7 @@ import {
 import {
   type PersonExtractionInput,
   type RowBand,
+  type RowReading,
   type VisionImage,
   type VisionProvider,
   VisionProviderError,
@@ -64,7 +65,18 @@ const widthOf = async (image: VisionImage) => (await sharp(image.bytes).metadata
 
 type FakeOptions = {
   band?: RowBand | null | Error;
+  /** What the strip call reports it read (default: the target, in the strip). */
+  stripReading?: Partial<RowReading>;
+  /** What the full-image call reports it read (default: no name). */
+  fullReading?: Partial<RowReading>;
 };
+
+const reading = (overrides: Partial<RowReading> = {}): RowReading => ({
+  rowName: null,
+  targetInStrip: null,
+  sameNameOrdinal: null,
+  ...overrides,
+});
 
 /** Records which image each call saw; returns 31 'D' cells (legend 'X' that pass 2 cannot see). */
 const createFakeProvider = (options: FakeOptions = {}) => {
@@ -81,7 +93,10 @@ const createFakeProvider = (options: FakeOptions = {}) => {
     })),
     usage: { inputTokens: 10, outputTokens: 5, thinkingTokens: 0 },
   });
-  const extractPerson = vi.fn(async (_image: VisionImage, input: PersonExtractionInput) => person(input));
+  const extractPerson = vi.fn(async (_image: VisionImage, input: PersonExtractionInput) => ({
+    ...person(input),
+    reading: reading(options.fullReading),
+  }));
   const locateRow = vi.fn(async () => {
     if (options.band instanceof Error) {
       throw options.band;
@@ -93,6 +108,7 @@ const createFakeProvider = (options: FakeOptions = {}) => {
     async (_strip: VisionImage, _reference: VisionImage, input: PersonExtractionInput) => ({
       ...person(input),
       definitions: input.definitions,
+      reading: reading({ rowName: input.name, targetInStrip: true, ...options.stripReading }),
     }),
   );
   const provider: VisionProvider = {
@@ -232,5 +248,117 @@ describe('extractPersonWithPipeline', () => {
     expect(metadata.width).toBeGreaterThan(prepared.warp!.raw.width);
     expect(metadata.height).toBeLessThan(prepared.warp!.raw.height);
     expect(fake.extractPerson).not.toHaveBeenCalled();
+  });
+
+  it('propagates a missing key on the locate call instead of falling back', async () => {
+    const fake = createFakeProvider({
+      band: new VisionProviderError(RecognitionErrorCode.PROVIDER_NOT_CONFIGURED),
+    });
+    const prepared = await preparePipelineImage(VisionPipelineMode.WARP_STRIP, original, GRID);
+
+    await expect(
+      extractPersonWithPipeline(fake.provider, prepared, INPUT, createRunner().runCall),
+    ).rejects.toMatchObject({ errorCode: RecognitionErrorCode.PROVIDER_NOT_CONFIGURED });
+  });
+});
+
+describe('extractPersonWithPipeline row identity', () => {
+  const BAND = { top: 400, bottom: 450, headerBottom: 120 };
+
+  const run = async (options: FakeOptions, input: PersonExtractionInput = INPUT) => {
+    const fake = createFakeProvider({ band: BAND, ...options });
+    const runner = createRunner();
+    const prepared = await preparePipelineImage(VisionPipelineMode.WARP_STRIP, original, GRID);
+    const result = await extractPersonWithPipeline(fake.provider, prepared, input, runner.runCall);
+
+    return { result, steps: runner.steps, fake };
+  };
+
+  const allAmbiguous = (result: { extraction: { cells: { ambiguous: boolean }[] } }) =>
+    result.extraction.cells.every((cell) => cell.ambiguous);
+
+  it('accepts a strip whose read-back name matches the target (spacing/NFC ignored)', async () => {
+    const { result, steps } = await run({ stripReading: { rowName: '가상 하나' } });
+
+    expect(result).toMatchObject({
+      route: VisionPipelineRoute.STRIP,
+      identityVerified: true,
+      fallback: null,
+    });
+    expect(steps).toEqual([VisionPipelineStep.LOCATE_ROW, VisionPipelineStep.EXTRACT_STRIP]);
+    expect(allAmbiguous(result)).toBe(false);
+  });
+
+  it('falls back to the full table when the strip read another row, has no name or misses the target', async () => {
+    for (const stripReading of [{ rowName: '가상두울' }, { rowName: null }, { targetInStrip: false }]) {
+      const { result, steps } = await run({ stripReading, fullReading: { rowName: '가상하나' } });
+
+      expect(result).toMatchObject({
+        route: VisionPipelineRoute.WARPED,
+        fallback: VisionPipelineFallback.STRIP_ROW_MISMATCH,
+        identityVerified: true,
+      });
+      expect(steps).toEqual([
+        VisionPipelineStep.LOCATE_ROW,
+        VisionPipelineStep.EXTRACT_STRIP,
+        VisionPipelineStep.EXTRACT,
+      ]);
+      expect(allAmbiguous(result)).toBe(false);
+    }
+  });
+
+  it('flags every cell when the full-table fallback cannot confirm the row either', async () => {
+    for (const fullReading of [{ rowName: '가상두울' }, { rowName: null }]) {
+      const { result } = await run({ stripReading: { rowName: '가상두울' }, fullReading });
+
+      expect(result).toMatchObject({
+        route: VisionPipelineRoute.WARPED,
+        fallback: VisionPipelineFallback.STRIP_ROW_MISMATCH,
+        identityVerified: false,
+      });
+      expect(allAmbiguous(result)).toBe(true);
+      // Codes are kept as read, never replaced.
+      expect(result.extraction.cells.every((cell) => cell.code === 'D')).toBe(true);
+    }
+  });
+
+  it('requires the same-name occurrence to match for duplicate names', async () => {
+    const duplicate: PersonExtractionInput = {
+      ...INPUT,
+      rowContext: { sameNameOrdinal: 2, sameNameCount: 2, above: '가상두울', below: null },
+    };
+    const wrong = await run(
+      { stripReading: { sameNameOrdinal: 1 }, fullReading: { rowName: '가상하나' } },
+      duplicate,
+    );
+    const missing = await run({ stripReading: {}, fullReading: { rowName: '가상하나' } }, duplicate);
+    const right = await run({ stripReading: { sameNameOrdinal: 2 } }, duplicate);
+
+    expect(wrong.result.fallback).toBe(VisionPipelineFallback.STRIP_ROW_MISMATCH);
+    expect(missing.result.fallback).toBe(VisionPipelineFallback.STRIP_ROW_MISMATCH);
+    expect(right.result).toMatchObject({ route: VisionPipelineRoute.STRIP, identityVerified: true });
+    expect(right.fake.extractPersonFromStrip.mock.calls[0]?.[2].rowContext).toEqual(duplicate.rowContext);
+  });
+
+  it('flags a full-image read that names another row, but keeps an unnamed one as is', async () => {
+    const fake = createFakeProvider({ fullReading: { rowName: '가상두울' } });
+    const prepared = await preparePipelineImage(VisionPipelineMode.BASELINE, original, GRID);
+    const contradicted = await extractPersonWithPipeline(
+      fake.provider,
+      prepared,
+      INPUT,
+      createRunner().runCall,
+    );
+    const unnamed = await extractPersonWithPipeline(
+      createFakeProvider().provider,
+      prepared,
+      INPUT,
+      createRunner().runCall,
+    );
+
+    expect(contradicted).toMatchObject({ route: VisionPipelineRoute.ORIGINAL, identityVerified: false });
+    expect(allAmbiguous(contradicted)).toBe(true);
+    expect(unnamed.identityVerified).toBe(false);
+    expect(allAmbiguous(unnamed)).toBe(false);
   });
 });

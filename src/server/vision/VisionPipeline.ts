@@ -6,11 +6,13 @@ import { VisionPipelineStep } from '@/domain/enums/VisionPipelineStep';
 import { type GridCorners } from '@/domain/types/GridCorners';
 import { type PersonExtraction } from '@/domain/types/PersonExtraction';
 import { type WarpResult, warpToGrid } from '@/server/vision/PerspectiveWarp';
+import { isStripReadingVerified, matchesTargetName } from '@/server/vision/RowIdentity';
 import { buildRowStrip, computeStripPlan } from '@/server/vision/RowStrip';
 import {
   type PersonExtractionInput,
   type RowBand,
   type VisionImage,
+  type VisionPersonResult,
   type VisionProvider,
   VisionProviderError,
   type VisionUsage,
@@ -42,6 +44,11 @@ export type PipelineExtraction = {
   band: RowBand | null;
   /** Strip sent to the model (memory only; the eval saves it as a debug image). */
   strip: VisionImage | null;
+  /**
+   * The model confirmed it transcribed the target row (name read back matches). When a reading contradicts
+   * the target, every cell is marked ambiguous so the user reviews the whole month.
+   */
+  identityVerified: boolean;
 };
 
 const describeError = (error: unknown): string => (error instanceof Error ? error.name : typeof error);
@@ -89,10 +96,37 @@ const withPassOneLegend = (extraction: PersonExtraction, input: PersonExtraction
   definitions: input.definitions.map((definition) => ({ ...definition })),
 });
 
-const stripUsage = <T extends { usage?: VisionUsage }>(result: T): Omit<T, 'usage'> => {
-  const { usage: _usage, ...rest } = result;
+/** Domain extraction only (usage and the row reading are call metadata). */
+const toPersonExtraction = (result: VisionPersonResult): PersonExtraction => ({
+  yearMonth: result.yearMonth,
+  rowId: result.rowId,
+  displayName: result.displayName,
+  definitions: result.definitions,
+  cells: result.cells,
+});
 
-  return rest;
+export const markAllCellsAmbiguous = (extraction: PersonExtraction): PersonExtraction => ({
+  ...extraction,
+  cells: extraction.cells.map((cell) => ({ ...cell, ambiguous: true })),
+});
+
+type IdentityPolicy = {
+  /** Also distrust a missing (null) row name, not only a contradicting one. */
+  requireName: boolean;
+};
+
+/** Checks the name the model read back; a contradiction (or, when required, no name) flags every cell. */
+const applyIdentityCheck = (
+  result: VisionPersonResult,
+  input: PersonExtractionInput,
+  policy: IdentityPolicy,
+): { extraction: PersonExtraction; identityVerified: boolean } => {
+  const extraction = toPersonExtraction(result);
+  const rowName = result.reading?.rowName ?? null;
+  const identityVerified = matchesTargetName(rowName, input.name);
+  const distrusted = !identityVerified && (rowName !== null || policy.requireName);
+
+  return { extraction: distrusted ? markAllCellsAmbiguous(extraction) : extraction, identityVerified };
 };
 
 type StripAttempt =
@@ -142,8 +176,9 @@ const buildStripForRow = async (
 
 /**
  * Second pass for one person (Spec §15): original image (baseline / no usable grid), warped table
- * (warp, or warp-strip when the row cannot be located) or header+row strip with the warped table as
- * reference. Provider errors of the final extract call propagate to the caller.
+ * (warp, or warp-strip when the row cannot be located or the strip reading is not verifiably the target)
+ * or header+row strip with the warped table as reference. Provider errors of the final extract call
+ * propagate to the caller.
  */
 export const extractPersonWithPipeline = async (
   provider: VisionProvider,
@@ -159,7 +194,7 @@ export const extractPersonWithPipeline = async (
     );
 
     return {
-      extraction: stripUsage(result),
+      ...applyIdentityCheck(result, input, { requireName: false }),
       route: VisionPipelineRoute.ORIGINAL,
       fallback: prepared.fallback,
       band: null,
@@ -171,9 +206,14 @@ export const extractPersonWithPipeline = async (
     const result = await runCall(VisionPipelineStep.EXTRACT, (signal) =>
       provider.extractPerson(warp.image, input, signal),
     );
+    // After a rejected strip the full-table read must positively confirm the row.
+    const checked = applyIdentityCheck(result, input, {
+      requireName: fallback === VisionPipelineFallback.STRIP_ROW_MISMATCH,
+    });
 
     return {
-      extraction: withPassOneLegend(stripUsage(result), input),
+      extraction: withPassOneLegend(checked.extraction, input),
+      identityVerified: checked.identityVerified,
       route: VisionPipelineRoute.WARPED,
       fallback,
       band: null,
@@ -195,8 +235,14 @@ export const extractPersonWithPipeline = async (
     provider.extractPersonFromStrip(attempt.strip, warp.image, input, signal),
   );
 
+  if (!isStripReadingVerified(result.reading, input)) {
+    // Not verifiably the target row (wrong name/occurrence, or not in the strip): read the full table.
+    return { ...(await extractWarped(VisionPipelineFallback.STRIP_ROW_MISMATCH)), strip: attempt.strip };
+  }
+
   return {
-    extraction: stripUsage(result),
+    extraction: toPersonExtraction(result),
+    identityVerified: true,
     route: VisionPipelineRoute.STRIP,
     fallback: null,
     band: attempt.band,

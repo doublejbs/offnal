@@ -12,16 +12,16 @@ import { VisionPipelineRoute } from '@/domain/enums/VisionPipelineRoute';
 import { VisionPipelineStep } from '@/domain/enums/VisionPipelineStep';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { parseModelTarget } from '@/server/vision/eval/EvalArgs';
-import { type ModelSummary, sortSummaries, summarizeModel } from '@/server/vision/eval/EvalReport';
+import { type ModelSummary, sortSummaries, summarizeModel } from '@/server/vision/eval/EvalSummary';
 import {
   callWithRetry,
   classifyFailure,
-  type EvalCallContext,
   MAX_BACKOFF_MS,
   MAX_RATE_LIMIT_RETRIES,
   ModelUnavailableError,
-  runSample,
-} from '@/server/vision/eval/EvalRunner';
+} from '@/server/vision/eval/EvalCallRetry';
+import { runSample } from '@/server/vision/eval/EvalRunner';
+import { type EvalCallContext } from '@/server/vision/eval/EvalTypes';
 import { type EvalSample, evalTruthSchema } from '@/server/vision/eval/EvalTruth';
 import {
   type RowBand,
@@ -172,6 +172,8 @@ type ProviderBehavior = {
   /** rowId → cells, or an error to throw. */
   rows: Record<string, { code: string | null }[] | Error>;
   band?: RowBand | null;
+  /** Thrown by locateRow instead of returning a band. */
+  locateError?: Error;
 };
 
 const createProvider = (behavior: ProviderBehavior): VisionProvider => {
@@ -202,8 +204,17 @@ const createProvider = (behavior: ProviderBehavior): VisionProvider => {
     recognizeTable: async () =>
       (await behavior.table()) as Awaited<ReturnType<VisionProvider['recognizeTable']>>,
     extractPerson,
-    locateRow: async () => ({ band: behavior.band ?? null, usage: USAGE }),
-    extractPersonFromStrip: async (strip, _reference, input, signal) => extractPerson(strip, input, signal),
+    locateRow: async () => {
+      if (behavior.locateError) {
+        throw behavior.locateError;
+      }
+
+      return { band: behavior.band ?? null, usage: USAGE };
+    },
+    extractPersonFromStrip: async (strip, _reference, input, signal) => ({
+      ...(await extractPerson(strip, input, signal)),
+      reading: { rowName: input.name, targetInStrip: true, sameNameOrdinal: null },
+    }),
   };
 };
 
@@ -410,5 +421,57 @@ describe('runSample with pipelines', () => {
       VisionPipelineStep.EXTRACT,
     ]);
     expect(summarizeModel('m', noRow, null).fallbacks).toEqual({ [VisionPipelineFallback.ROW_NOT_FOUND]: 1 });
+  });
+
+  it('fails the person when locateRow fails, even if the pipeline recovered (never scored as OK)', async () => {
+    const withGrid = async (locateError: Error) =>
+      runSample({
+        context: createContext(1),
+        provider: createProvider({
+          table: async () => ({ ...OK_TABLE, value: { ...OK_TABLE.value, grid: GRID } }),
+          rows: { r1: PERFECT_ROW },
+          locateError,
+        }),
+        sample: SAMPLE,
+        image: await createPhoto(),
+        people: ['가상하나'],
+        repeat: 1,
+        pipelines: [VisionPipelineMode.WARP_STRIP],
+      });
+
+    // Non-fatal (HTTP 400 after the first call): the pipeline falls back and extracts, but the run fails.
+    const [recovered] = await withGrid(httpError(400));
+
+    expect(recovered).toMatchObject({
+      status: VisionEvalStatus.FAILED,
+      failureKind: VisionEvalFailureKind.INFRA,
+    });
+    expect(recovered?.error).toContain('locate-row');
+    expect(recovered?.people[0]).toMatchObject({ outcome: VisionEvalPersonOutcome.INFRA_FAILURE });
+    expect(recovered?.people[0]?.calls.map((call) => [call.step, call.ok])).toEqual([
+      [VisionPipelineStep.LOCATE_ROW, false],
+      [VisionPipelineStep.EXTRACT, true],
+    ]);
+
+    // Fatal (timeout): the original VisionProviderError reaches the pipeline, which stops like the service.
+    const [timedOut] = await withGrid(new VisionProviderError(RecognitionErrorCode.PROVIDER_TIMEOUT));
+
+    expect(timedOut).toMatchObject({
+      status: VisionEvalStatus.FAILED,
+      failureKind: VisionEvalFailureKind.INFRA,
+    });
+    expect(timedOut?.people[0]?.calls.map((call) => call.step)).toEqual([VisionPipelineStep.LOCATE_ROW]);
+
+    // A model-attributable locate failure (unusable output) scores 0 end-to-end.
+    const [unusable] = await withGrid(new VisionProviderError(RecognitionErrorCode.PROVIDER_ERROR));
+
+    expect(unusable).toMatchObject({
+      status: VisionEvalStatus.FAILED,
+      failureKind: VisionEvalFailureKind.MODEL,
+    });
+    expect(summarizeModel('m', [unusable!], null)).toMatchObject({
+      endToEndCorrectDays: 0,
+      modelFailures: 1,
+    });
   });
 });

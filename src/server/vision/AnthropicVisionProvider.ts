@@ -17,13 +17,7 @@ import {
 } from '@/server/vision/VisionOutputParser';
 import {
   buildPersonUserPrompt,
-  buildRowLocationPrompt,
-  buildStripPersonPrompt,
   PERSON_JSON_SCHEMA,
-  ROW_LOCATION_JSON_SCHEMA,
-  STRIP_PERSON_JSON_SCHEMA,
-  STRIP_IMAGE_LABEL,
-  REFERENCE_IMAGE_LABEL,
   TABLE_JSON_SCHEMA,
   TABLE_USER_PROMPT,
   VISION_SYSTEM_PROMPT,
@@ -37,6 +31,14 @@ import {
   type VisionRowLocationResult,
   type VisionTableResult,
 } from '@/server/vision/VisionProvider';
+import {
+  buildRowLocationPrompt,
+  buildStripPersonPrompt,
+  REFERENCE_IMAGE_LABEL,
+  ROW_LOCATION_JSON_SCHEMA,
+  STRIP_IMAGE_LABEL,
+  STRIP_PERSON_JSON_SCHEMA,
+} from '@/server/vision/VisionRowPrompts';
 
 const MAX_TOKENS = 16000;
 const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
@@ -189,7 +191,7 @@ export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): Vi
         VisionEffort.LOW,
       );
 
-      return { band: parseRowLocationOutput(output), usage };
+      return { ...parseRowLocationOutput(output), usage };
     },
     extractPersonFromStrip: async (strip, reference, input, signal): Promise<VisionPersonResult> => {
       const { output, usage } = await callModel(

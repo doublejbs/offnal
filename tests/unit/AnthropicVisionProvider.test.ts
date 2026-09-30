@@ -4,15 +4,14 @@ import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
 import { createAnthropicVisionProvider } from '@/server/vision/AnthropicVisionProvider';
+import { TABLE_JSON_SCHEMA, VISION_SYSTEM_PROMPT } from '@/server/vision/VisionPrompts';
+import { type VisionImage, VisionProviderError } from '@/server/vision/VisionProvider';
 import {
   REFERENCE_IMAGE_LABEL,
   ROW_LOCATION_JSON_SCHEMA,
   STRIP_IMAGE_LABEL,
   STRIP_PERSON_JSON_SCHEMA,
-  TABLE_JSON_SCHEMA,
-  VISION_SYSTEM_PROMPT,
-} from '@/server/vision/VisionPrompts';
-import { type VisionImage, VisionProviderError } from '@/server/vision/VisionProvider';
+} from '@/server/vision/VisionRowPrompts';
 
 const { createMock } = vi.hoisted(() => ({ createMock: vi.fn() }));
 
@@ -82,7 +81,9 @@ describe('createAnthropicVisionProvider', () => {
   });
 
   it('locates a row at low effort with the row-location schema', async () => {
-    createMock.mockResolvedValue(buildMessage({ top: 300, bottom: 340, headerBottom: null }));
+    createMock.mockResolvedValue(
+      buildMessage({ top: 300, bottom: 340, headerBottom: null, rowName: '가상두울' }),
+    );
 
     const result = await createProvider().locateRow(
       IMAGE,
@@ -93,6 +94,7 @@ describe('createAnthropicVisionProvider', () => {
 
     expect(result).toEqual({
       band: { top: 300, bottom: 340, headerBottom: null },
+      rowName: '가상두울',
       usage: { inputTokens: 900, outputTokens: 120, thinkingTokens: null },
     });
     expect(request.output_config.effort).toBe('low');
@@ -135,9 +137,9 @@ describe('createAnthropicVisionProvider', () => {
       effort: 'medium',
       format: { schema: STRIP_PERSON_JSON_SCHEMA },
     });
-    // Position is the day; null cells stay null (never OFF).
+    // Position is the day; reversed day labels flag the whole row; null cells stay null (never OFF).
     expect(result.cells.map((cell) => cell.day)).toEqual(Array.from({ length: 31 }, (_, index) => index + 1));
-    expect(result.cells.every((cell) => cell.code === null && !cell.ambiguous)).toBe(true);
+    expect(result.cells.every((cell) => cell.code === null && cell.ambiguous)).toBe(true);
   });
 
   it('maps refusals and schema mismatches of the new calls to PROVIDER_ERROR', async () => {
