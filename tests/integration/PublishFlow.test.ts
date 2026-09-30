@@ -31,6 +31,7 @@ import {
 import {
   createLoggedInJob,
   createReadyDraft,
+  defineMockUndefinedCodes,
   extractRow,
   patchDraft,
   publishDraft,
@@ -91,7 +92,7 @@ describe('publish blockers', () => {
     const withCustomCode = await patchDraft(client, draftId, {
       revision: draft.draft.revision,
       definitions: [
-        ...draft.draft.definitions,
+        ...defineMockUndefinedCodes(draft.draft.definitions),
         { code: 'X', label: '교육', startTime: null, endTime: null, endsNextDay: null, isOff: false },
       ],
       entries: resolveEntries(draft.draft.entries, 'X'),

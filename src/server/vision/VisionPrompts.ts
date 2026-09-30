@@ -18,6 +18,10 @@ export const VISION_SYSTEM_PROMPT = [
   '- If shift start/end times are not written in the image (e.g. in a legend), return null for those times. Do not invent typical hours.',
   '- Times use 24-hour HH:mm. endsNextDay is true only when the shift clearly ends on the following day.',
   '- Codes are copied as written (trimmed). Keep Korean codes as-is.',
+  'Codes not in the legend:',
+  '- If a cell shows clearly readable text, return it exactly as written as the code (trimmed, at most 12 characters) even when it is not in the legend, e.g. W, 연차, M.',
+  '- Never replace such a code with OFF or another legend code, and never leave it null because it is missing from the legend.',
+  '- Use null only when the cell text is blurry or unreadable. Blank cells and dashes stay null.',
 ].join('\n');
 
 export const nullable = (schema: Record<string, unknown>) => ({ anyOf: [schema, { type: 'null' }] });
@@ -79,7 +83,12 @@ export const TABLE_JSON_SCHEMA: Record<string, unknown> = {
         },
       },
     },
-    definitions: { type: 'array', items: DEFINITION_JSON_SCHEMA },
+    definitions: {
+      type: 'array',
+      description:
+        'Only codes explained in the printed legend (plus OFF as a day off), not codes that only appear in cells',
+      items: DEFINITION_JSON_SCHEMA,
+    },
     dayHeaders: {
       type: 'array',
       items: {
@@ -100,7 +109,11 @@ export const CELL_JSON_SCHEMA = {
   properties: {
     day: { type: 'integer' },
     rawText: nullable({ type: 'string', description: 'Cell text exactly as seen, null if unreadable' }),
-    code: nullable({ type: 'string', description: 'Shift code, null for blank/dash/unreadable' }),
+    code: nullable({
+      type: 'string',
+      description:
+        'Shift code as written, also when not in the legend (e.g. W, 연차); null only for blank/dash/unreadable',
+    }),
     ambiguous: { type: 'boolean' },
   },
 };
@@ -210,6 +223,8 @@ export const TABLE_USER_PROMPT = [
   'Read this shift roster image.',
   'Return every person row as a candidate (rowId r1, r2, … from top to bottom) with the name as written.',
   'Return the roster month as YYYY-MM if it is shown, the shift code legend (codes, labels, times if written) and the day column headers.',
+  'definitions: only codes explained in the printed legend (usually below or beside the table, with times or a meaning). Do not add codes that only appear in cells; they are handled later.',
+  'Exception: the literal code OFF may be added as a day off (isOff=true, no times) when it appears in cells. Do not treat any other unexplained code as a day off.',
   'Set outcome to no_table if the image is not a roster table, unreadable if it is too blurry to read, no_names if no person names are visible.',
   'Also return grid: the four corners of the day-cell grid only (not the name column, title or legend).',
   '- topLeft: where the left border of the day-1 column meets the top border of the date header.',
@@ -242,6 +257,10 @@ export const describeRowContext = (context: RowContext | null | undefined): stri
   return lines;
 };
 
+/** Spec §16: shared by every pass-2 prompt (full table and strip). */
+export const CELL_CODE_RULE =
+  'A clearly readable code that is not in the known legend is copied exactly as written (e.g. W, 연차, M), never replaced by OFF or another legend code. Use null only for blank, dash or unreadable cells.';
+
 /** The name is quoted as data: it was itself read from the image. */
 export const buildPersonUserPrompt = (input: PersonExtractionInput): string =>
   [
@@ -251,6 +270,7 @@ export const buildPersonUserPrompt = (input: PersonExtractionInput): string =>
     `Target month: ${input.yearMonth}`,
     `Known code legend from the first pass (data): ${JSON.stringify(input.definitions)}`,
     'For each day column return day number, rawText exactly as seen, the code, and ambiguous=true when unsure.',
-    'Return the code legend again, corrected if needed.',
+    CELL_CODE_RULE,
+    'Return the code legend again, corrected if needed: only codes explained in the printed legend (plus OFF as a day off), not codes that only appear in cells.',
     'Return rowName = the name cell of the row you read, exactly as written (null if not readable).',
   ].join('\n');

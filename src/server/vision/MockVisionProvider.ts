@@ -29,6 +29,12 @@ export const MOCK_DEFINITIONS: ShiftDefinition[] = [
   { code: 'OFF', label: '휴무', startTime: null, endTime: null, endsNextDay: null, isOff: true },
 ];
 
+/**
+ * Codes written in cells but not in the legend (Spec §16): kept as read, flagged UNDEFINED_CODE and
+ * confirmed once the user defines them. Same days for every row.
+ */
+export const MOCK_UNDEFINED_CODE_DAYS: Readonly<Record<number, string>> = { 3: '연차', 25: 'W' };
+
 const MIN_TABLE_WIDTH = 300;
 const AMBIGUOUS_DAY = 14;
 const UNREADABLE_DAY = 20;
@@ -63,6 +69,12 @@ const buildCell = (day: number, rowIndex: number): ExtractedCell => {
 
   if (day === UNREADABLE_DAY) {
     return { day, rawText: null, code: null, ambiguous: false };
+  }
+
+  const undefinedCode = MOCK_UNDEFINED_CODE_DAYS[day];
+
+  if (undefinedCode) {
+    return { day, rawText: undefinedCode, code: undefinedCode, ambiguous: false };
   }
 
   const code = SHIFT_PATTERN[(day - 1 + rowIndex * 3) % SHIFT_PATTERN.length] ?? 'OFF';

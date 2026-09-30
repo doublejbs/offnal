@@ -12,6 +12,7 @@ import { type CreateRecognitionResponse } from '@/domain/types/api/CreateRecogni
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
 import { type ExtractRecognitionResponse } from '@/domain/types/api/ExtractRecognitionResponse';
 import { type RecognitionStatusResponse } from '@/domain/types/api/RecognitionStatusResponse';
+import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { type ApiTestClient, buildUploadForm, createTablePng, readJson } from './ApiTestClient';
 
@@ -100,6 +101,20 @@ export const resolveEntries = (entries: ShiftEntry[], fillCode = 'OFF'): ShiftEn
     confirmed: true,
   }));
 
+/** The mock fixture's codes outside the legend (Spec §16) defined the way a user would: 연차 off, W timed. */
+export const defineMockUndefinedCodes = (definitions: ShiftDefinition[]): ShiftDefinition[] =>
+  definitions.map((definition) => {
+    if (definition.code === '연차') {
+      return { ...definition, isOff: true };
+    }
+
+    if (definition.code === 'W') {
+      return { ...definition, startTime: '09:00', endTime: '18:00', endsNextDay: false };
+    }
+
+    return definition;
+  });
+
 /** Extracts the first mock row for `yearMonth` and resolves all review items. Returns the ready draft. */
 export const createReadyDraft = async (
   client: ApiTestClient,
@@ -111,6 +126,7 @@ export const createReadyDraft = async (
   const response = await patchDraft(client, draftId, {
     revision: current.draft.revision,
     entries: resolveEntries(current.draft.entries),
+    definitions: defineMockUndefinedCodes(current.draft.definitions),
   });
 
   expect(response.status).toBe(200);

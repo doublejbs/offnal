@@ -118,6 +118,35 @@ describe('vision eval scoring', () => {
     expect(full).toMatchObject({ correctDays: 4, fullMonthMatch: true, wrongCells: [], nullDates: [] });
   });
 
+  it('counts a nulled undefined code as null and one mapped to OFF as wrong', () => {
+    const nulled = scorePerson(
+      TRUTH,
+      '가상하나',
+      'r1',
+      buildSchedule([
+        cell(1, 'D'),
+        cell(2, 'N'),
+        cell(3, 'OFF'),
+        { day: 4, rawText: 'W', code: null, ambiguous: false },
+      ]),
+    );
+
+    expect(nulled).toMatchObject({ correctDays: 3, wrongCells: [], nullDates: ['2026-02-04'] });
+    expect(nulled.undefinedCodeCells).toEqual([
+      { date: '2026-02-04', expected: 'W', got: null, kept: false, flagged: false },
+    ]);
+
+    const mapped = scorePerson(
+      TRUTH,
+      '가상하나',
+      'r1',
+      buildSchedule([cell(1, 'D'), cell(2, 'N'), cell(3, 'OFF'), cell(4, 'OFF')]),
+    );
+
+    expect(mapped.wrongCells).toEqual([{ date: '2026-02-04', expected: 'W', got: 'OFF' }]);
+    expect(mapped.flaggedCorrectDays).toBe(0);
+  });
+
   it('treats a missing name as every day wrong', () => {
     const score = scorePerson(TRUTH, '가상하나', null, null);
 

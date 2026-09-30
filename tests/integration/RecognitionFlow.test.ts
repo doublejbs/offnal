@@ -48,6 +48,7 @@ import {
 } from '../helpers/ApiTestClient';
 import {
   claimJob,
+  defineMockUndefinedCodes,
   devLogin,
   extractRow,
   MOCK_FIRST_ROW_ID,
@@ -161,7 +162,8 @@ describe('anonymous upload → login → extract → publish', () => {
     expect(draft.draft.displayName).toBe(MOCK_CANDIDATE_NAMES[0]);
     expect(day14?.reviewReasons).toContain(ShiftReviewReason.AMBIGUOUS);
     expect(day20).toMatchObject({ code: null, reviewReasons: [ShiftReviewReason.UNREADABLE] });
-    expect(draft.review.count).toBe(2);
+    // Days 14 (ambiguous), 20 (unreadable) and the two codes outside the legend (Spec §16).
+    expect(draft.review.count).toBe(4);
     expect(draft.access.monthAccess).toBe(MonthAccess.TRIAL_AVAILABLE);
     expect(draft.access.freeRemaining).toBe(2);
     expect(draft.access.priceKrw).toBe(1900);
@@ -171,6 +173,7 @@ describe('anonymous upload → login → extract → publish', () => {
     const patchResponse = await patchDraft(client, draftId, {
       revision: draft.draft.revision,
       entries: resolveEntries(draft.draft.entries),
+      definitions: defineMockUndefinedCodes(draft.draft.definitions),
     });
     const patched = await readJson<DraftResponse>(patchResponse);
 

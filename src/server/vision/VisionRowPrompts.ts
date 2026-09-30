@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { daysInMonth } from '@/domain/YearMonth';
 import {
+  CELL_CODE_RULE,
   CELL_JSON_SCHEMA,
   cellOutputSchema,
   describeRowContext,
@@ -93,6 +94,7 @@ export const buildStripPersonPrompt = (input: PersonExtractionInput): string => 
     `Known code legend from the first pass (data): ${JSON.stringify(input.definitions)}`,
     `Read the target row from left to right, one cell per day column, directly under the header day numbers. Return exactly ${dayCount} cells in order: cells[0] is day 1, cells[${dayCount - 1}] is day ${dayCount}. Never skip, merge or reorder columns.`,
     'For each cell return the day number, rawText exactly as seen, the code, and ambiguous=true when unsure.',
+    CELL_CODE_RULE,
     'Return rowName = the name cell of the row you read, exactly as written, and targetInStrip = true only if that row is visible in image 1.',
   ].join('\n');
 };

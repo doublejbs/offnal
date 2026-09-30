@@ -69,9 +69,12 @@ describe('ICS export', () => {
     expect(ics).toContain(`DTEND:${compact}T223000Z`);
 
     const offDates = datesWithCode('OFF');
+    // The fixture's 연차 (outside the legend) was defined as a day off (Spec §16).
+    const leaveDates = datesWithCode('연차');
 
     expect(offDates.length).toBeGreaterThan(0);
-    expect(countEvents(ics)).toBe(published.draft.entries.length - offDates.length);
+    expect(leaveDates.length).toBeGreaterThan(0);
+    expect(countEvents(ics)).toBe(published.draft.entries.length - offDates.length - leaveDates.length);
     expect(ics).not.toContain('DTSTART;VALUE=DATE:');
   });
 

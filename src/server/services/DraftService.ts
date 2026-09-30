@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
+import { resolveDefinedCodes } from '@/domain/DefinedCodeResolver';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
@@ -155,8 +156,9 @@ export const patchDraft = async (
   }
 
   const yearMonth = body.yearMonth ?? draft.yearMonth;
-  const entries = resolvePatchedEntries(draft, body, yearMonth);
   const definitions = body.definitions ? normalizeDefinitions(body.definitions) : draft.definitions;
+  // Spec §16: defining a code once confirms every date that only waited for that definition.
+  const entries = resolveDefinedCodes(resolvePatchedEntries(draft, body, yearMonth), definitions);
   let updated: DraftRow | undefined;
 
   try {
