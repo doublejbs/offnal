@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import {
   type BetaBase64ImageSource,
+  type BetaContentBlockParam,
   type BetaOutputConfig,
 } from '@anthropic-ai/sdk/resources/beta/messages/messages';
 
@@ -8,20 +9,32 @@ import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
-import { parsePersonOutput, parseTableOutput } from '@/server/vision/VisionOutputParser';
+import {
+  parsePersonOutput,
+  parseRowLocationOutput,
+  parseStripPersonOutput,
+  parseTableOutput,
+} from '@/server/vision/VisionOutputParser';
 import {
   buildPersonUserPrompt,
+  buildRowLocationPrompt,
+  buildStripPersonPrompt,
   PERSON_JSON_SCHEMA,
+  ROW_LOCATION_JSON_SCHEMA,
+  STRIP_PERSON_JSON_SCHEMA,
+  STRIP_IMAGE_LABEL,
+  REFERENCE_IMAGE_LABEL,
   TABLE_JSON_SCHEMA,
   TABLE_USER_PROMPT,
   VISION_SYSTEM_PROMPT,
 } from '@/server/vision/VisionPrompts';
 import {
-  type VisionImage,
+  type LabeledVisionImage,
   type VisionModelCallResult,
   type VisionPersonResult,
   type VisionProvider,
   VisionProviderError,
+  type VisionRowLocationResult,
   type VisionTableResult,
 } from '@/server/vision/VisionProvider';
 
@@ -76,16 +89,26 @@ const mapProviderError = (error: unknown, signal: AbortSignal): VisionProviderEr
   return new VisionProviderError(RecognitionErrorCode.PROVIDER_ERROR, { cause: error });
 };
 
+/** Optional text label, then the image (labels tell multi-image prompts which image is which). */
+const toImageBlocks = ({ label, image }: LabeledVisionImage): BetaContentBlockParam[] => [
+  ...(label === null ? [] : [{ type: 'text' as const, text: label }]),
+  {
+    type: 'image',
+    source: { type: 'base64', media_type: toMediaType(image.mime), data: image.bytes.toString('base64') },
+  },
+];
+
 /** Claude vision adapter. Never logs image data or recognized names. */
 export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): VisionProvider => {
   // One client per provider instance (the provider itself is cached by VisionFactory).
   const client = config.apiKey ? new Anthropic({ apiKey: config.apiKey }) : null;
 
   const callModel = async (
-    image: VisionImage,
+    images: LabeledVisionImage[],
     text: string,
     schema: Record<string, unknown>,
     signal: AbortSignal,
+    effort: VisionEffort = config.effort,
   ): Promise<VisionModelCallResult> => {
     if (!client) {
       throw new VisionProviderError(RecognitionErrorCode.PROVIDER_NOT_CONFIGURED);
@@ -100,24 +123,14 @@ export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): Vi
           fallbacks: 'default',
           thinking: { type: 'adaptive' },
           output_config: {
-            effort: EFFORT_BY_SETTING[config.effort],
+            effort: EFFORT_BY_SETTING[effort],
             format: { type: 'json_schema', schema },
           },
           system: VISION_SYSTEM_PROMPT,
           messages: [
             {
               role: 'user',
-              content: [
-                {
-                  type: 'image',
-                  source: {
-                    type: 'base64',
-                    media_type: toMediaType(image.mime),
-                    data: image.bytes.toString('base64'),
-                  },
-                },
-                { type: 'text', text },
-              ],
+              content: [...images.flatMap(toImageBlocks), { type: 'text', text }],
             },
           ],
         },
@@ -147,19 +160,49 @@ export const createAnthropicVisionProvider = (config: AnthropicVisionConfig): Vi
   return {
     kind: VisionProviderType.ANTHROPIC,
     recognizeTable: async (image, signal): Promise<VisionTableResult> => {
-      const { output, usage } = await callModel(image, TABLE_USER_PROMPT, TABLE_JSON_SCHEMA, signal);
+      const { output, usage } = await callModel(
+        [{ label: null, image }],
+        TABLE_USER_PROMPT,
+        TABLE_JSON_SCHEMA,
+        signal,
+      );
 
       return { ...parseTableOutput(output), usage };
     },
     extractPerson: async (image, input, signal): Promise<VisionPersonResult> => {
       const { output, usage } = await callModel(
-        image,
+        [{ label: null, image }],
         buildPersonUserPrompt(input),
         PERSON_JSON_SCHEMA,
         signal,
       );
 
       return { ...parsePersonOutput(output, input), usage };
+    },
+    // A short geometric answer: low effort keeps thinking (billed as output) small.
+    locateRow: async (image, input, signal): Promise<VisionRowLocationResult> => {
+      const { output, usage } = await callModel(
+        [{ label: null, image }],
+        buildRowLocationPrompt(input),
+        ROW_LOCATION_JSON_SCHEMA,
+        signal,
+        VisionEffort.LOW,
+      );
+
+      return { band: parseRowLocationOutput(output), usage };
+    },
+    extractPersonFromStrip: async (strip, reference, input, signal): Promise<VisionPersonResult> => {
+      const { output, usage } = await callModel(
+        [
+          { label: STRIP_IMAGE_LABEL, image: strip },
+          { label: REFERENCE_IMAGE_LABEL, image: reference },
+        ],
+        buildStripPersonPrompt(input),
+        STRIP_PERSON_JSON_SCHEMA,
+        signal,
+      );
+
+      return { ...parseStripPersonOutput(output, input), usage };
     },
   };
 };

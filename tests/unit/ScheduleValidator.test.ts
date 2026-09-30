@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { PublishBlockReason } from '@/domain/enums/PublishBlockReason';
 import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
 import {
+  alignCellsToMonth,
   getPublishBlockers,
   hasExactDateSet,
   isValidCode,
@@ -370,5 +371,60 @@ describe('ScheduleValidator.hasExactDateSet', () => {
     expect(hasExactDateSet(entries.slice(1), '2026-11')).toBe(false);
     expect(hasExactDateSet([...entries.slice(1), entries[1]!], '2026-11')).toBe(false);
     expect(hasExactDateSet(entries, '2026-10')).toBe(false);
+  });
+});
+
+describe('ScheduleValidator.alignCellsToMonth', () => {
+  const cell = (day: number, code: string | null): ExtractedCell => ({
+    day,
+    rawText: code,
+    code,
+    ambiguous: false,
+  });
+
+  it('numbers strip cells by position when the count equals the days of the month', () => {
+    // The model mislabeled day numbers but returned exactly 30 cells in order.
+    const cells = Array.from({ length: 30 }, (_, index) => cell(index === 4 ? 4 : index + 1, 'D'));
+    const aligned = alignCellsToMonth(cells, '2026-11');
+
+    expect(aligned.countMatches).toBe(true);
+    expect(aligned.cells.map((item) => item.day)).toEqual(
+      Array.from({ length: 30 }, (_, index) => index + 1),
+    );
+    expect(aligned.cells.every((item) => !item.ambiguous)).toBe(true);
+  });
+
+  it('leaves missing trailing days empty (MISSING_DATE) and flags the rest for review when too short', () => {
+    const aligned = alignCellsToMonth(buildCells(28), '2026-11');
+
+    expect(aligned.countMatches).toBe(false);
+    expect(aligned.cells).toHaveLength(28);
+    expect(aligned.cells.every((item) => item.ambiguous)).toBe(true);
+
+    const schedule = normalizeExtraction(buildExtraction(aligned.cells), '2026-11');
+
+    expect(findEntry(schedule.entries, '2026-11-29')).toMatchObject({
+      code: null,
+      reviewReasons: [ShiftReviewReason.MISSING_DATE],
+    });
+    expect(findEntry(schedule.entries, '2026-11-30').code).toBeNull();
+    expect(findEntry(schedule.entries, '2026-11-01')).toMatchObject({
+      code: 'D',
+      reviewReasons: [ShiftReviewReason.AMBIGUOUS],
+      confirmed: false,
+    });
+  });
+
+  it('truncates extra cells and never invents codes', () => {
+    const cells = [...buildCells(30), cell(31, 'N'), cell(32, 'E')];
+    const aligned = alignCellsToMonth(cells, '2026-11');
+
+    expect(aligned.countMatches).toBe(false);
+    expect(aligned.cells).toHaveLength(30);
+    expect(aligned.cells.map((item) => item.code)).toEqual(Array.from({ length: 30 }, () => 'D'));
+
+    const nullCells = alignCellsToMonth([cell(1, null)], '2026-11');
+
+    expect(nullCells.cells).toEqual([{ day: 1, rawText: null, code: null, ambiguous: true }]);
   });
 });

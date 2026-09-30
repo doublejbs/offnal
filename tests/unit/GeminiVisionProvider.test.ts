@@ -5,7 +5,15 @@ import { ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { createGeminiVisionProvider, toGeminiJsonSchema } from '@/server/vision/GeminiVisionProvider';
-import { PERSON_JSON_SCHEMA, TABLE_JSON_SCHEMA, VISION_SYSTEM_PROMPT } from '@/server/vision/VisionPrompts';
+import {
+  PERSON_JSON_SCHEMA,
+  REFERENCE_IMAGE_LABEL,
+  ROW_LOCATION_JSON_SCHEMA,
+  STRIP_IMAGE_LABEL,
+  STRIP_PERSON_JSON_SCHEMA,
+  TABLE_JSON_SCHEMA,
+  VISION_SYSTEM_PROMPT,
+} from '@/server/vision/VisionPrompts';
 import {
   getProviderErrorStatus,
   type VisionImage,
@@ -187,6 +195,7 @@ describe('createGeminiVisionProvider', () => {
           { code: 'E', label: 'E', startTime: null, endTime: null, endsNextDay: null, isOff: false },
         ],
         dayHeaders: [{ day: 1, weekday: '목' }],
+        grid: null,
       },
       usage: { inputTokens: 1200, outputTokens: 300, thinkingTokens: 450 },
     });
@@ -224,6 +233,106 @@ describe('createGeminiVisionProvider', () => {
       cells: PERSON_OUTPUT.cells,
       usage: { inputTokens: 10, outputTokens: 5, thinkingTokens: 0 },
     });
+  });
+
+  it('keeps valid grid corners and drops malformed ones without failing pass 1', async () => {
+    const grid = {
+      topLeft: { x: 160, y: 260 },
+      topRight: { x: 895, y: 212 },
+      bottomRight: { x: 957, y: 695 },
+      bottomLeft: { x: 140, y: 720 },
+    };
+
+    generateContentMock.mockResolvedValueOnce(buildResponse({ ...TABLE_OUTPUT, grid }));
+    generateContentMock.mockResolvedValueOnce(
+      buildResponse({ ...TABLE_OUTPUT, grid: { ...grid, topLeft: { x: 'left', y: 1 } } }),
+    );
+
+    const withGrid = await createProvider().recognizeTable(IMAGE, new AbortController().signal);
+    const malformed = await createProvider().recognizeTable(IMAGE, new AbortController().signal);
+
+    expect(withGrid.ok && withGrid.value.grid).toEqual(grid);
+    expect(malformed.ok && malformed.value.grid).toBeNull();
+    expect(JSON.stringify(toGeminiJsonSchema(TABLE_JSON_SCHEMA))).toContain(
+      '"grid":{"type":["object","null"]',
+    );
+  });
+
+  it('locates a row with the short row-location schema', async () => {
+    generateContentMock.mockResolvedValueOnce(buildResponse({ top: 410, bottom: 452, headerBottom: 118 }));
+    generateContentMock.mockResolvedValueOnce(buildResponse({ top: null, bottom: null, headerBottom: 118 }));
+
+    const provider = createProvider();
+    const found = await provider.locateRow(
+      IMAGE,
+      { rowId: 'r3', name: '가상하나' },
+      new AbortController().signal,
+    );
+    const missing = await provider.locateRow(
+      IMAGE,
+      { rowId: 'r3', name: '가상하나' },
+      new AbortController().signal,
+    );
+    const [request] = generateContentMock.mock.calls[0] as [
+      { contents: { parts: { text?: string; inlineData?: unknown }[] }[]; config: Record<string, unknown> },
+    ];
+
+    expect(found).toEqual({
+      band: { top: 410, bottom: 452, headerBottom: 118 },
+      usage: { inputTokens: 1200, outputTokens: 300, thinkingTokens: 450 },
+    });
+    expect(missing.band).toBeNull();
+    expect(request.config.responseJsonSchema).toEqual(toGeminiJsonSchema(ROW_LOCATION_JSON_SCHEMA));
+    expect(request.config.systemInstruction).toBe(VISION_SYSTEM_PROMPT);
+    expect(request.contents[0]?.parts).toHaveLength(2);
+    expect(request.contents[0]?.parts[1]?.text).toContain('{"rowId":"r3","name":"가상하나"}');
+
+    generateContentMock.mockResolvedValueOnce(buildResponse({ top: '410' }));
+    await expectErrorCode(
+      provider.locateRow(IMAGE, { rowId: 'r3', name: '가상하나' }, new AbortController().signal),
+      RecognitionErrorCode.PROVIDER_ERROR,
+    );
+  });
+
+  it('sends the strip and the reference as two labeled inline images and aligns the cells', async () => {
+    const strip: VisionImage = { bytes: Buffer.from('strip-jpeg'), mime: ImageMimeType.JPEG };
+    const cells = Array.from({ length: 30 }, (_, index) => ({
+      day: index + 1,
+      rawText: 'D',
+      code: 'D',
+      ambiguous: false,
+    }));
+
+    generateContentMock.mockResolvedValue(buildResponse({ cells }));
+
+    const legend = [
+      { code: 'D', label: '데이', startTime: '07:00', endTime: '16:00', endsNextDay: false, isOff: false },
+    ];
+    const result = await createProvider().extractPersonFromStrip(
+      strip,
+      IMAGE,
+      { rowId: 'r2', name: '가상두울', yearMonth: '2026-10', definitions: legend },
+      new AbortController().signal,
+    );
+    const [request] = generateContentMock.mock.calls[0] as [
+      { contents: { parts: Record<string, unknown>[] }[]; config: Record<string, unknown> },
+    ];
+
+    expect(request.contents[0]?.parts).toEqual([
+      { text: STRIP_IMAGE_LABEL },
+      { inlineData: { mimeType: 'image/jpeg', data: strip.bytes.toString('base64') } },
+      { text: REFERENCE_IMAGE_LABEL },
+      { inlineData: { mimeType: 'image/jpeg', data: IMAGE.bytes.toString('base64') } },
+      { text: expect.stringContaining('Return exactly 31 cells in order') },
+    ]);
+    expect(request.config).toMatchObject({
+      systemInstruction: VISION_SYSTEM_PROMPT,
+      responseJsonSchema: toGeminiJsonSchema(STRIP_PERSON_JSON_SCHEMA),
+    });
+    // October has 31 days: 30 cells → day 31 missing, the rest flagged for review; pass-1 legend kept.
+    expect(result.cells).toHaveLength(30);
+    expect(result.cells.every((cell) => cell.ambiguous)).toBe(true);
+    expect(result.definitions).toEqual(legend);
   });
 
   it('refuses to call the API without a key', async () => {

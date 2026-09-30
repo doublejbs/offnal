@@ -9,6 +9,7 @@ import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
+import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { DEFAULT_FREE_MONTH_LIMIT, DEFAULT_PRICE_KRW } from '@/server/config/PricingConfig';
 
@@ -40,6 +41,8 @@ export type AppConfig = {
   visionModel: string;
   visionEffort: VisionEffort;
   visionTimeoutMs: number;
+  /** Second-pass input pipeline (Spec §15). */
+  visionPipeline: VisionPipelineMode;
   mockVisionDelayMs: number;
   paymentProvider: PaymentProviderType;
   tossClientKey: string | null;
@@ -115,6 +118,7 @@ const envSchema = z.object({
   VISION_MODEL: optionalText,
   VISION_EFFORT: z.enum(VisionEffort).default(VisionEffort.MEDIUM),
   VISION_TIMEOUT_MS: positiveInt(240_000),
+  VISION_PIPELINE: z.enum(VisionPipelineMode).default(VisionPipelineMode.WARP_STRIP),
   MOCK_VISION_DELAY_MS: nonNegativeInt(1200),
   PAYMENT_PROVIDER: z.enum(PaymentProviderType).optional(),
   TOSS_CLIENT_KEY: optionalText,
@@ -305,6 +309,7 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     visionModel: parsed.VISION_MODEL ?? defaultVisionModel,
     visionEffort: parsed.VISION_EFFORT,
     visionTimeoutMs: parsed.VISION_TIMEOUT_MS,
+    visionPipeline: parsed.VISION_PIPELINE,
     mockVisionDelayMs: parsed.MOCK_VISION_DELAY_MS,
     paymentProvider:
       parsed.PAYMENT_PROVIDER ?? (isDemo ? PaymentProviderType.MOCK : PaymentProviderType.TOSS),

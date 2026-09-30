@@ -188,6 +188,10 @@ const createProvider = (behavior: ProviderBehavior): VisionProvider => ({
       usage: USAGE,
     };
   },
+  locateRow: async () => ({ band: null }),
+  extractPersonFromStrip: async () => {
+    throw new Error('not used by the eval yet');
+  },
 });
 
 const run = (behavior: ProviderBehavior, repeat: number, people = ['가상하나', '가상두울']) =>

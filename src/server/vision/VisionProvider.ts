@@ -10,6 +10,12 @@ export type VisionImage = {
   mime: ImageMimeType;
 };
 
+/** One image of a request; `label` (e.g. "Image 1: …") is sent as text right before it, null for none. */
+export type LabeledVisionImage = {
+  label: string | null;
+  image: VisionImage;
+};
+
 export type PersonExtractionInput = {
   rowId: string;
   name: string;
@@ -38,6 +44,23 @@ export type VisionTableResult = TableRecognitionResult & { usage?: VisionUsage }
 
 export type VisionPersonResult = PersonExtraction & { usage?: VisionUsage };
 
+/** Target row of `locateRow` (the name is data read from the image). */
+export type RowLocationInput = {
+  rowId: string;
+  name: string;
+};
+
+/** Vertical extent of one person row in the warped table, 0–1000 of the image height. */
+export type RowBand = {
+  top: number;
+  bottom: number;
+  /** Bottom border of the date header (day numbers + weekdays), null when unsure. */
+  headerBottom: number | null;
+};
+
+/** `band` null = the row was not found (the pipeline falls back to the full warped image). */
+export type VisionRowLocationResult = { band: RowBand | null; usage?: VisionUsage };
+
 /** Server-only image recognition boundary (Spec §8). */
 export type VisionProvider = {
   readonly kind: VisionProviderType;
@@ -46,6 +69,22 @@ export type VisionProvider = {
   /** Second pass: one person's whole month. Throws VisionProviderError on failure. */
   extractPerson: (
     image: VisionImage,
+    input: PersonExtractionInput,
+    signal: AbortSignal,
+  ) => Promise<VisionPersonResult>;
+  /** Pass 2a (Spec §15): finds the target row in the perspective-corrected table. */
+  locateRow: (
+    image: VisionImage,
+    input: RowLocationInput,
+    signal: AbortSignal,
+  ) => Promise<VisionRowLocationResult>;
+  /**
+   * Pass 2b (Spec §15): reads day 1…N in order from a header+row strip; `reference` is the whole warped
+   * table for context. Cells are aligned to the month (count checked) before returning.
+   */
+  extractPersonFromStrip: (
+    strip: VisionImage,
+    reference: VisionImage,
     input: PersonExtractionInput,
     signal: AbortSignal,
   ) => Promise<VisionPersonResult>;

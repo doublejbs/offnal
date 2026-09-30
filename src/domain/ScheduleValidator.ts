@@ -76,6 +76,31 @@ const buildEntry = (date: string, code: string | null, reviewReasons: ShiftRevie
   confirmed: reviewReasons.length === 0 && code !== null,
 });
 
+export type AlignedCells = {
+  cells: ExtractedCell[];
+  /** False when the model returned more or fewer cells than the month has days. */
+  countMatches: boolean;
+};
+
+/**
+ * Strip extraction (Spec §15) asks for day 1…N in order, so position is the day. Extra cells are dropped,
+ * missing trailing days stay absent (→ MISSING_DATE in `normalizeExtraction`), and on a count mismatch
+ * every kept cell is marked ambiguous because the column alignment is uncertain. Codes are never invented.
+ */
+export const alignCellsToMonth = (cells: ExtractedCell[], yearMonth: string): AlignedCells => {
+  const dayCount = daysInMonth(yearMonth);
+  const countMatches = cells.length === dayCount;
+
+  return {
+    countMatches,
+    cells: cells.slice(0, dayCount).map((cell, index) => ({
+      ...cell,
+      day: index + 1,
+      ambiguous: countMatches ? cell.ambiguous : true,
+    })),
+  };
+};
+
 /**
  * `yearMonth` is authoritative (chosen by the user); `extraction.yearMonth` from the provider is ignored.
  */

@@ -255,6 +255,8 @@ describe('processing lease', () => {
         return mock.recognizeTable(image, signal);
       },
       extractPerson: mock.extractPerson,
+      locateRow: mock.locateRow,
+      extractPersonFromStrip: mock.extractPersonFromStrip,
     };
 
     setVisionProviderForTesting(countingProvider);
@@ -404,6 +406,8 @@ describe('provider image preparation', () => {
 
         return mock.extractPerson(image, input, signal);
       },
+      locateRow: mock.locateRow,
+      extractPersonFromStrip: mock.extractPersonFromStrip,
     });
 
     try {
@@ -441,6 +445,8 @@ describe('concurrent extract', () => {
 
         return mock.extractPerson(image, input, signal);
       },
+      locateRow: mock.locateRow,
+      extractPersonFromStrip: mock.extractPersonFromStrip,
     });
 
     try {

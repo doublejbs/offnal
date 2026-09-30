@@ -6,7 +6,6 @@ import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { type DayHeader } from '@/domain/types/DayHeader';
 import { type ExtractedCell } from '@/domain/types/ExtractedCell';
-import { type PersonExtraction } from '@/domain/types/PersonExtraction';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type TableRecognitionResult } from '@/domain/types/TableRecognitionResult';
 import {
@@ -75,6 +74,24 @@ const buildCell = (day: number, rowIndex: number): ExtractedCell => {
 export const createMockVisionProvider = (options: MockVisionOptions): VisionProvider => {
   const now = options.now ?? (() => new Date());
 
+  const extractPerson: VisionProvider['extractPerson'] = async (_image, input, signal) => {
+    await waitFor(options.delayMs, signal);
+
+    const rowIndex = Math.max(
+      0,
+      MOCK_CANDIDATE_NAMES.findIndex((_, index) => buildRowId(index) === input.rowId),
+    );
+    const dayCount = daysInMonth(input.yearMonth);
+
+    return {
+      yearMonth: input.yearMonth,
+      rowId: input.rowId,
+      displayName: input.name,
+      definitions: MOCK_DEFINITIONS.map((definition) => ({ ...definition })),
+      cells: Array.from({ length: dayCount }, (_, index) => buildCell(index + 1, rowIndex)),
+    };
+  };
+
   return {
     kind: VisionProviderType.MOCK,
     recognizeTable: async (image: VisionImage, signal: AbortSignal): Promise<TableRecognitionResult> => {
@@ -95,25 +112,17 @@ export const createMockVisionProvider = (options: MockVisionOptions): VisionProv
           candidates: MOCK_CANDIDATE_NAMES.map((name, index) => ({ rowId: buildRowId(index), name })),
           definitions: MOCK_DEFINITIONS.map((definition) => ({ ...definition })),
           dayHeaders: buildDayHeaders(yearMonth),
+          // No corners: the pipeline keeps using the original image (Spec §15 fallback).
+          grid: null,
         },
       };
     },
-    extractPerson: async (_image, input, signal): Promise<PersonExtraction> => {
+    extractPerson,
+    locateRow: async (_image, _input, signal) => {
       await waitFor(options.delayMs, signal);
 
-      const rowIndex = Math.max(
-        0,
-        MOCK_CANDIDATE_NAMES.findIndex((_, index) => buildRowId(index) === input.rowId),
-      );
-      const dayCount = daysInMonth(input.yearMonth);
-
-      return {
-        yearMonth: input.yearMonth,
-        rowId: input.rowId,
-        displayName: input.name,
-        definitions: MOCK_DEFINITIONS.map((definition) => ({ ...definition })),
-        cells: Array.from({ length: dayCount }, (_, index) => buildCell(index + 1, rowIndex)),
-      };
+      return { band: null };
     },
+    extractPersonFromStrip: async (strip, _reference, input, signal) => extractPerson(strip, input, signal),
   };
 };

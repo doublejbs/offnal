@@ -7,6 +7,7 @@ import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
+import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { parseAppConfig } from '@/server/config/AppConfig';
 import { DEFAULT_FREE_MONTH_LIMIT, DEFAULT_PRICE_KRW } from '@/server/config/PricingConfig';
@@ -233,6 +234,17 @@ describe('parseAppConfig', () => {
 
     expect(config).toMatchObject({ geminiTier: GeminiTier.FREE, visionModel: 'gemini-3.8-flash' });
     expect(() => parseAppConfig({ OFFNAL_ENV: 'development', GEMINI_TIER: 'trial' })).toThrow();
+  });
+
+  it('defaults the second-pass pipeline to warp-strip and accepts the other modes', () => {
+    expect(parseAppConfig({ OFFNAL_ENV: 'development' }).visionPipeline).toBe(VisionPipelineMode.WARP_STRIP);
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', VISION_PIPELINE: 'baseline' }).visionPipeline).toBe(
+      VisionPipelineMode.BASELINE,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', VISION_PIPELINE: 'warp' }).visionPipeline).toBe(
+      VisionPipelineMode.WARP,
+    );
+    expect(() => parseAppConfig({ OFFNAL_ENV: 'development', VISION_PIPELINE: 'strip' })).toThrow();
   });
 
   it('defaults live deployments to the S3 bucket and demo/test to local files', () => {

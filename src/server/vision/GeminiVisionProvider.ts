@@ -3,24 +3,37 @@ import {
   type GenerateContentResponse,
   type GenerateContentResponseUsageMetadata,
   GoogleGenAI,
+  type Part,
 } from '@google/genai';
 
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
-import { parsePersonOutput, parseTableOutput } from '@/server/vision/VisionOutputParser';
+import {
+  parsePersonOutput,
+  parseRowLocationOutput,
+  parseStripPersonOutput,
+  parseTableOutput,
+} from '@/server/vision/VisionOutputParser';
 import {
   buildPersonUserPrompt,
+  buildRowLocationPrompt,
+  buildStripPersonPrompt,
   PERSON_JSON_SCHEMA,
+  REFERENCE_IMAGE_LABEL,
+  ROW_LOCATION_JSON_SCHEMA,
+  STRIP_IMAGE_LABEL,
+  STRIP_PERSON_JSON_SCHEMA,
   TABLE_JSON_SCHEMA,
   TABLE_USER_PROMPT,
   VISION_SYSTEM_PROMPT,
 } from '@/server/vision/VisionPrompts';
 import {
-  type VisionImage,
+  type LabeledVisionImage,
   type VisionModelCallResult,
   type VisionPersonResult,
   type VisionProvider,
   VisionProviderError,
+  type VisionRowLocationResult,
   type VisionTableResult,
   type VisionUsage,
 } from '@/server/vision/VisionProvider';
@@ -72,6 +85,14 @@ export const toGeminiJsonSchema = (schema: unknown): unknown => {
 
 const GEMINI_TABLE_SCHEMA = toGeminiJsonSchema(TABLE_JSON_SCHEMA);
 const GEMINI_PERSON_SCHEMA = toGeminiJsonSchema(PERSON_JSON_SCHEMA);
+const GEMINI_STRIP_PERSON_SCHEMA = toGeminiJsonSchema(STRIP_PERSON_JSON_SCHEMA);
+const GEMINI_ROW_LOCATION_SCHEMA = toGeminiJsonSchema(ROW_LOCATION_JSON_SCHEMA);
+
+/** Optional text label, then the inline image (labels tell multi-image prompts which image is which). */
+const toImageParts = ({ label, image }: LabeledVisionImage): Part[] => [
+  ...(label === null ? [] : [{ text: label }]),
+  { inlineData: { mimeType: image.mime, data: image.bytes.toString('base64') } },
+];
 
 const toUsage = (metadata: GenerateContentResponseUsageMetadata | undefined): VisionUsage => ({
   inputTokens: metadata?.promptTokenCount ?? 0,
@@ -119,7 +140,7 @@ export const createGeminiVisionProvider = (config: GeminiVisionConfig): VisionPr
   const client = config.apiKey ? new GoogleGenAI({ apiKey: config.apiKey }) : null;
 
   const callModel = async (
-    image: VisionImage,
+    images: LabeledVisionImage[],
     text: string,
     schema: unknown,
     signal: AbortSignal,
@@ -134,7 +155,7 @@ export const createGeminiVisionProvider = (config: GeminiVisionConfig): VisionPr
         contents: [
           {
             role: 'user',
-            parts: [{ inlineData: { mimeType: image.mime, data: image.bytes.toString('base64') } }, { text }],
+            parts: [...images.flatMap(toImageParts), { text }],
           },
         ],
         config: {
@@ -157,19 +178,47 @@ export const createGeminiVisionProvider = (config: GeminiVisionConfig): VisionPr
   return {
     kind: VisionProviderType.GEMINI,
     recognizeTable: async (image, signal): Promise<VisionTableResult> => {
-      const { output, usage } = await callModel(image, TABLE_USER_PROMPT, GEMINI_TABLE_SCHEMA, signal);
+      const { output, usage } = await callModel(
+        [{ label: null, image }],
+        TABLE_USER_PROMPT,
+        GEMINI_TABLE_SCHEMA,
+        signal,
+      );
 
       return { ...parseTableOutput(output), usage };
     },
     extractPerson: async (image, input, signal): Promise<VisionPersonResult> => {
       const { output, usage } = await callModel(
-        image,
+        [{ label: null, image }],
         buildPersonUserPrompt(input),
         GEMINI_PERSON_SCHEMA,
         signal,
       );
 
       return { ...parsePersonOutput(output, input), usage };
+    },
+    locateRow: async (image, input, signal): Promise<VisionRowLocationResult> => {
+      const { output, usage } = await callModel(
+        [{ label: null, image }],
+        buildRowLocationPrompt(input),
+        GEMINI_ROW_LOCATION_SCHEMA,
+        signal,
+      );
+
+      return { band: parseRowLocationOutput(output), usage };
+    },
+    extractPersonFromStrip: async (strip, reference, input, signal): Promise<VisionPersonResult> => {
+      const { output, usage } = await callModel(
+        [
+          { label: STRIP_IMAGE_LABEL, image: strip },
+          { label: REFERENCE_IMAGE_LABEL, image: reference },
+        ],
+        buildStripPersonPrompt(input),
+        GEMINI_STRIP_PERSON_SCHEMA,
+        signal,
+      );
+
+      return { ...parseStripPersonOutput(output, input), usage };
     },
   };
 };

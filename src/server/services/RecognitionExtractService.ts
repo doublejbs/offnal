@@ -11,7 +11,6 @@ import { type CandidatesResponse } from '@/domain/types/api/CandidatesResponse';
 import { type ExtractRecognitionRequest } from '@/domain/types/api/ExtractRecognitionRequest';
 import { type ExtractRecognitionResponse } from '@/domain/types/api/ExtractRecognitionResponse';
 import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
-import { type PersonExtraction } from '@/domain/types/PersonExtraction';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { type Db, type DbExecutor } from '@/server/db/Database';
@@ -23,6 +22,11 @@ import { assertExtractAllowed, chargeExtract } from '@/server/services/RateLimit
 import { isSourceAvailable, requireLoggedInOwnedJob } from '@/server/services/RecognitionOwnership';
 import { loadSourceForVision, readSourceBytes } from '@/server/services/RecognitionProcessService';
 import { getVisionProvider } from '@/server/vision/VisionFactory';
+import {
+  extractPersonWithPipeline,
+  type PipelineCallRunner,
+  preparePipelineImage,
+} from '@/server/vision/VisionPipeline';
 import { toRecognitionErrorCode } from '@/server/vision/VisionProvider';
 
 /**
@@ -106,15 +110,21 @@ const extractPersonSchedule = async (
     throw toProviderApiError(source.errorCode);
   }
 
-  const signal = AbortSignal.timeout(getAppConfig().visionTimeoutMs);
-  let extraction: PersonExtraction;
+  const config = getAppConfig();
+  // One budget for every call of the pipeline (locate + extract), like the single call before §15.
+  const signal = AbortSignal.timeout(config.visionTimeoutMs);
+  const runCall: PipelineCallRunner = (_step, run) => run(signal);
+  // The warped image lives only in memory for this request (source lifetime rules unchanged).
+  const prepared = await preparePipelineImage(config.visionPipeline, source.image, table.grid);
+  let extraction;
 
   try {
-    extraction = await getVisionProvider().extractPerson(
-      source.image,
+    ({ extraction } = await extractPersonWithPipeline(
+      getVisionProvider(),
+      prepared,
       { rowId, name, yearMonth, definitions: table.definitions },
-      signal,
-    );
+      runCall,
+    ));
   } catch (error: unknown) {
     throw toProviderApiError(toRecognitionErrorCode(error, signal));
   }
