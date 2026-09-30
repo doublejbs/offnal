@@ -72,20 +72,21 @@ export const LANDING_RECIPIENT_POINTS: string[] = [
   '가입이나 로그인 없이 링크로 바로 볼 수 있어요.',
   '내가 공개한 달의 내 근무만 보여요. 동료 이름, 원본 사진, 수정 기능은 없어요.',
   '받은 사람도 달력 이미지를 저장하거나 자기 캘린더에 추가할 수 있어요.',
-  '근무가 바뀌어 다시 저장하면 같은 링크에서 바로 확인할 수 있어요.',
+  '공유 중인 달이면 근무가 바뀌어 다시 저장해도 같은 링크에서 바로 확인할 수 있어요.',
 ];
 
 /** 24 → "24시간" */
 export const formatHours = (hours: number): string => `${hours}시간`;
 
+/** The price card above already says "N months free, then X per month"; this answers how the months are counted. */
 const describeFreeMonths = ({ freeMonthLimit, priceKrw }: LandingCopySource): string => {
   const price = formatPrice(priceKrw);
 
   if (freeMonthLimit <= 0) {
-    return `새로 저장하는 달마다 한 달분 ${price}이에요. 자동 결제는 없어요.`;
+    return `새로 저장하는 달마다 한 달분 ${price}이에요. 이미 저장한 달을 고쳐 다시 저장할 때는 추가 비용이 없어요.`;
   }
 
-  return `처음 저장하는 ${formatMonthCount(freeMonthLimit)}은 무료예요. 그다음부터는 새로 저장하는 달마다 한 달분 ${price}이고, 자동 결제는 없어요.`;
+  return `근무를 저장한 달을 기준으로 ${formatMonthCount(freeMonthLimit)}까지 무료예요. 이미 저장한 달을 고쳐 다시 저장해도 무료 달이 줄거나 비용이 생기지 않고, 무료 달을 다 쓴 뒤 새 달을 저장할 때만 한 달분 ${price}을 결제해요.`;
 };
 
 export const buildLandingFaqs = (source: LandingCopySource): LandingFaq[] => [
@@ -95,12 +96,12 @@ export const buildLandingFaqs = (source: LandingCopySource): LandingFaq[] => [
   },
   {
     question: '올린 원본 사진은 어떻게 되나요?',
-    answer: `근무를 확인하고 저장하면 원본 사진을 삭제해요. 저장하지 않아도 올린 뒤 ${formatHours(source.sourceTtlHours)}이 지나면 자동으로 삭제되고, 공유 화면에는 원본 사진이 들어가지 않아요.`,
+    answer: `근무를 확인하고 저장하면 원본 사진을 삭제해요. 저장하지 않아도 올린 뒤 ${formatHours(source.sourceTtlHours)}이 지나면 더 이상 열 수 없고, 이후 자동으로 삭제돼요. 공유 화면에는 원본 사진이 들어가지 않아요.`,
   },
   {
     question: '근무가 바뀌면 어떻게 하나요?',
     answer:
-      '새 근무표 사진을 올리거나 달력에서 직접 고친 뒤 다시 저장하면 돼요. 이미 저장한 달은 추가 비용이 없고, 공유 링크에도 바로 반영돼요. 캘린더에 이미 추가한 일정은 자동으로 바뀌지 않아요.',
+      '새 근무표 사진을 올리거나 달력에서 직접 고친 뒤 다시 저장하면 돼요. 이미 저장한 달은 추가 비용이 없고, 공유 중인 달이면 같은 링크에 바로 반영돼요. 캘린더에 이미 추가한 일정은 자동으로 바뀌지 않아요.',
   },
   {
     question: '카카오톡으로 링크를 보내면 미리보기에 내 이름이 나오나요?',

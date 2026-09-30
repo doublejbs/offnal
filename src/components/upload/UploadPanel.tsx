@@ -65,10 +65,11 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
           </div>
         )}
       </div>
-      <div className="hint">
+      <div className="hint keep-all">
         사진은 AI로 분석하며 공유 화면에는 포함되지 않아요.
         <br />
-        확인·저장 후 원본을 삭제하고, 저장하지 않아도 {formatHours(sourceTtlHours)}이 지나면 삭제해요.
+        확인·저장 후 원본을 삭제해요. 저장하지 않아도 {formatHours(sourceTtlHours)}이 지나면 더 이상 열 수
+        없고, 이후 자동으로 삭제돼요.
       </div>
       {/* Signed out, the guide's share section explains these three in detail; the chips would only repeat it. */}
       {isLoggedIn && (

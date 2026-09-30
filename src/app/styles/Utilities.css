@@ -119,3 +119,8 @@ label[data-busy='true'] {
 fieldset.time-row {
   min-width: 0;
 }
+
+.keep-all {
+  /* Break Korean between words so "24시간" stays together; body's overflow-wrap still guards long strings. */
+  word-break: keep-all;
+}
