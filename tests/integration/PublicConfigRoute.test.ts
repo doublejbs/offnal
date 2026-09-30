@@ -43,8 +43,20 @@ describe('public config', () => {
       authProviders: [AuthProviderType.DEV],
       isMockVision: true,
       isMockPayment: true,
+      sourceTtlHours: 24,
     });
     expect(JSON.stringify(body)).not.toContain('secret');
+  });
+
+  it('exposes the source photo retention hours from SOURCE_TTL_HOURS', async () => {
+    envSandbox.set({ SOURCE_TTL_HOURS: '12' });
+
+    const client = createApiTestClient();
+    const body = await readJson<PublicConfigResponse>(
+      await client.send(publicConfigRoute, '/api/config/public'),
+    );
+
+    expect(body.sourceTtlHours).toBe(12);
   });
 
   it('flags mock providers of a live test deployment and keeps dev login off', async () => {

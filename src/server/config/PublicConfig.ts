@@ -20,5 +20,6 @@ export const buildPublicConfig = (config: AppConfig = getAppConfig()): PublicCon
     isMockVision: config.visionProvider === VisionProviderType.MOCK,
     isMockPayment: config.paymentProvider === PaymentProviderType.MOCK,
     uploadMaxBytes: config.uploadMaxBytes,
+    sourceTtlHours: config.sourceTtlHours,
   };
 };

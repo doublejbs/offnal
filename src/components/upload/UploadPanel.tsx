@@ -5,7 +5,9 @@ import { CalendarPlus, Image as ImageIcon, Link as LinkIcon, LoaderCircle, ScanL
 import { useId } from 'react';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
+import { formatHours } from '@/client/LandingCopy';
 import { usePublicConfig } from '@/components/ConfigProvider';
+import LandingGuideView from '@/components/upload/LandingGuideView';
 import { useUploadState } from '@/components/upload/UseUploadState';
 import LoginOptions from '@/components/LoginOptions';
 import { LoginEmphasis } from '@/domain/enums/LoginEmphasis';
@@ -14,9 +16,9 @@ type UploadPanelProps = {
   isLoggedIn: boolean;
 };
 
-/** Entry screen: free months and price from server config, AI/deletion notice before choosing a photo. */
+/** Entry screen: free months and price from server config, AI/deletion notice before choosing a photo; signed out, a service guide (Spec §17). */
 const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
-  const { freeMonthLimit, priceKrw, uploadMaxBytes } = usePublicConfig();
+  const { freeMonthLimit, priceKrw, sourceTtlHours, uploadMaxBytes } = usePublicConfig();
   const { isUploading, statusText, error, handleFileChange } = useUploadState(uploadMaxBytes);
   const inputId = useId();
   const loginSectionId = useId();
@@ -66,22 +68,25 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
       <div className="hint">
         사진은 AI로 분석하며 공유 화면에는 포함되지 않아요.
         <br />
-        확인·저장 후 원본을 삭제하고, 저장하지 않아도 보관 기간이 지나면 삭제해요.
+        확인·저장 후 원본을 삭제하고, 저장하지 않아도 {formatHours(sourceTtlHours)}이 지나면 삭제해요.
       </div>
-      <div className="benefits">
-        <span>
-          <CalendarPlus size={16} aria-hidden="true" />
-          캘린더 추가
-        </span>
-        <span>
-          <LinkIcon size={16} aria-hidden="true" />
-          링크 공유
-        </span>
-        <span>
-          <ImageIcon size={16} aria-hidden="true" />
-          이미지 저장
-        </span>
-      </div>
+      {/* Signed out, the guide's share section explains these three in detail; the chips would only repeat it. */}
+      {isLoggedIn && (
+        <div className="benefits">
+          <span>
+            <CalendarPlus size={16} aria-hidden="true" />
+            캘린더 추가
+          </span>
+          <span>
+            <LinkIcon size={16} aria-hidden="true" />
+            링크 공유
+          </span>
+          <span>
+            <ImageIcon size={16} aria-hidden="true" />
+            이미지 저장
+          </span>
+        </div>
+      )}
       <div className="block">
         <h2>{freeMonths} 써보고 결정하세요</h2>
         <p>
@@ -90,6 +95,13 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
           필요한 달만 구매하고, 자동 결제는 없어요.
         </p>
       </div>
+      {!isLoggedIn && (
+        <LandingGuideView
+          freeMonthLimit={freeMonthLimit}
+          priceKrw={priceKrw}
+          sourceTtlHours={sourceTtlHours}
+        />
+      )}
       {isLoggedIn ? (
         <div className="center">
           <Link href="/calendar" className="textbutton">

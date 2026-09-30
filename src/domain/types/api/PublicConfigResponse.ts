@@ -17,4 +17,6 @@ export type PublicConfigResponse = {
   /** Checkout uses the test payment button, never charges (demo, or live test deployment without Toss keys). */
   isMockPayment: boolean;
   uploadMaxBytes: number;
+  /** Hours an unsaved uploaded photo is kept before automatic deletion (SOURCE_TTL_HOURS). */
+  sourceTtlHours: number;
 };
