@@ -8,7 +8,7 @@ import {
   applyCodeToDate,
   type DefinitionPatch,
   removeDefinition,
-  updateDefinition,
+  updateDefinitionAndResolve,
 } from '@/client/DraftEditing';
 import { type LocalDraft } from '@/client/DraftSaveQueue';
 import { type DraftAutosave } from '@/components/draft/UseDraftAutosave';
@@ -117,10 +117,7 @@ export const useDraftEditing = ({
   };
 
   const handleUpdateDefinition = (code: string, definitionPatch: DefinitionPatch) =>
-    updateLocal((current) => ({
-      ...current,
-      definitions: updateDefinition(current.definitions, code, definitionPatch),
-    }));
+    updateLocal((current) => updateDefinitionAndResolve(current, code, definitionPatch));
 
   const handleRemoveDefinition = (code: string) =>
     updateLocal((current) => ({

@@ -12,6 +12,7 @@ import {
   formatRawText,
   formatReviewWarning,
   formatShiftTime,
+  formatUndefinedCodesWarning,
   recognitionErrorMessage,
 } from '@/client/DisplayText';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
@@ -65,6 +66,13 @@ describe('DisplayText', () => {
       '확인 필요한 날짜가 2일 있어요: 14일, 20일',
     );
     expect(formatReviewWarning({ count: 0, dates: [] })).toBeNull();
+  });
+
+  it('formats the warning for codes outside the legend', () => {
+    expect(formatUndefinedCodesWarning(['W', '연차'])).toBe(
+      '처음 보는 코드 2개: W, 연차 — 근무 시간 또는 휴무를 정해 주세요',
+    );
+    expect(formatUndefinedCodesWarning([])).toBeNull();
   });
 
   it('describes publish blockers', () => {

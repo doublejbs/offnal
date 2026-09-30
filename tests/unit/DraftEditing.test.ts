@@ -5,6 +5,7 @@ import {
   applyCodeToDate,
   removeDefinition,
   updateDefinition,
+  updateDefinitionAndResolve,
   validateDraftInput,
 } from '@/client/DraftEditing';
 import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
@@ -83,5 +84,37 @@ describe('DraftEditing', () => {
       'D 코드의 이름을 입력해 주세요.',
     );
     expect(validateDraftInput('가'.repeat(41), definitions)).toBe('이름은 40자까지 입력할 수 있어요.');
+  });
+
+  it('confirms dates of an undefined code as soon as its definition is complete', () => {
+    const draft = {
+      definitions: [
+        ...definitions,
+        { code: 'W', label: 'W', startTime: null, endTime: null, endsNextDay: null, isOff: false },
+      ],
+      entries: [
+        ...entries,
+        {
+          date: '2026-10-16',
+          code: 'W',
+          reviewReasons: [ShiftReviewReason.UNDEFINED_CODE],
+          confirmed: false,
+        },
+      ],
+    };
+    const partial = updateDefinitionAndResolve(draft, 'W', { startTime: '09:00' });
+
+    expect(partial.entries[2]).toMatchObject({ code: 'W', confirmed: false });
+
+    const complete = updateDefinitionAndResolve(partial, 'W', { endTime: '18:00' });
+
+    expect(complete.definitions[2]).toMatchObject({ endsNextDay: false });
+    expect(complete.entries[2]).toEqual({
+      date: '2026-10-16',
+      code: 'W',
+      reviewReasons: [],
+      confirmed: true,
+    });
+    expect(complete.entries[0]).toBe(entries[0]);
   });
 });

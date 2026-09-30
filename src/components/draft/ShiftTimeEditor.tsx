@@ -11,6 +11,8 @@ import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 type ShiftTimeEditorProps = {
   definitions: ShiftDefinition[];
   entries: ShiftEntry[];
+  /** Codes outside the legend still waiting for a definition: each row offers "휴무로 처리". */
+  undefinedCodes: string[];
   isOpen: boolean;
   disabled: boolean;
   /** Drafts from a photo: the recognized times must be explicitly confirmed before saving. */
@@ -18,6 +20,7 @@ type ShiftTimeEditorProps = {
   isConfirmed: boolean;
   summaryRef: RefObject<HTMLElement | null>;
   confirmRef: RefObject<HTMLInputElement | null>;
+  rowsRef: RefObject<HTMLDivElement | null>;
   onToggle: (isOpen: boolean) => void;
   onConfirmChange: (isConfirmed: boolean) => void;
   onUpdate: (code: string, patch: DefinitionPatch) => void;
@@ -29,12 +32,14 @@ type ShiftTimeEditorProps = {
 const ShiftTimeEditor = ({
   definitions,
   entries,
+  undefinedCodes,
   isOpen,
   disabled,
   requiresConfirmation,
   isConfirmed,
   summaryRef,
   confirmRef,
+  rowsRef,
   onToggle,
   onConfirmChange,
   onUpdate,
@@ -46,13 +51,14 @@ const ShiftTimeEditor = ({
       <summary ref={summaryRef} className="summary">
         근무 시간 확인 · 코드 관리
       </summary>
-      <div className="mt-8">
+      <div ref={rowsRef} className="mt-8">
         {definitions.map((definition) => (
           <ShiftTimeRow
             key={definition.code}
             definition={definition}
             definitions={definitions}
             isUsed={isCodeUsed(entries, definition.code)}
+            isUndefined={undefinedCodes.includes(definition.code)}
             disabled={disabled}
             onUpdate={onUpdate}
             onRemove={onRemove}

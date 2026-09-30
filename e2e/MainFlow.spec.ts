@@ -8,13 +8,15 @@ import {
   countWorkAndOff,
   DEFAULT_FIXES,
   MOCK_NAMES,
+  UNDEFINED_CODE_DAYS,
   uniqueName,
   UNREADABLE_DAY,
 } from './support/ApiFlow';
+import { defineUndefinedCodesInUi } from './support/DraftUi';
 import { TABLE_IMAGE_SIZE, writePngFixture } from './support/FixtureImages';
 import { collectApiBodies, saveScreenshot, test } from './support/OffnalTest';
 
-const SHIFT_CODE_PATTERN = /"(D|E|N|S|OFF)"/;
+const SHIFT_CODE_PATTERN = /"(D|E|N|S|OFF|W|연차)"/;
 
 test('업로드 → 블러 → 데모 로그인 → 이름 선택 → 확인 필요 수정 → 무료 저장 → 달력', async ({
   page,
@@ -92,10 +94,19 @@ test('업로드 → 블러 → 데모 로그인 → 이름 선택 → 확인 필
   await page.getByRole('radio', { name: '김하루' }).check();
   await page.getByRole('button', { name: '내 근무 확인하기' }).click();
 
-  // Draft: two review days, save blocked until they are fixed.
+  // Draft: two review days + two codes outside the legend (Spec §16), save blocked until fixed.
   await expect(page).toHaveURL(/\/drafts\/[0-9a-f-]{36}$/);
+
+  const undefinedDays = Object.keys(UNDEFINED_CODE_DAYS).map(Number);
+  const reviewDays = [...undefinedDays, AMBIGUOUS_DAY, UNREADABLE_DAY].sort((left, right) => left - right);
+
   await expect(
-    page.getByText(`확인 필요한 날짜가 2일 있어요: ${AMBIGUOUS_DAY}일, ${UNREADABLE_DAY}일`),
+    page.getByText(
+      `확인 필요한 날짜가 ${reviewDays.length}일 있어요: ${reviewDays.map((day) => `${day}일`).join(', ')}`,
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '처음 보는 코드 2개: 연차, W — 근무 시간 또는 휴무를 정해 주세요' }),
   ).toBeVisible();
 
   const saveButton = page.getByRole('button', { name: '확인하고 무료로 저장' });
@@ -109,7 +120,14 @@ test('업로드 → 블러 → 데모 로그인 → 이름 선택 → 확인 필
       .getByRole('button', { name: new RegExp(`^${month}월 ${day}일 `) });
   const codeGroup = page.getByRole('group', { name: '근무 코드 선택' });
 
-  // Day 14 (ambiguous, selected first): confirm with a pointer.
+  // Codes outside the legend: one definition confirms every date that uses them.
+  await defineUndefinedCodesInUi(page);
+  await expect(
+    page.getByText(`확인 필요한 날짜가 2일 있어요: ${AMBIGUOUS_DAY}일, ${UNREADABLE_DAY}일`),
+  ).toBeVisible();
+
+  // Day 14 (ambiguous): confirm with a pointer.
+  await dayButton(AMBIGUOUS_DAY).click();
   await expect(dayButton(AMBIGUOUS_DAY)).toHaveAttribute('aria-pressed', 'true');
   await codeGroup.getByRole('button', { name: 'E 이브닝' }).click();
   await expect(dayButton(AMBIGUOUS_DAY)).toHaveAccessibleName(`${month}월 ${AMBIGUOUS_DAY}일 E`);

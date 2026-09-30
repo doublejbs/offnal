@@ -25,6 +25,14 @@ export const MOCK_NAMES = ['김하루', '이여름', '박지우', '남궁하늘�
 export const AMBIGUOUS_DAY = 14;
 export const UNREADABLE_DAY = 20;
 
+/** Mock provider fixture: codes outside the legend (Spec §16), same days for every row. */
+export const LEAVE_CODE = '연차';
+export const WORK_CODE_OUTSIDE_LEGEND = 'W';
+export const UNDEFINED_CODE_DAYS: Record<number, string> = { 3: LEAVE_CODE, 25: WORK_CODE_OUTSIDE_LEGEND };
+/** How the tests define them: 연차 as a day off, W with these times. */
+export const W_START_TIME = '09:00';
+export const W_END_TIME = '18:00';
+
 const SHIFT_PATTERN = ['D', 'D', 'E', 'E', 'N', 'N', 'OFF', 'OFF', 'S', 'OFF'];
 const OFF_CODE = 'OFF';
 
@@ -57,10 +65,15 @@ export const buildExpectedCodes = (
   Array.from({ length: daysInMonth(yearMonth) }, (_, index) => {
     const day = index + 1;
 
-    return overrides[day] ?? SHIFT_PATTERN[(day - 1 + rowIndex * 3) % SHIFT_PATTERN.length] ?? OFF_CODE;
+    return (
+      overrides[day] ??
+      UNDEFINED_CODE_DAYS[day] ??
+      SHIFT_PATTERN[(day - 1 + rowIndex * 3) % SHIFT_PATTERN.length] ??
+      OFF_CODE
+    );
   });
 
-export const countWorkAndOff = (codes: string[], offCodes: string[] = [OFF_CODE]) => {
+export const countWorkAndOff = (codes: string[], offCodes: string[] = [OFF_CODE, LEAVE_CODE]) => {
   const offCount = codes.filter((code) => offCodes.includes(code)).length;
 
   return { workCount: codes.length - offCount, offCount };
@@ -125,6 +138,20 @@ export const getDraftViaApi = async (request: APIRequestContext, draftId: string
   return (await response.json()) as DraftResponse;
 };
 
+/** Defines the fixture's codes outside the legend the way a user would (연차 off, W timed). */
+export const defineUndefinedCodes = (definitions: ShiftDefinition[]): ShiftDefinition[] =>
+  definitions.map((definition) => {
+    if (definition.code === LEAVE_CODE) {
+      return { ...definition, isOff: true };
+    }
+
+    if (definition.code === WORK_CODE_OUTSIDE_LEGEND) {
+      return { ...definition, startTime: W_START_TIME, endTime: W_END_TIME, endsNextDay: false };
+    }
+
+    return definition;
+  });
+
 type ConfirmOptions = {
   /** Code per day of month for days to change (defaults fix the two review days). */
   codeByDay?: Record<number, string>;
@@ -134,7 +161,7 @@ type ConfirmOptions = {
 
 export const DEFAULT_FIXES: Record<number, string> = { [AMBIGUOUS_DAY]: 'E', [UNREADABLE_DAY]: 'D' };
 
-/** Confirms every day (fixing the review days) the way the editor would. Returns the new revision. */
+/** Confirms every day (fixing the review days, defining 연차/W) the way the editor would. Returns the new revision. */
 export const confirmDraftViaApi = async (
   request: APIRequestContext,
   draftId: string,
@@ -152,7 +179,7 @@ export const confirmDraftViaApi = async (
     data: {
       revision: draft.revision,
       entries,
-      definitions: [...draft.definitions, ...(options.extraDefinitions ?? [])],
+      definitions: [...defineUndefinedCodes(draft.definitions), ...(options.extraDefinitions ?? [])],
       ...(options.displayName ? { displayName: options.displayName } : {}),
     },
   });

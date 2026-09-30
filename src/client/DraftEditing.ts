@@ -1,3 +1,4 @@
+import { resolveDefinedCodes } from '@/domain/DefinedCodeResolver';
 import { MAX_DISPLAY_NAME_LENGTH, MAX_LABEL_LENGTH } from '@/domain/DomainLimits';
 import { MAX_CODE_LENGTH, normalizeCode } from '@/domain/ScheduleValidator';
 import { isValidTime } from '@/domain/ShiftTime';
@@ -85,6 +86,25 @@ export const updateDefinition = (
 
     return next;
   });
+
+export type DefinitionsAndEntries = {
+  definitions: ShiftDefinition[];
+  entries: ShiftEntry[];
+};
+
+/**
+ * `updateDefinition` + the same `resolveDefinedCodes` the server applies on PATCH, so dates of a code
+ * outside the legend are confirmed on screen as soon as its definition is complete (Spec §16).
+ */
+export const updateDefinitionAndResolve = <T extends DefinitionsAndEntries>(
+  draft: T,
+  code: string,
+  patch: DefinitionPatch,
+): T => {
+  const definitions = updateDefinition(draft.definitions, code, patch);
+
+  return { ...draft, definitions, entries: resolveDefinedCodes(draft.entries, definitions) };
+};
 
 export const isCodeUsed = (entries: ShiftEntry[], code: string): boolean =>
   entries.some((entry) => entry.code === code);

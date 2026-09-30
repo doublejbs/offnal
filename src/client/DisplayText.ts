@@ -65,6 +65,15 @@ export const formatReviewWarning = (review: ReviewSummary): string | null => {
   return `확인 필요한 날짜가 ${review.count}일 있어요: ${formatDayList(review.dates)}`;
 };
 
+/** Spec §16: "처음 보는 코드 2개: W, 연차 — 근무 시간 또는 휴무를 정해 주세요". */
+export const formatUndefinedCodesWarning = (codes: string[]): string | null => {
+  if (codes.length === 0) {
+    return null;
+  }
+
+  return `처음 보는 코드 ${codes.length}개: ${codes.join(', ')} — 근무 시간 또는 휴무를 정해 주세요`;
+};
+
 export const describeBlocker = (blocker: PublishBlocker): string => {
   if (blocker.reason === PublishBlockReason.UNCONFIRMED_DATES) {
     return `근무를 확인하지 않은 날짜 ${blocker.dates.length}일: ${formatDayList(blocker.dates)}`;

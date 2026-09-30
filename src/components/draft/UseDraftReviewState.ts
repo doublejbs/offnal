@@ -8,6 +8,7 @@ import { isAbortError, toScreenLoadState } from '@/client/LoadState';
 import { useDraftAutosave } from '@/components/draft/UseDraftAutosave';
 import { toLocalDraft, useDraftEditing } from '@/components/draft/UseDraftEditing';
 import { useDraftPublish } from '@/components/draft/UseDraftPublish';
+import { listUndefinedCodes } from '@/domain/DefinedCodeResolver';
 import { DraftFocusTarget } from '@/domain/enums/DraftFocusTarget';
 import { DraftSaveState } from '@/domain/enums/DraftSaveState';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
@@ -101,6 +102,8 @@ export const useDraftReviewState = (draftId: string) => {
     [local],
   );
   const review = useMemo(() => summarizeReview(local?.entries ?? []), [local]);
+  // Spec §16: codes outside the legend still waiting for a definition (time or day off).
+  const undefinedCodes = useMemo(() => listUndefinedCodes(local?.entries ?? []), [local]);
   // Recognized times must be confirmed by the user (client-side check; the server checks completeness).
   const needsTimeConfirmation = server?.jobId !== null && server?.jobId !== undefined && !isTimeConfirmed;
   const canPublish = blockers.length === 0 && !needsTimeConfirmation && !editing.isLocked;
@@ -127,6 +130,13 @@ export const useDraftReviewState = (draftId: string) => {
     }
 
     return DraftFocusTarget.DAY_EDITOR;
+  };
+
+  /** Opens the time editor; the view focuses the row of the returned code (first undefined code). */
+  const handleSelectUndefinedCodes = (): string | null => {
+    setIsTimeEditorOpen(true);
+
+    return undefinedCodes[0] ?? null;
   };
 
   const handleAddCode = (code: string, label: string, assignToSelected: boolean): string | null => {
@@ -156,6 +166,7 @@ export const useDraftReviewState = (draftId: string) => {
     canPublish,
     blockers,
     review,
+    undefinedCodes,
     saveState: autosave.saveState,
     saveMessage: autosave.saveMessage,
     publish,
@@ -169,6 +180,7 @@ export const useDraftReviewState = (draftId: string) => {
     handleUpdateDefinition: editing.handleUpdateDefinition,
     handleRemoveDefinition: editing.handleRemoveDefinition,
     handleSelectBlocker,
+    handleSelectUndefinedCodes,
     handleRetrySave: autosave.flush,
     handleReload: () => setAttempt((value) => value + 1),
   };

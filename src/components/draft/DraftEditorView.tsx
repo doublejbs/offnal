@@ -3,7 +3,7 @@
 import { Image as ImageIcon } from 'lucide-react';
 import { useRef, useState } from 'react';
 
-import { formatReviewWarning } from '@/client/DisplayText';
+import { formatReviewWarning, formatUndefinedCodesWarning } from '@/client/DisplayText';
 import { type LocalDraft } from '@/client/DraftSaveQueue';
 import BackLink from '@/components/BackLink';
 import MonthGrid from '@/components/calendar/MonthGrid';
@@ -26,6 +26,9 @@ type DraftEditorViewProps = {
   local: LocalDraft;
 };
 
+const findTimeRow = (container: HTMLElement | null, code: string): HTMLElement | null =>
+  container?.querySelector<HTMLElement>(`[data-code="${CSS.escape(code)}"]`) ?? null;
+
 /** Focus after React has rendered the newly selected date / opened section. */
 const focusLater = (element: () => HTMLElement | null) => {
   window.requestAnimationFrame(() => {
@@ -41,8 +44,10 @@ const DraftEditorView = ({ state, server, local }: DraftEditorViewProps) => {
   const editorRef = useRef<HTMLElement | null>(null);
   const timeSummaryRef = useRef<HTMLElement | null>(null);
   const timeConfirmRef = useRef<HTMLInputElement | null>(null);
+  const timeRowsRef = useRef<HTMLDivElement | null>(null);
   const selectedEntry = local.entries.find((entry) => entry.date === state.selectedDate) ?? null;
   const warning = formatReviewWarning(state.review);
+  const undefinedWarning = formatUndefinedCodesWarning(state.undefinedCodes);
   const sourceByDate = new Map(server.sourceCells.map((cell) => [cell.date, cell.rawText]));
   const canShowSource = server.sourceAvailable && server.jobId !== null;
 
@@ -50,6 +55,12 @@ const DraftEditorView = ({ state, server, local }: DraftEditorViewProps) => {
     const target = state.handleSelectBlocker(blocker);
 
     focusLater(() => (target === DraftFocusTarget.TIME_EDITOR ? timeSummaryRef.current : editorRef.current));
+  };
+
+  const handleSelectUndefinedCodes = () => {
+    const code = state.handleSelectUndefinedCodes();
+
+    focusLater(() => (code ? findTimeRow(timeRowsRef.current, code) : null) ?? timeSummaryRef.current);
   };
 
   const handleSelectTimeConfirmation = () => {
@@ -83,8 +94,17 @@ const DraftEditorView = ({ state, server, local }: DraftEditorViewProps) => {
         onRetry={() => void state.handleRetrySave()}
         onReload={state.handleReload}
       />
-      {warning ? (
-        <div className="warning">{warning}</div>
+      {warning || undefinedWarning ? (
+        <div className="warning">
+          {warning}
+          {undefinedWarning && (
+            <div>
+              <button type="button" className="linkish" onClick={handleSelectUndefinedCodes}>
+                {undefinedWarning}
+              </button>
+            </div>
+          )}
+        </div>
       ) : (
         <div className="notice">모든 날짜를 확인했어요. 근무 시간도 확인해 주세요.</div>
       )}
@@ -129,12 +149,14 @@ const DraftEditorView = ({ state, server, local }: DraftEditorViewProps) => {
       <ShiftTimeEditor
         definitions={local.definitions}
         entries={local.entries}
+        undefinedCodes={state.undefinedCodes}
         isOpen={state.isTimeEditorOpen}
         disabled={state.isLocked}
         requiresConfirmation={server.jobId !== null}
         isConfirmed={state.isTimeConfirmed}
         summaryRef={timeSummaryRef}
         confirmRef={timeConfirmRef}
+        rowsRef={timeRowsRef}
         onToggle={state.setIsTimeEditorOpen}
         onConfirmChange={state.setIsTimeConfirmed}
         onUpdate={state.handleUpdateDefinition}

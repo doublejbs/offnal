@@ -13,7 +13,7 @@ import {
   UNREADABLE_DAY,
   uploadViaApi,
 } from './support/ApiFlow';
-import { getCodeButton, getDayButton } from './support/DraftUi';
+import { defineUndefinedCodesInUi, getCodeButton, getDayButton } from './support/DraftUi';
 import { expectNoHorizontalOverflow, newIsolatedContext, saveScreenshot, test } from './support/OffnalTest';
 
 const LONG_NAME = '남궁하늘빛나래';
@@ -73,6 +73,9 @@ test('주요 화면 가로 넘침 없음 (긴 이름·사용자 코드 포함)',
   await expect(getDayButton(page, yearMonth, UNREADABLE_DAY)).toHaveAccessibleName(
     `${Number(yearMonth.slice(5))}월 ${UNREADABLE_DAY}일 ${LONG_CODE}`,
   );
+  await expect(page.getByRole('button', { name: /^처음 보는 코드 2개/ })).toBeVisible();
+  await check('draft-undefined-codes');
+  await defineUndefinedCodesInUi(page);
   await page.getByRole('checkbox', { name: /근무 시간을 확인했어요/ }).check();
   await check('draft');
 

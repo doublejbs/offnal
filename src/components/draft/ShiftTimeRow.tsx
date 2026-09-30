@@ -1,6 +1,7 @@
 'use client';
 
 import { Trash2 } from 'lucide-react';
+import { useRef } from 'react';
 
 import { formatShiftTime } from '@/client/DisplayText';
 import { type DefinitionPatch } from '@/client/DraftEditing';
@@ -13,6 +14,8 @@ type ShiftTimeRowProps = {
   definition: ShiftDefinition;
   definitions: ShiftDefinition[];
   isUsed: boolean;
+  /** Code outside the legend not yet defined (Spec §16): offers a quick "휴무로 처리". */
+  isUndefined: boolean;
   disabled: boolean;
   onUpdate: (code: string, patch: DefinitionPatch) => void;
   onRemove: (code: string) => void;
@@ -35,15 +38,23 @@ const ShiftTimeRow = ({
   definition,
   definitions,
   isUsed,
+  isUndefined,
   disabled,
   onUpdate,
   onRemove,
 }: ShiftTimeRowProps) => {
+  const fieldsetRef = useRef<HTMLFieldSetElement | null>(null);
   const { code } = definition;
   const isComplete = definition.isOff || hasCompleteTimes(definition);
 
+  /** The button disappears once the code is defined, so focus stays on this row. */
+  const handleMarkOff = () => {
+    onUpdate(code, { isOff: true });
+    fieldsetRef.current?.focus();
+  };
+
   return (
-    <fieldset className="time-row" disabled={disabled}>
+    <fieldset ref={fieldsetRef} className="time-row" disabled={disabled} data-code={code} tabIndex={-1}>
       <legend className="visually-hidden">{code} 근무 시간</legend>
       <div className="time-row-head">
         <span className={toneClassName(getShiftTone(code, definitions))}>{code}</span>
@@ -58,6 +69,21 @@ const ShiftTimeRow = ({
           <Trash2 size={16} aria-hidden="true" />
         </button>
       </div>
+      {isUndefined && !definition.isOff && (
+        <>
+          <div className="tiny mb-8">
+            근무표에 설명이 없는 코드예요. 근무 시간을 넣거나 휴무로 처리해 주세요.
+          </div>
+          <button
+            type="button"
+            className="secondary mb-8"
+            aria-label={`${code} 휴무로 처리`}
+            onClick={handleMarkOff}
+          >
+            휴무로 처리
+          </button>
+        </>
+      )}
       <label className="inline-field mb-8">
         이름
         <input
