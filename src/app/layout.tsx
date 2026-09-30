@@ -8,6 +8,7 @@ import { getEnvironmentBannerText } from '@/client/EnvironmentBanner';
 import AppShell from '@/components/AppShell';
 import ConfigProvider from '@/components/ConfigProvider';
 import { buildPublicConfig } from '@/server/config/PublicConfig';
+import { getServerComponentContext } from '@/server/http/RequestContext';
 import { buildSiteMetadata, readSiteMetadataSource } from '@/server/metadata/SiteMetadata';
 
 /** Every screen is per-user and reads runtime config; nothing is prerendered at build time. */
@@ -36,15 +37,18 @@ type RootLayoutProps = {
   children: ReactNode;
 };
 
-const RootLayout = ({ children }: RootLayoutProps) => {
+const RootLayout = async ({ children }: RootLayoutProps) => {
   // Same values as GET /api/config/public, resolved once per request on the server.
   const config = buildPublicConfig();
+  const context = await getServerComponentContext();
 
   return (
     <html lang="ko" className={notoSansKr.variable}>
       <body>
         <ConfigProvider config={config}>
-          <AppShell bannerText={getEnvironmentBannerText(config)}>{children}</AppShell>
+          <AppShell bannerText={getEnvironmentBannerText(config)} isLoggedIn={Boolean(context.user)}>
+            {children}
+          </AppShell>
         </ConfigProvider>
       </body>
     </html>

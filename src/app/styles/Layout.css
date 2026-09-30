@@ -154,6 +154,14 @@ p {
   text-underline-offset: 3px;
 }
 
+.logout-form {
+  margin: 0;
+}
+
+.logout-button {
+  padding: 0 4px;
+}
+
 .center {
   text-align: center;
 }
