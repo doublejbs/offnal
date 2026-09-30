@@ -9,15 +9,15 @@ import { buildRowStrip, computeStripPlan, STRIP_SEPARATOR_PX } from '@/server/vi
 const WARP = { width: 1200, height: 1000, dayGrid: { left: 200, top: 40, right: 1180, bottom: 970 } };
 
 describe('computeStripPlan', () => {
-  it('crops the date header band and the target row with 25% margins', () => {
-    // Row 500…540 px (40 px high → 10 px margin); header bottom 110 px + 10% of the row height.
+  it('crops the date header band and the located row with about one neighbouring row each side', () => {
+    // Row 500…540 px (40 px high → 50 px margin); header bottom 110 px + 10% of the row height.
     const plan = computeStripPlan(WARP, { top: 500, bottom: 540, headerBottom: 110 });
 
     expect(plan).toEqual({
       bands: [
         // Header starts 2% of the grid height above the grid top: 40 - 18.6 → 21.
         { top: 21, bottom: 114 },
-        { top: 490, bottom: 550 },
+        { top: 450, bottom: 590 },
       ],
     });
   });
@@ -36,14 +36,14 @@ describe('computeStripPlan', () => {
 
   it('merges header and row into one band when they touch', () => {
     expect(computeStripPlan(WARP, { top: 120, bottom: 160, headerBottom: 110 })).toEqual({
-      bands: [{ top: 21, bottom: 170 }],
+      bands: [{ top: 21, bottom: 210 }],
     });
   });
 
   it('clamps the margins to the image', () => {
     const plan = computeStripPlan(WARP, { top: 950, bottom: 995, headerBottom: 110 });
 
-    expect(plan?.bands[1]).toEqual({ top: 939, bottom: 1000 });
+    expect(plan?.bands[1]).toEqual({ top: 894, bottom: 1000 });
   });
 
   it('rejects rows outside the day grid', () => {

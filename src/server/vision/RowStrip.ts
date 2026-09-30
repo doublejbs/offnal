@@ -12,8 +12,11 @@ export type StripPlan = { bands: PixelBand[] };
 
 type WarpGeometry = { width: number; height: number; dayGrid: PixelRect };
 
-/** Neighbouring context kept above and below the target row, as a share of its height. */
-export const ROW_MARGIN_RATIO = 0.25;
+/**
+ * Context kept above and below the located row, as a share of its height: about one neighbouring row on
+ * each side, so a one-row localization error still leaves the target row (picked by its name) in the strip.
+ */
+export const ROW_MARGIN_RATIO = 1.25;
 /** Gray rows between the header band and the row band (before upscaling). */
 export const STRIP_SEPARATOR_PX = 6;
 
