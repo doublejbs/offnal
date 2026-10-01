@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { type z, ZodError } from 'zod';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
+import { ContentDisposition } from '@/domain/enums/ContentDisposition';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { getAppConfig } from '@/server/config/AppConfig';
@@ -17,19 +18,33 @@ const PATH_PARSE_BASE = 'http://path.invalid';
 export const jsonResponse = <T>(body: T, status = 200, headers: Record<string, string> = {}): NextResponse =>
   NextResponse.json(body, { status, headers: { 'Cache-Control': NO_STORE, ...headers } });
 
-const INCLUDE_OFF_VALUES = new Set(['1', 'true']);
+const TRUE_FLAG_VALUES = new Set(['1', 'true']);
 
 /** `includeOff=1` (or `true`) on an ICS export; anything else keeps days off out. */
 export const parseIncludeOff = (searchParams: URLSearchParams): boolean =>
-  INCLUDE_OFF_VALUES.has(searchParams.get('includeOff') ?? '');
+  TRUE_FLAG_VALUES.has(searchParams.get('includeOff') ?? '');
 
-/** A downloadable, uncached ICS attachment. */
-export const icsResponse = (fileName: string, body: string): NextResponse =>
+/**
+ * `open=1` (or `true`) or `disposition=inline` asks for an inline ICS: iOS Safari only shows the
+ * calendar import sheet when it navigates to an inline text/calendar response (Spec §19).
+ */
+export const parseIcsDisposition = (searchParams: URLSearchParams): ContentDisposition =>
+  TRUE_FLAG_VALUES.has(searchParams.get('open') ?? '') ||
+  searchParams.get('disposition') === ContentDisposition.INLINE
+    ? ContentDisposition.INLINE
+    : ContentDisposition.ATTACHMENT;
+
+/** An uncached ICS file: an attachment by default, inline when the client opens it directly. */
+export const icsResponse = (
+  fileName: string,
+  body: string,
+  disposition: ContentDisposition = ContentDisposition.ATTACHMENT,
+): NextResponse =>
   new NextResponse(body, {
     status: 200,
     headers: {
       'Content-Type': 'text/calendar; charset=utf-8',
-      'Content-Disposition': `attachment; filename="${fileName}"`,
+      'Content-Disposition': `${disposition}; filename="${fileName}"`,
       'Cache-Control': NO_STORE,
     },
   });

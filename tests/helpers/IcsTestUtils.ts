@@ -7,3 +7,6 @@ export const getEvents = (ics: string): string[] =>
     .split('BEGIN:VEVENT')
     .slice(1)
     .map((block) => block.split('END:VEVENT')[0] ?? '');
+
+/** Drops DTSTAMP lines (generation time) so two exports of the same month can be compared. */
+export const withoutStamp = (ics: string): string => ics.replace(/^DTSTAMP:.*\r\n/gm, '');

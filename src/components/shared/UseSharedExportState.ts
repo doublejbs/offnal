@@ -3,28 +3,35 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { downloadSharedIcs, getErrorMessage, isApiClientError } from '@/client/ApiClient';
+import {
+  getIcsNavigateHint,
+  ICS_DOWNLOADED_MESSAGE,
+  SHARED_ICS_EXPIRED_MESSAGE,
+  SHARED_ICS_RATE_LIMITED_MESSAGE,
+} from '@/client/IcsCopy';
+import { assignLocation, runIcsOpen } from '@/client/IcsOpenFlow';
+import { buildSharedIcsUrl } from '@/client/IcsUrls';
 import { buildSharedPngInput } from '@/client/PngLayout';
+import { readBrowserPlatformInfo } from '@/client/PlatformDetect';
 import { renderMonthPng } from '@/client/PngRenderer';
 import { PNG_OUTCOME_MESSAGES } from '@/client/ShareOutcomeMessages';
 import { downloadBlob, shareOrDownloadFile } from '@/client/ShareOrDownload';
+import { useIcsOpenSupport } from '@/components/share/UseIcsOpenSupport';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { ExportPanel } from '@/domain/enums/ExportPanel';
+import { IcsOpenMethod } from '@/domain/enums/IcsOpenMethod';
 import { buildSharedIcsFileName, buildSharedPngFileName } from '@/domain/ExportFileNames';
-import { SHARE_EXPIRED_MESSAGE } from '@/domain/ShareMessages';
 import { type SharedMonth } from '@/domain/types/api/SharedCalendarResponse';
-
-const EXPIRED_MESSAGE = `${SHARE_EXPIRED_MESSAGE} 링크를 보낸 사람에게 새 링크를 요청해 주세요.`;
-const RATE_LIMITED_MESSAGE = '요청이 많아요. 잠시 후 다시 시도해 주세요.';
 
 const isAbortError = (error: unknown): boolean => error instanceof Error && error.name === 'AbortError';
 
 const toIcsErrorMessage = (error: unknown): string => {
   if (isApiClientError(error) && error.code === ApiErrorCode.NOT_FOUND) {
-    return EXPIRED_MESSAGE;
+    return SHARED_ICS_EXPIRED_MESSAGE;
   }
 
   if (isApiClientError(error) && error.code === ApiErrorCode.RATE_LIMITED) {
-    return RATE_LIMITED_MESSAGE;
+    return SHARED_ICS_RATE_LIMITED_MESSAGE;
   }
 
   return `일정 파일을 받지 못했어요. ${getErrorMessage(error)}`;
@@ -41,6 +48,7 @@ export const useSharedExportState = (token: string, displayName: string, month: 
   const inFlightRef = useRef(false);
   const isMountedRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
+  const icsOpenSupport = useIcsOpenSupport();
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -75,6 +83,7 @@ export const useSharedExportState = (token: string, displayName: string, month: 
   const handleToggle = (panel: ExportPanel) => {
     setMessage(null);
     setError(null);
+    icsOpenSupport.resetNotice();
     setOpenPanel((current) => (current === panel ? null : panel));
   };
 
@@ -109,26 +118,57 @@ export const useSharedExportState = (token: string, displayName: string, month: 
       return;
     }
 
+    icsOpenSupport.resetNotice();
+
+    const info = readBrowserPlatformInfo();
     const controller = new AbortController();
+    let isNavigating = false;
 
     abortRef.current = controller;
 
     try {
-      const blob = await downloadSharedIcs(token, month.yearMonth, includeOff, controller.signal);
+      // No preflight: it would consume the shared-view IP limit twice. With open=1 the server
+      // redirects failures back to /s/:token with an `ics` notice instead.
+      const method = await runIcsOpen({
+        info,
+        navigateUrl: buildSharedIcsUrl(token, month.yearMonth, includeOff, true),
+        preflight: false,
+        fetchIcs: () => downloadSharedIcs(token, month.yearMonth, includeOff, controller.signal),
+        saveBlob: (blob) => {
+          if (!controller.signal.aborted && isMountedRef.current) {
+            downloadBlob(blob, buildSharedIcsFileName(month.yearMonth));
+          }
+        },
+        navigate: assignLocation,
+      });
 
       if (controller.signal.aborted || !isMountedRef.current) {
         return;
       }
 
-      downloadBlob(blob, buildSharedIcsFileName(month.yearMonth));
-      setMessage('일정 파일을 받았어요. 파일을 열어 캘린더 앱으로 가져와 주세요.');
+      if (method === IcsOpenMethod.IN_APP_NOTICE && info) {
+        icsOpenSupport.showInAppNotice(info.inAppBrowser);
+      }
+
+      if (method === IcsOpenMethod.NAVIGATE) {
+        isNavigating = true;
+        setMessage(getIcsNavigateHint(info));
+        icsOpenSupport.holdNavigationGuard(finishExport);
+      }
+
+      if (method === IcsOpenMethod.DOWNLOAD) {
+        setMessage(ICS_DOWNLOADED_MESSAGE);
+      }
     } catch (caught: unknown) {
       if (!isAbortError(caught) && isMountedRef.current) {
         setError(toIcsErrorMessage(caught));
       }
     } finally {
       abortRef.current = null;
-      finishExport();
+
+      if (!isNavigating) {
+        finishExport();
+      }
     }
   };
 
@@ -138,6 +178,7 @@ export const useSharedExportState = (token: string, displayName: string, month: 
     busyPanel,
     message,
     error,
+    icsOpenSupport,
     setIncludeOff,
     handleToggle,
     handleSavePng,
