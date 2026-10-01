@@ -439,3 +439,17 @@ interface PaymentProvider {
 - 로그인 상태: 헤더 오른쪽 소개 문구 자리에 “로그아웃” 텍스트 버튼. `<form method="post" action="/auth/logout?returnTo=/">` 제출(기존 라우트, Origin 검사 통과). 실수 방지를 위한 확인 창은 두지 않는다(되돌리기 쉬운 동작). 버튼 높이 44px 이상, 포커스 표시.
 - 비로그인 상태: 기존 소개 문구 유지.
 - 로그아웃 후 `/`로 이동하면 비로그인 첫 화면(서비스 설명 포함)이 보인다.
+
+---
+
+## 19. iOS 캘린더 추가 (2026-10-01 추가)
+
+문제: ICS를 fetch → blob → `a[download]`로 내려받으면 iOS는 파일 앱 문서로 취급해 공유 시트에 캘린더가 없다. iOS Safari는 `text/calendar` 응답 **주소로 직접 이동(top-level navigation)** 했을 때만 캘린더 가져오기 화면을 띄운다.
+
+- 서버: 소유자 ICS(`/api/calendar/:ym/export.ics`)와 공유 ICS(`/api/shared/:token/export.ics`)에 `?open=1`(또는 `disposition=inline`)이면 `Content-Disposition: inline; filename="..."`, 아니면 기존 `attachment`. 그 외 헤더·권한·내용 동일.
+- 클라이언트: 플랫폼 감지 헬퍼(`src/client/PlatformDetect.ts`) — iOS/iPadOS(iPadOS 데스크톱 UA 포함: `Macintosh` + 터치 지원), 카카오톡 인앱(`KAKAOTALK` UA), 기타 인앱 브라우저(Instagram·NAVER·Line 등은 가능 범위에서).
+  - iOS Safari(및 iOS의 다른 일반 브라우저): “일정 파일 받기” → `window.location.assign(icsUrl + '&open=1')` 직접 이동. 쿠키 인증은 same-origin 이동이라 유지.
+  - 카카오톡 등 인앱 브라우저: 바로 이동하지 않고 안내 “카카오톡 안에서는 캘린더에 추가할 수 없어요. 오른쪽 아래 ⋯ → ‘Safari로 열기’ 후 다시 눌러 주세요” + 현재 페이지 주소 복사 버튼. (공유받은 사람 화면 포함)
+  - 안드로이드·PC: 기존 blob 다운로드 유지.
+- 안내 문구: iOS — “캘린더 추가 화면이 열리면 ‘모두 추가’를 눌러 주세요”, 안드로이드 — “받은 파일을 열어 캘린더 앱으로 가져와 주세요”, PC — 기존. 일회성 가져오기·중복 가능 안내는 유지.
+- 테스트: 플랫폼 감지 단위 테스트(대표 UA 목록), ICS 라우트 inline/attachment 헤더 통합 테스트. 실기기 확인은 사용자 검증 필요(미검증으로 보고).
