@@ -22,13 +22,15 @@ const distance = (points: { x: number; y: number }[]): number => {
 type SourcePreviewProps = {
   /** Owner-only original photo URL (personal recognition or team roster source). */
   src: string;
+  /** Image description (personal: "내가 올린 근무표 원본", team: "팀 근무표 원본"). */
+  alt?: string;
 };
 
 /**
  * Owner-only original photo (served no-store). Zoom with buttons, +/- keys or a two-finger pinch;
  * the frame scrolls so a zoomed image can be panned by touch, mouse wheel or arrow keys.
  */
-const SourcePreview = ({ src }: SourcePreviewProps) => {
+const SourcePreview = ({ src, alt = '내가 올린 근무표 원본' }: SourcePreviewProps) => {
   const [zoom, setZoom] = useState(MIN_ZOOM);
   const [hasError, setHasError] = useState(false);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
@@ -104,7 +106,7 @@ const SourcePreview = ({ src }: SourcePreviewProps) => {
         {/* eslint-disable-next-line @next/next/no-img-element -- private no-store image, not optimizable */}
         <img
           src={src}
-          alt="내가 올린 근무표 원본"
+          alt={alt}
           style={{ width: `${zoom * 100}%` }}
           draggable={false}
           onError={() => setHasError(true)}

@@ -14,7 +14,7 @@ import { type DbExecutor } from '@/server/db/Database';
 import { type TeamMemberRow, teamMembers, users } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
-import { findMembership, requireTeamAdmin, throwMembershipConflict } from '@/server/services/TeamAccess';
+import { requireTeamAdmin, throwMembershipConflict } from '@/server/services/TeamAccess';
 import { findValidInvite } from '@/server/services/TeamInviteService';
 import { findPublishedRoster, listRosterRows, toJoinableRows } from '@/server/services/TeamRosterRows';
 import { requireUser } from '@/server/validation/RequestGuards';
@@ -173,15 +173,11 @@ export const listJoinableRows = async (
   context: RequestContext,
   token: string,
 ): Promise<InviteRowsResponse> => {
-  const { user } = requireUser(context);
+  requireUser(context);
+
+  // Removed (rejected, left, removed) people may ask again (TeamShareSpec §15.2), so they get the same picker
+  // as any logged-in visitor of a valid link: names, ordinals and the first 3 codes of unlinked rows only.
   const { team } = await findValidInvite(db, token);
-  const membership = await findMembership(db, team.id, user.id);
-
-  // Removed (rejected, left, removed) people see nothing of the roster through an old link.
-  if (membership?.status === TeamMemberStatus.REMOVED) {
-    throw new ApiError(ApiErrorCode.NOT_FOUND);
-  }
-
   const { yearMonth, rows } = await loadRosterRowsForLinking(db, team.id);
   const linked = await listActiveLinkedKeys(db, team.id);
 

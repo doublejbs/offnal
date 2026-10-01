@@ -42,7 +42,12 @@ const JoinView = ({ token, isLoggedIn }: JoinViewProps) => {
     return <LoadingState text="초대 링크를 확인하는 중이에요…" />;
   }
 
-  if (invite.state === ScreenLoadState.NOT_FOUND || state.isGone) {
+  // The link can also stop between the lookup and the picker (revoked / expired meanwhile): same message.
+  if (
+    invite.state === ScreenLoadState.NOT_FOUND ||
+    rows.state === ScreenLoadState.NOT_FOUND ||
+    state.isGone
+  ) {
     return (
       <EmptyState label="팀 초대" title="열 수 없는 초대 링크예요" description={GONE_TEXT}>
         <Link href="/" className="primary">

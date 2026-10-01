@@ -271,7 +271,7 @@ describe('publishing', () => {
 
     expect(newRow).toMatchObject({ rowKey: '오하늘빛#1', isNewPerson: true });
     expect(renamed.unmatchedPreviousRows).toEqual([
-      { rowKey: '오하늘#1', displayName: '오하늘', linked: true },
+      { rowKey: '오하늘#1', displayName: '오하늘', sameNameOrdinal: 1, sameNameCount: 1, linked: true },
     ]);
 
     // Publishing without the link would drop the linked member's month: refused until confirmed.
@@ -282,7 +282,9 @@ describe('publishing', () => {
     expect(blocked.status).toBe(422);
     expect(blockedBody.error.details).toEqual({
       blockers: [],
-      unlinkedRows: [{ rowKey: '오하늘#1', displayName: '오하늘', linked: true }],
+      unlinkedRows: [
+        { rowKey: '오하늘#1', displayName: '오하늘', sameNameOrdinal: 1, sameNameCount: 1, linked: true },
+      ],
     });
 
     const matched = await readJson<TeamRosterResponse>(
@@ -381,7 +383,9 @@ describe('publish and revert protection', () => {
     expect(blocked.status).toBe(422);
     expect(blockedBody.error.details).toEqual({
       blockers: [],
-      unlinkedRows: [{ rowKey: oh.rowKey, displayName: '오하늘', linked: true }],
+      unlinkedRows: [
+        { rowKey: oh.rowKey, displayName: '오하늘', sameNameOrdinal: 1, sameNameCount: 1, linked: true },
+      ],
     });
 
     const confirmed = await revertRoster(team.admin, team.teamId, first.rosterId, { confirmUnlinked: true });

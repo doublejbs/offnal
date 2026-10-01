@@ -29,7 +29,7 @@ const TeamInvitesPanel = ({ teamId, teamName }: TeamInvitesPanelProps) => {
       </p>
       <button
         type="button"
-        className="primary"
+        className={inviteUrl ? 'secondary' : 'primary'}
         disabled={state.isBusy}
         onClick={() => void state.handleCreate()}
       >

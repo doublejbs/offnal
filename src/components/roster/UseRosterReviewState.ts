@@ -50,8 +50,12 @@ export const useRosterReviewState = (view: TeamRosterResponse) => {
     () => listUnresolvedCodes(includedEntries, view.definitions),
     [includedEntries, view.definitions],
   );
-  // Times read from a photo must be confirmed again after any legend change (same rule as personal drafts).
-  const requiresTimeConfirmation = view.rows.some((row) => row.sourceCells.length > 0);
+  // Times read from a photo must be confirmed (again after any legend change, like personal drafts). An edit
+  // copy of a published revision reuses times already confirmed at that publish: its photo is gone and it
+  // has a base revision, so it needs no new confirmation. A new photo over a published month does.
+  const isFromPhoto = view.rows.some((row) => row.sourceCells.length > 0);
+  const requiresTimeConfirmation =
+    isFromPhoto && (view.roster.sourceAvailable || view.roster.baseRevision === 0);
   const definitionsKey = useMemo(() => JSON.stringify(view.definitions), [view.definitions]);
   const isTimeConfirmed = confirmedKey === definitionsKey;
   const unmatched = view.unmatchedPreviousRows.filter((row) => !dismissedKeys.includes(row.rowKey));

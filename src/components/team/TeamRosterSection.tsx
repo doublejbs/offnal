@@ -6,6 +6,7 @@ import { useId } from 'react';
 import { formatDateTime } from '@/client/DisplayText';
 import { formatRevision, formatRosterProgress } from '@/client/TeamDisplayText';
 import { formatUnlinkedWarning } from '@/client/TeamRosterErrors';
+import { describeStatusMonth, pickStatusMonth } from '@/client/TeamRosterStatus';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadingState from '@/components/LoadingState';
 import RosterHistoryView from '@/components/team/RosterHistoryView';
@@ -19,7 +20,7 @@ type TeamRosterSectionProps = {
   detail: TeamDetailResponse;
 };
 
-/** This month's roster status (none / draft in progress / published rev N), open drafts and the history. */
+/** Status of this month's roster (or the nearest upcoming one) (none / draft in progress / published rev N), open drafts and the history. */
 const TeamRosterSection = ({ detail }: TeamRosterSectionProps) => {
   const state = useTeamRostersState(detail.team.id);
   const titleId = useId();
@@ -27,16 +28,17 @@ const TeamRosterSection = ({ detail }: TeamRosterSectionProps) => {
   const thisMonth = currentYearMonthInSeoul(new Date());
   const rosters = state.rosters.data?.rosters ?? [];
   const drafts = rosters.filter((roster) => roster.status === TeamRosterStatus.DRAFT);
+  const statusMonth = pickStatusMonth(rosters, thisMonth);
   const published = rosters.find(
-    (roster) => roster.status === TeamRosterStatus.PUBLISHED && roster.yearMonth === thisMonth,
+    (roster) => roster.status === TeamRosterStatus.PUBLISHED && roster.yearMonth === statusMonth,
   );
-  const thisMonthDraft = drafts.find((roster) => roster.yearMonth === thisMonth || roster.yearMonth === null);
+  const statusDraft = drafts.find((roster) => roster.yearMonth === statusMonth || roster.yearMonth === null);
 
   return (
     <section aria-labelledby={titleId} className="status-card">
-      <div className="tiny">이번 달 근무표</div>
+      <div className="tiny">{describeStatusMonth(statusMonth, thisMonth)}</div>
       <h2 id={titleId} className="mt-0">
-        {formatYearMonthLabel(thisMonth)}
+        {formatYearMonthLabel(statusMonth)}
       </h2>
       {state.rosters.state === ScreenLoadState.LOADING && <LoadingState text="근무표를 불러오는 중이에요…" />}
       {state.rosters.state === ScreenLoadState.ERROR && (
@@ -51,14 +53,14 @@ const TeamRosterSection = ({ detail }: TeamRosterSectionProps) => {
         <p className="mb-8">
           {published
             ? `${formatRevision(published.revision ?? 0)} 배포 중 · ${formatDateTime(published.publishedAt ?? published.createdAt)}`
-            : thisMonthDraft
+            : statusDraft
               ? '근무표를 확인하고 있어요. 배포하면 팀원 달력에 나타나요.'
-              : '아직 이번 달 근무표가 없어요. 아래 “근무표 올리기”로 시작해 주세요.'}
+              : '아직 배포한 근무표가 없어요. 아래 “근무표 올리기”로 시작해 주세요.'}
         </p>
       )}
       {published && (
         <div className="actionrow">
-          <Link href={`/teams/${teamId}/roster/${thisMonth}`} className="secondary">
+          <Link href={`/teams/${teamId}/roster/${statusMonth}`} className="secondary">
             전체 근무표
           </Link>
           <button

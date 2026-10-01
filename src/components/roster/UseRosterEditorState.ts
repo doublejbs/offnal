@@ -21,6 +21,8 @@ export const useRosterEditorState = (teamId: string, rosterId: string) => {
   const [loadState, setLoadState] = useState(ScreenLoadState.LOADING);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  // Attempt whose GET has settled: while it lags `attempt` a reload is in flight and editing is locked.
+  const [settledAttempt, setSettledAttempt] = useState(0);
   const [server, setServer] = useState<TeamRosterResponse | null>(null);
   // Extraction just finished: progress already says READY but rows/version are stale until the reload lands.
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -61,6 +63,7 @@ export const useRosterEditorState = (teamId: string, rosterId: string) => {
         reset(response.roster.version);
         setServer(response);
         setIsRefreshing(false);
+        setSettledAttempt(attempt);
         setLoadState(ScreenLoadState.READY);
 
         if (response.roster.status === TeamRosterStatus.DRAFT && isExtractionRunning(response.progress)) {
@@ -70,6 +73,7 @@ export const useRosterEditorState = (teamId: string, rosterId: string) => {
       .catch((error: unknown) => {
         if (!controller.signal.aborted && !isAbortError(error)) {
           setIsRefreshing(false);
+          setSettledAttempt(attempt);
           setLoadError(getErrorMessage(error));
           setLoadState(toScreenLoadState(error));
         }
@@ -83,7 +87,8 @@ export const useRosterEditorState = (teamId: string, rosterId: string) => {
     [server, autosave.localEdits],
   );
   const publish = useRosterPublish({ teamId, rosterId, autosave, onStale: handleReload });
-  const isLocked = publish.isPublishing || extraction.isRunning;
+  const isReloading = attempt !== settledAttempt;
+  const isLocked = publish.isPublishing || extraction.isRunning || isReloading;
   const edits = useRosterEdits({ view, autosave, isLocked });
 
   return {

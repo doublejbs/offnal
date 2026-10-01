@@ -2,7 +2,7 @@
 
 import { ChevronLeft } from 'lucide-react';
 
-import { formatSameNameLabel } from '@/client/TeamDisplayText';
+import { formatRowName } from '@/client/TeamDisplayText';
 import { countRowReview } from '@/client/TeamRosterGrid';
 import MonthGrid from '@/components/calendar/MonthGrid';
 import RosterCellEditorView from '@/components/roster/RosterCellEditorView';
@@ -41,7 +41,7 @@ const RosterPersonEditorView = ({
         사람 목록으로
       </button>
       <h2 tabIndex={-1} data-person-heading>
-        {formatSameNameLabel(row.displayName, row.sameNameOrdinal, row.sameNameCount)}
+        {formatRowName(row)}
       </h2>
       <div className="status-line" data-tone={reviewCount > 0 ? 'warn' : undefined} role="status">
         {row.excluded

@@ -1,6 +1,6 @@
 import { WEEKDAY_LABELS } from '@/client/MonthLayout';
 import { getShiftTone, toneClassName } from '@/client/ShiftStyle';
-import { formatSameNameLabel } from '@/client/TeamDisplayText';
+import { formatRowName } from '@/client/TeamDisplayText';
 import { countShiftsByDate, type DayShiftCounts } from '@/client/TeamRosterGrid';
 import { type TeamRosterViewRow } from '@/domain/types/api/TeamRosterViewRow';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
@@ -45,7 +45,7 @@ const TeamRosterTable = ({ rows, dates, definitions }: TeamRosterTableProps) => 
             return (
               <tr key={row.rowKey} data-mine={row.isMine}>
                 <th scope="row" className="roster-name">
-                  {formatSameNameLabel(row.displayName, row.sameNameOrdinal, row.sameNameCount)}
+                  {formatRowName(row)}
                   {row.isMine && <span className="tiny block-text">나</span>}
                 </th>
                 {dates.map((date) => {

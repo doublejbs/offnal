@@ -17,6 +17,8 @@ type TeamSettingsPanelProps = {
 const TeamSettingsPanel = ({ detail, onSaved }: TeamSettingsPanelProps) => {
   const [name, setName] = useState(detail.team.name);
   const [isBusy, setIsBusy] = useState(false);
+  // Optimistic toggle: shown at once, rolled back when the PATCH fails.
+  const [shareOverride, setShareOverride] = useState<boolean | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const trimmed = name.trim();
@@ -32,6 +34,7 @@ const TeamSettingsPanel = ({ detail, onSaved }: TeamSettingsPanelProps) => {
     } catch (caught: unknown) {
       setError(getErrorMessage(caught));
     } finally {
+      setShareOverride(null);
       setIsBusy(false);
     }
   };
@@ -44,11 +47,13 @@ const TeamSettingsPanel = ({ detail, onSaved }: TeamSettingsPanelProps) => {
     }
   };
 
-  const handleToggleShare = (isOn: boolean) =>
+  const handleToggleShare = (isOn: boolean) => {
+    setShareOverride(isOn);
     void save(
       { shareRosterWithMembers: isOn },
       isOn ? '팀원도 전체 근무표를 볼 수 있어요.' : '이제 팀원은 자기 근무만 볼 수 있어요.',
     );
+  };
 
   return (
     <div>
@@ -73,7 +78,7 @@ const TeamSettingsPanel = ({ detail, onSaved }: TeamSettingsPanelProps) => {
       <label className="check mt-20">
         <input
           type="checkbox"
-          checked={detail.team.shareRosterWithMembers}
+          checked={shareOverride ?? detail.team.shareRosterWithMembers}
           disabled={isBusy}
           onChange={(event) => handleToggleShare(event.target.checked)}
         />

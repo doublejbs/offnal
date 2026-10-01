@@ -4,6 +4,7 @@ import { ApiClientError } from '@/client/ApiClient';
 import {
   describeInvite,
   describeMembershipBadge,
+  describeTeamError,
   describeRowReview,
   formatChangesHeadline,
   formatJoinableRow,
@@ -11,6 +12,7 @@ import {
   formatPersonChanges,
   formatRosterProgress,
   formatRowKey,
+  formatRowName,
   formatSameNameLabel,
   isExtractionRunning,
   readMembershipConflictReason,
@@ -45,6 +47,8 @@ describe('TeamDisplayText', () => {
     ).toBe('김하루 (2) — 1~3일 D · 빈칸 · OFF');
     expect(formatRowKey('김하루#2')).toBe('김하루 (2)');
     expect(formatRowKey('김하루#1')).toBe('김하루');
+    expect(formatRowName({ displayName: '김하루', sameNameOrdinal: 1, sameNameCount: 2 })).toBe('김하루 (1)');
+    expect(formatRowName({ displayName: '이소망', sameNameOrdinal: 1, sameNameCount: 1 })).toBe('이소망');
   });
 
   it('reports real extraction progress only', () => {
@@ -121,6 +125,8 @@ describe('TeamDisplayText', () => {
     });
 
     expect(readMembershipConflictReason(conflict)).toBe(TeamMembershipConflictReason.ROW_TAKEN);
+    expect(describeTeamError(conflict)).toBe('이미 다른 팀원과 연결된 이름이에요. 다른 이름을 골라 주세요.');
+    expect(describeTeamError(new ApiClientError(404, ApiErrorCode.NOT_FOUND, '없어요'))).toBe('없어요');
     expect(readMembershipConflictReason(new ApiClientError(404, ApiErrorCode.NOT_FOUND, '...'))).toBeNull();
     expect(
       readMembershipConflictReason(

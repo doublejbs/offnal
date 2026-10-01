@@ -99,7 +99,9 @@ const RosterReviewHeader = ({
           {isSourceOpen ? '원본 사진 닫기' : '원본 사진 크게 보기'}
         </button>
       )}
-      {isSourceOpen && <SourcePreview src={getRosterSourceUrl(teamId, view.roster.id)} />}
+      {isSourceOpen && (
+        <SourcePreview src={getRosterSourceUrl(teamId, view.roster.id)} alt="팀 근무표 원본" />
+      )}
     </>
   );
 };

@@ -10,6 +10,9 @@ export type TeamMyMonthDto = {
   /** ISO 8601 */
   publishedAt: string;
   displayName: string;
+  /** Same-name position / count in that revision ("김하루 (2)" when count > 1). */
+  sameNameOrdinal: number;
+  sameNameCount: number;
   definitions: ShiftDefinition[];
   entries: ShiftCodeEntry[];
   /** Dates changed since the revision the member acknowledged ("변경" badges). */

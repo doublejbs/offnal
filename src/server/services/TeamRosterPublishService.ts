@@ -28,7 +28,12 @@ import {
   throwRosterConflict,
   toDiffRows,
 } from '@/server/services/TeamRosterQueries';
-import { findLatestRevision, findPublishedRoster, listRosterRows } from '@/server/services/TeamRosterRows';
+import {
+  findLatestRevision,
+  findPublishedRoster,
+  listRosterRows,
+  toPreviousRowRefs,
+} from '@/server/services/TeamRosterRows';
 
 const UNLINKED_MESSAGE =
   '연결된 팀원의 행이 새 근무표에 없어요. “이름 바뀜”으로 이어 주거나, 그대로 배포하려면 한 번 더 확인해 주세요.';
@@ -109,9 +114,9 @@ const findDroppedLinkedRows = async (
   const linked = await listActiveLinkedKeys(tx, published.teamId);
   const included = new Set(rows.filter((row) => !row.excluded).map((row) => row.rowKey));
 
-  return (await listRosterRows(tx, published.id))
-    .filter((row) => !row.excluded && linked.has(row.rowKey) && !included.has(row.rowKey))
-    .map((row) => ({ rowKey: row.rowKey, displayName: row.displayName, linked: true }));
+  return toPreviousRowRefs(await listRosterRows(tx, published.id))
+    .filter((ref) => linked.has(ref.rowKey) && !included.has(ref.rowKey))
+    .map((ref) => ({ ...ref, linked: true }));
 };
 
 /** 422 `details.unlinkedRows` unless the admin confirmed (`confirmUnlinked`). Shared by publish and revert. */

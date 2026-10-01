@@ -93,7 +93,9 @@ const TeamRosterReadView = ({ teamId, yearMonth }: TeamRosterReadViewProps) => {
         current={yearMonth}
         onChange={(next) => router.push(`${teamHref}/roster/${next}`)}
       />
-      {data.myRowKey === null && <div className="notice">근무표에 연결된 내 행이 없어요.</div>}
+      {data.myRowKey === null && team.data?.myRole === TeamRole.MEMBER && (
+        <div className="notice">근무표에 연결된 내 행이 없어요.</div>
+      )}
       <div className="mt-12">
         <TeamRosterTable rows={data.rows} dates={listDates(data.yearMonth)} definitions={data.definitions} />
       </div>

@@ -2,7 +2,7 @@
 
 import { ChevronRight } from 'lucide-react';
 
-import { describeRowReview, formatSameNameLabel } from '@/client/TeamDisplayText';
+import { describeRowReview, formatRowName } from '@/client/TeamDisplayText';
 import { countRowReview } from '@/client/TeamRosterGrid';
 import { type TeamRosterRowDto } from '@/domain/types/api/TeamRosterRowDto';
 
@@ -16,7 +16,7 @@ const RosterPersonListView = ({ rows, onOpen }: RosterPersonListViewProps) => (
   <ul className="team-list" aria-label="사람별 확인">
     {rows.map((row) => {
       const reviewCount = countRowReview(row);
-      const name = formatSameNameLabel(row.displayName, row.sameNameOrdinal, row.sameNameCount);
+      const name = formatRowName(row);
 
       return (
         <li key={row.id}>

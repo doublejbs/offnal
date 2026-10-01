@@ -2,7 +2,7 @@
 
 import { useRef } from 'react';
 
-import { formatSameNameLabel } from '@/client/TeamDisplayText';
+import { formatRowName } from '@/client/TeamDisplayText';
 import ShiftEditor from '@/components/draft/ShiftEditor';
 import RosterRowActions from '@/components/roster/RosterRowActions';
 import { type RosterEditHandlers } from '@/components/roster/UseRosterEdits';
@@ -29,7 +29,7 @@ const RosterCellEditorView = ({ row, date, definitions, edits, isDocked }: Roste
   return (
     <div className={isDocked ? 'roster-dock' : undefined} data-roster-editor tabIndex={-1}>
       <div className="edithead mb-0">
-        <strong>{formatSameNameLabel(row.displayName, row.sameNameOrdinal, row.sameNameCount)}</strong>
+        <strong>{formatRowName(row)}</strong>
       </div>
       {entry && !row.excluded && (
         <ShiftEditor

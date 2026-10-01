@@ -533,15 +533,9 @@ for (const width of WIDTHS) {
         await expect(pageB.getByRole('heading', { name: teamName })).toBeVisible();
         await saveTeamScreenshot(pageB, '4b-rejected-join');
 
-        // Known gap: GET .../rows answers 404 to REMOVED people, so the join page shows no picker and a
-        // disabled button. The server still accepts a new request (TeamShareSpec §15.2), checked here.
-        const rejoin = await pageB.request.post(`/api/invites/${inviteToken}/join`, {
-          headers: mutatingHeaders,
-          data: { rowKey: `${MEMBER_B_ROW}#1` },
-        });
-
-        expect(rejoin.ok(), await rejoin.text()).toBe(true);
-        await pageB.reload();
+        // REMOVED people get the picker again (TeamShareSpec §15.2) and re-request through the UI.
+        await pageB.getByRole('radio', { name: new RegExp(MEMBER_B_ROW) }).first().check();
+        await pageB.getByRole('button', { name: '참여 요청 보내기' }).click();
         await expect(pageB.getByRole('heading', { name: '관리자가 승인하면 달력에 나타나요' })).toBeVisible();
         await saveTeamScreenshot(pageB, '4b-rerequest');
       });

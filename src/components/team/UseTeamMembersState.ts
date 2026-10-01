@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 
-import { getErrorMessage } from '@/client/ApiClient';
 import {
   approveTeamMember,
   listTeamMembers,
@@ -10,6 +9,7 @@ import {
   removeTeamMember,
   updateTeamMember,
 } from '@/client/TeamApiClient';
+import { describeTeamError } from '@/client/TeamDisplayText';
 import { useLoad } from '@/components/UseLoad';
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { type TeamRole } from '@/domain/enums/TeamRole';
@@ -33,7 +33,7 @@ export const useTeamMembersState = (teamId: string, onPendingCountChange: (count
       await task();
       setMessage(successMessage);
     } catch (caught: unknown) {
-      setError(getErrorMessage(caught));
+      setError(describeTeamError(caught));
     }
 
     try {

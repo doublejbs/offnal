@@ -15,6 +15,7 @@ import { type TeamRosterDto } from '@/domain/types/api/TeamRosterDto';
 import { type TeamRosterListResponse } from '@/domain/types/api/TeamRosterListResponse';
 import { type TeamRosterResponse } from '@/domain/types/api/TeamRosterResponse';
 import { type TeamRosterRowBlocker } from '@/domain/types/api/TeamRosterRowBlocker';
+import { type PublishBlocker } from '@/domain/types/PublishBlocker';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type DbExecutor } from '@/server/db/Database';
 import {
@@ -37,6 +38,7 @@ import {
   findRosterJob,
   listRosterRows,
   listRowsByRoster,
+  toPreviousRowRefs,
 } from '@/server/services/TeamRosterRows';
 import { requireUuid } from '@/server/validation/RequestGuards';
 
@@ -78,18 +80,25 @@ const toRosterDto = (roster: TeamRosterRow, job: RecognitionJobRow | null): Team
   sourceAvailable: isSourceAvailable(job),
 });
 
-/** Non-excluded rows that cannot be published yet with the roster's legend. */
-export const listRowBlockers = (
-  rows: TeamRosterRowRow[],
-  definitions: ShiftDefinition[],
-): TeamRosterRowBlocker[] =>
-  rows.flatMap((row) => {
-    const blockers = row.excluded ? [] : getPublishBlockers(row.entries, definitions);
+/** Publish blockers of every row, index-aligned with `rows` (empty for excluded rows). */
+const computeRowBlockers = (rows: TeamRosterRowRow[], definitions: ShiftDefinition[]): PublishBlocker[][] =>
+  rows.map((row) => (row.excluded ? [] : getPublishBlockers(row.entries, definitions)));
+
+/** Rows (with their blockers) out of `computeRowBlockers`, keeping only rows that block. */
+const toRowBlockers = (rows: TeamRosterRowRow[], rowBlockers: PublishBlocker[][]): TeamRosterRowBlocker[] =>
+  rows.flatMap((row, index) => {
+    const blockers = rowBlockers[index] ?? [];
 
     return blockers.length > 0
       ? [{ rowId: row.id, rowKey: row.rowKey, displayName: row.displayName, blockers }]
       : [];
   });
+
+/** Non-excluded rows that cannot be published yet with the roster's legend. */
+export const listRowBlockers = (
+  rows: TeamRosterRowRow[],
+  definitions: ShiftDefinition[],
+): TeamRosterRowBlocker[] => toRowBlockers(rows, computeRowBlockers(rows, definitions));
 
 export const toDiffRows = (rows: TeamRosterRowRow[]): DiffRow[] =>
   rows.map((row) => ({ rowKey: row.rowKey, excluded: row.excluded, entries: row.entries }));
@@ -148,11 +157,9 @@ export const buildRosterResponse = async (
   const missing = new Set(match.missing);
   const linked = await listLinkedMembers(db, roster.teamId);
   const labels = computeSameNameLabels(rows.map((row) => row.displayName));
-  const blockers = listRowBlockers(rows, roster.definitions);
-  // Blockers once per row, reused by the row DTOs.
-  const rowBlockers = rows.map((row) =>
-    row.excluded ? [] : getPublishBlockers(row.entries, roster.definitions),
-  );
+  // Blockers computed once per row: the row DTOs and the roster-level list share them.
+  const rowBlockers = computeRowBlockers(rows, roster.definitions);
+  const blockers = toRowBlockers(rows, rowBlockers);
   const changes = compareWith ? diffRosterRows(toDiffRows(previousRows), toDiffRows(rows)) : [];
 
   return {
@@ -185,9 +192,9 @@ export const buildRosterResponse = async (
       blockers.length === 0 &&
       rows.some((row) => !row.excluded),
     latestPublishedRevision: published?.revision ?? 0,
-    unmatchedPreviousRows: previousRows
-      .filter((row) => !row.excluded && missing.has(row.rowKey))
-      .map((row) => ({ rowKey: row.rowKey, displayName: row.displayName, linked: linked.has(row.rowKey) })),
+    unmatchedPreviousRows: toPreviousRowRefs(previousRows)
+      .filter((ref) => missing.has(ref.rowKey))
+      .map((ref) => ({ ...ref, linked: linked.has(ref.rowKey) })),
     changesPreview: compareWith ? buildChangePreview(compareWith, changes, rows) : null,
   };
 };

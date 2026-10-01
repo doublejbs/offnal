@@ -10,6 +10,7 @@ import { GET as sharedIcsRoute } from '@/app/api/shared/[token]/export.ics/route
 import { GET as sharedRoute } from '@/app/api/shared/[token]/route';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { CalendarMonthSource } from '@/domain/enums/CalendarMonthSource';
+import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { type AckTeamChangesResponse } from '@/domain/types/api/AckTeamChangesResponse';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { type CalendarMonthResponse } from '@/domain/types/api/CalendarMonthResponse';
@@ -19,6 +20,7 @@ import { type ExportDataResponse } from '@/domain/types/api/ExportDataResponse';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
 import { type ShareSettingsResponse } from '@/domain/types/api/ShareSettingsResponse';
 import { type TeamMyMonthsResponse } from '@/domain/types/api/TeamMyMonthsResponse';
+import { type TeamRosterListResponse } from '@/domain/types/api/TeamRosterListResponse';
 import { type TeamRosterResponse } from '@/domain/types/api/TeamRosterResponse';
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
 import {
@@ -38,6 +40,7 @@ import {
   createRosterDraft,
   getMyMonths,
   joinAndApprove,
+  listRosters,
   patchRoster,
   publishReadyRoster,
   type PublishedTeam,
@@ -256,6 +259,37 @@ describe('team months in the member calendar', () => {
     });
     expect((await readMonth(member, TEAM_MONTH)).team?.changes).toEqual([]);
     expect((await ackChanges(member, team.teamId, { yearMonth: '2027-03', revision: 1 })).status).toBe(404);
+
+    // Revision 3 after acknowledging 2: only the change made after the ack shows (per-month ack filter).
+    const published = await readJson<TeamRosterListResponse>(await listRosters(team.admin, team.teamId));
+    const current = published.rosters.find(
+      (item) => item.yearMonth === TEAM_MONTH && item.status === TeamRosterStatus.PUBLISHED,
+    );
+    const { rosterId: nextDraftId } = await readJson<CreateRosterDraftResponse>(
+      await createRosterDraft(team.admin, team.teamId, current?.id ?? ''),
+    );
+    const nextDraft = await readRoster(team.admin, team.teamId, nextDraftId);
+    const nextRow = nextDraft.rows.find((item) => item.displayName === '이여름');
+    const laterFrom = nextRow?.entries[6]?.code ?? null;
+    const laterTo = laterFrom === 'N' ? 'D' : 'N';
+    const nextEdited = await readJson<TeamRosterResponse>(
+      await patchRoster(team.admin, team.teamId, nextDraftId, {
+        version: nextDraft.roster.version,
+        rows: [
+          {
+            rowId: nextRow?.id,
+            entries: nextRow?.entries.map((entry, index) =>
+              index === 6 ? { ...entry, code: laterTo } : entry,
+            ),
+          },
+        ],
+      }),
+    );
+
+    await publishReadyRoster(team.admin, team.teamId, nextEdited);
+    expect((await readMonth(member, TEAM_MONTH)).team?.changes).toEqual([
+      { date: `${TEAM_MONTH}-07`, fromCode: laterFrom, toCode: laterTo },
+    ]);
   });
 });
 

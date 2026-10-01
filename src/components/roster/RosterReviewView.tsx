@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 import { formatUndefinedCodesWarning } from '@/client/DisplayText';
 import { listFailedRows } from '@/client/TeamRosterGrid';
 import SaveStatus from '@/components/draft/SaveStatus';
@@ -19,6 +21,8 @@ import { DraftSaveState } from '@/domain/enums/DraftSaveState';
 import { type TeamRosterResponse } from '@/domain/types/api/TeamRosterResponse';
 import { listDates } from '@/domain/YearMonth';
 
+const UNSAVED_RETRY_MESSAGE = '저장하지 못한 수정이 있어요. 저장 상태를 확인한 뒤 다시 시도해 주세요.';
+
 type RosterReviewViewProps = {
   teamId: string;
   state: RosterEditorState;
@@ -28,6 +32,7 @@ type RosterReviewViewProps = {
 /** Phase (b) + (c): whole-team review (table ≥768px, person list below), shared legend, unmatched people, publish. */
 const RosterReviewView = ({ teamId, state, view }: RosterReviewViewProps) => {
   const review = useRosterReviewState(view);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const { edits, autosave } = state;
   const yearMonth = view.roster.yearMonth ?? '';
   const dates = yearMonth ? listDates(yearMonth) : [];
@@ -40,8 +45,16 @@ const RosterReviewView = ({ teamId, state, view }: RosterReviewViewProps) => {
   const undefinedWarning = formatUndefinedCodesWarning(review.undefinedCodes);
   const failedRows = listFailedRows(view.rows);
 
+  /** Unsaved edits would be dropped by the reload after re-reading, so they must be saved first. */
   const handleRetryFailed = async () => {
-    await autosave.flush();
+    setRetryError(null);
+
+    if (!(await autosave.flush())) {
+      setRetryError(UNSAVED_RETRY_MESSAGE);
+
+      return;
+    }
+
     await state.extraction.start(true);
   };
 
@@ -81,8 +94,14 @@ const RosterReviewView = ({ teamId, state, view }: RosterReviewViewProps) => {
       <RosterFailedRowsView
         failedRows={failedRows}
         isBusy={state.extraction.isRunning}
+        disabled={state.isLocked || autosave.isDirty()}
         onRetry={() => void handleRetryFailed()}
       />
+      {retryError && (
+        <div className="warning" role="alert">
+          {retryError}
+        </div>
+      )}
       <RosterUnmatchedView
         unmatched={review.unmatched}
         rows={view.rows}
@@ -140,6 +159,7 @@ const RosterReviewView = ({ teamId, state, view }: RosterReviewViewProps) => {
       <RosterAddRowForm disabled={!edits.canEdit} onAdd={edits.handleAddRow} />
       <RosterPublishView
         blockers={review.blockers}
+        rows={view.rows}
         changesPreview={view.changesPreview}
         includedCount={included.length}
         needsTimeConfirmation={review.requiresTimeConfirmation && !review.isTimeConfirmed}

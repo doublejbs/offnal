@@ -21,6 +21,14 @@ export const useTeamRostersState = (teamId: string) => {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const refreshList = async () => {
+    try {
+      rosters.setData(await listTeamRosters(teamId));
+    } catch {
+      // Keep the current list; the error above is already shown.
+    }
+  };
+
   const handleEdit = async (roster: TeamRosterSummaryDto) => {
     setBusyRosterId(roster.id);
     setError(null);
@@ -68,6 +76,8 @@ export const useTeamRostersState = (teamId: string) => {
         setError(getErrorMessage(caught));
         setRevertTarget(null);
         setUnlinkedRows(null);
+        // The list is likely stale (e.g. 409: that revision was replaced meanwhile): refresh it in place.
+        await refreshList();
       }
     } finally {
       setBusyRosterId(null);

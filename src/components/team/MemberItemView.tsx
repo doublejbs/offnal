@@ -91,7 +91,7 @@ const MemberItemView = ({
           </button>
           <button
             type="button"
-            className="primary"
+            className="secondary"
             disabled={isBusy}
             onClick={() => onApprove(member, hasRoster && rowChanged ? rowKey : undefined)}
           >

@@ -1,4 +1,4 @@
-import { isApiClientError } from '@/client/ApiClient';
+import { getErrorMessage, isApiClientError } from '@/client/ApiClient';
 import { formatDateTime } from '@/client/DisplayText';
 import { formatDayOnly } from '@/client/MonthLayout';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
@@ -51,12 +51,26 @@ export const readMembershipConflictReason = (error: unknown): TeamMembershipConf
 export const describeMembershipConflict = (reason: TeamMembershipConflictReason): string =>
   MEMBERSHIP_CONFLICT_TEXT[reason];
 
+/** Error text for team actions: membership conflicts by reason, anything else as the server/generic message. */
+export const describeTeamError = (error: unknown): string => {
+  const reason = readMembershipConflictReason(error);
+
+  return reason ? describeMembershipConflict(reason) : getErrorMessage(error);
+};
+
 /** "김하루" or "김하루 (2)" when the roster has more than one person with that name. */
 export const formatSameNameLabel = (
   displayName: string,
   sameNameOrdinal: number,
   sameNameCount: number,
 ): string => (sameNameCount > 1 ? `${displayName} (${sameNameOrdinal})` : displayName);
+
+/** The one label for a roster person everywhere (picker, review, blockers, dialogs, member page). */
+export const formatRowName = (row: {
+  displayName: string;
+  sameNameOrdinal: number;
+  sameNameCount: number;
+}): string => formatSameNameLabel(row.displayName, row.sameNameOrdinal, row.sameNameCount);
 
 /** "D · E · 빈칸" — first codes that tell same-name rows apart. */
 export const formatFirstCodes = (codes: (string | null)[]): string =>

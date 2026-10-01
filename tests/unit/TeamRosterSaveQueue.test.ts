@@ -166,6 +166,17 @@ describe('TeamRosterSaveQueue', () => {
     expect(queue.isDirty()).toBe(false);
   });
 
+  it('refuses an immediate PATCH with a readable message while edits cannot be saved', async () => {
+    const { queue } = setup();
+
+    queue.edit({ rows: { r1: { displayName: ' ' } } });
+
+    await expect(queue.run({ addRows: [{ displayName: '신입' }] })).rejects.toMatchObject({
+      name: 'ApiClientError',
+      message: '저장하지 못한 수정이 있어요. 먼저 다시 저장해 주세요.',
+    });
+  });
+
   it('runs an immediate PATCH after pending edits', async () => {
     const { queue, calls } = setup();
 

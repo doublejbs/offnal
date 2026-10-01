@@ -4,7 +4,7 @@ import { type KeyboardEvent, useRef } from 'react';
 
 import { formatMonthDay, WEEKDAY_LABELS } from '@/client/MonthLayout';
 import { describeEntryStatus, getBadgeText, getEntryTone, toneClassName } from '@/client/ShiftStyle';
-import { formatSameNameLabel } from '@/client/TeamDisplayText';
+import { formatRowName } from '@/client/TeamDisplayText';
 import { findGridTarget } from '@/client/TeamRosterGrid';
 import { type RosterCell } from '@/components/roster/UseRosterReviewState';
 import { type TeamRosterRowDto } from '@/domain/types/api/TeamRosterRowDto';
@@ -76,7 +76,7 @@ const RosterGridView = ({ rows, dates, definitions, selected, onSelect }: Roster
         <tbody>
           {rows.map((row, rowIndex) => {
             const entryByDate = new Map(row.entries.map((entry) => [entry.date, entry]));
-            const name = formatSameNameLabel(row.displayName, row.sameNameOrdinal, row.sameNameCount);
+            const name = formatRowName(row);
 
             return (
               <tr key={row.id} data-excluded={row.excluded}>

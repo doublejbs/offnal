@@ -3,16 +3,19 @@
 import { useId } from 'react';
 
 import { describeBlocker } from '@/client/DisplayText';
-import { formatChangesHeadline, formatPersonChanges } from '@/client/TeamDisplayText';
+import { formatChangesHeadline, formatPersonChanges, formatRowName } from '@/client/TeamDisplayText';
 import { formatUnlinkedWarning } from '@/client/TeamRosterErrors';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { type RosterPublishState } from '@/components/roster/UseRosterPublish';
 import { type TeamRosterChangePreview } from '@/domain/types/api/TeamRosterChangePreview';
 import { type TeamRosterRowBlocker } from '@/domain/types/api/TeamRosterRowBlocker';
+import { type TeamRosterRowDto } from '@/domain/types/api/TeamRosterRowDto';
 import { type PublishBlocker } from '@/domain/types/PublishBlocker';
 
 type RosterPublishViewProps = {
   blockers: TeamRosterRowBlocker[];
+  /** For same-name labels ("김하루 (2)") of blockers and changes. */
+  rows: TeamRosterRowDto[];
   changesPreview: TeamRosterChangePreview | null;
   includedCount: number;
   needsTimeConfirmation: boolean;
@@ -25,6 +28,7 @@ type RosterPublishViewProps = {
 /** Phase (c): changes preview, blockers (tap → focus the cell / legend), publish and the unlinked-rows confirm. */
 const RosterPublishView = ({
   blockers,
+  rows,
   changesPreview,
   includedCount,
   needsTimeConfirmation,
@@ -34,6 +38,11 @@ const RosterPublishView = ({
   onSelectTimeConfirmation,
 }: RosterPublishViewProps) => {
   const titleId = useId();
+  const nameOf = (match: (row: TeamRosterRowDto) => boolean, fallback: string): string => {
+    const row = rows.find(match);
+
+    return row ? formatRowName(row) : fallback;
+  };
   // Local blockers follow unsaved edits; the server's 422 list is only shown when the local mirror found none.
   const shownBlockers = blockers.length > 0 ? blockers : (publish.serverBlockers ?? []);
   const canPublish =
@@ -49,7 +58,12 @@ const RosterPublishView = ({
           </summary>
           <ul className="change-list">
             {changesPreview.rows.map((row) => (
-              <li key={row.rowKey}>{formatPersonChanges(row.displayName, row.changes)}</li>
+              <li key={row.rowKey}>
+                {formatPersonChanges(
+                  nameOf((item) => item.rowKey === row.rowKey, row.displayName),
+                  row.changes,
+                )}
+              </li>
             ))}
           </ul>
         </details>
@@ -68,7 +82,7 @@ const RosterPublishView = ({
                     className="linkish"
                     onClick={() => onSelectBlocker(row.rowId, blocker)}
                   >
-                    {row.displayName}: {describeBlocker(blocker)}
+                    {nameOf((item) => item.id === row.rowId, row.displayName)}: {describeBlocker(blocker)}
                   </button>
                 </li>
               )),

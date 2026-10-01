@@ -3,8 +3,8 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-import { getErrorMessage } from '@/client/ApiClient';
 import { leaveTeam } from '@/client/TeamApiClient';
+import { describeTeamError } from '@/client/TeamDisplayText';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
 type LeaveTeamButtonProps = {
@@ -28,7 +28,7 @@ const LeaveTeamButton = ({ teamId, teamName }: LeaveTeamButtonProps) => {
       router.replace('/teams');
       router.refresh();
     } catch (caught: unknown) {
-      setError(getErrorMessage(caught));
+      setError(describeTeamError(caught));
       setIsOpen(false);
       setIsBusy(false);
     }

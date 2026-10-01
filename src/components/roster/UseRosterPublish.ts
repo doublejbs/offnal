@@ -2,16 +2,11 @@
 
 import { useState } from 'react';
 
-import { getErrorMessage, isApiClientError } from '@/client/ApiClient';
+import { getErrorMessage } from '@/client/ApiClient';
 import { publishTeamRoster } from '@/client/TeamApiClient';
-import {
-  isStaleBaseConflict,
-  readRowBlockers,
-  readUnlinkedRows,
-  STALE_BASE_MESSAGE,
-} from '@/client/TeamRosterErrors';
+import { classifyPublishFailure, STALE_BASE_MESSAGE } from '@/client/TeamRosterErrors';
 import { type RosterAutosave } from '@/components/roster/UseRosterAutosave';
-import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
+import { RosterPublishFailureKind } from '@/domain/enums/RosterPublishFailureKind';
 import { type PreviousRowRef } from '@/domain/types/api/PreviousRowRef';
 import { type PublishTeamRosterResponse } from '@/domain/types/api/PublishTeamRosterResponse';
 import { type TeamRosterRowBlocker } from '@/domain/types/api/TeamRosterRowBlocker';
@@ -41,36 +36,32 @@ export const useRosterPublish = ({ teamId, rosterId, autosave, onStale }: Roster
   const [result, setResult] = useState<PublishTeamRosterResponse | null>(null);
 
   const handleFailure = (caught: unknown) => {
-    const unlinked = readUnlinkedRows(caught);
-    const blockers = readRowBlockers(caught);
+    const failure = classifyPublishFailure(caught);
 
-    if (unlinked) {
-      setUnlinkedRows(unlinked);
+    if (failure.kind === RosterPublishFailureKind.UNLINKED_ROWS) {
+      setUnlinkedRows(failure.unlinkedRows);
 
       return;
     }
 
-    if (blockers) {
-      setServerBlockers(blockers);
+    if (failure.kind === RosterPublishFailureKind.BLOCKED) {
+      setServerBlockers(failure.blockers);
       setError(BLOCKED_MESSAGE);
 
       return;
     }
 
-    if (isStaleBaseConflict(caught)) {
-      setError(STALE_BASE_MESSAGE);
-
-      return;
-    }
-
-    if (isApiClientError(caught) && caught.code === ApiErrorCode.REVISION_CONFLICT) {
-      setError(STALE_VERSION_MESSAGE);
+    if (failure.kind === RosterPublishFailureKind.STALE_VERSION) {
       onStale();
-
-      return;
     }
 
-    setError(getErrorMessage(caught));
+    setError(
+      failure.kind === RosterPublishFailureKind.STALE_BASE
+        ? STALE_BASE_MESSAGE
+        : failure.kind === RosterPublishFailureKind.STALE_VERSION
+          ? STALE_VERSION_MESSAGE
+          : getErrorMessage(caught),
+    );
   };
 
   const handlePublish = async (confirmUnlinked = false) => {

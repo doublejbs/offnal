@@ -1,6 +1,8 @@
 import { isApiClientError } from '@/client/ApiClient';
+import { formatRowName } from '@/client/TeamDisplayText';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
+import { RosterPublishFailureKind } from '@/domain/enums/RosterPublishFailureKind';
 import { type PreviousRowRef } from '@/domain/types/api/PreviousRowRef';
 import { type TeamRosterConflictDetails } from '@/domain/types/api/TeamRosterConflictDetails';
 import { type TeamRosterRowBlocker } from '@/domain/types/api/TeamRosterRowBlocker';
@@ -34,4 +36,38 @@ export const isStaleBaseConflict = (error: unknown): boolean =>
 
 /** Confirm text listing who would lose this month: "김하루, 이소망님의 이 달 근무가 달력에서 사라져요." */
 export const formatUnlinkedWarning = (rows: PreviousRowRef[]): string =>
-  `${rows.map((row) => row.displayName).join(', ')}님은 팀원과 연결돼 있는데 이 버전에 없어요. 그대로 배포하면 이분들의 달력에서 이 달 근무가 사라져요.`;
+  `${rows.map(formatRowName).join(', ')}님은 팀원과 연결돼 있는데 이 버전에 없어요. 그대로 배포하면 이분들의 달력에서 이 달 근무가 사라져요.`;
+
+export type RosterPublishFailure =
+  | { kind: RosterPublishFailureKind.UNLINKED_ROWS; unlinkedRows: PreviousRowRef[] }
+  | { kind: RosterPublishFailureKind.BLOCKED; blockers: TeamRosterRowBlocker[] }
+  | {
+      kind:
+        | RosterPublishFailureKind.STALE_BASE
+        | RosterPublishFailureKind.STALE_VERSION
+        | RosterPublishFailureKind.OTHER;
+    };
+
+/** One place deciding what a failed publish / revert means for the screen (unit-tested). */
+export const classifyPublishFailure = (error: unknown): RosterPublishFailure => {
+  const unlinkedRows = readUnlinkedRows(error);
+  const blockers = readRowBlockers(error);
+
+  if (unlinkedRows) {
+    return { kind: RosterPublishFailureKind.UNLINKED_ROWS, unlinkedRows };
+  }
+
+  if (blockers) {
+    return { kind: RosterPublishFailureKind.BLOCKED, blockers };
+  }
+
+  if (isStaleBaseConflict(error)) {
+    return { kind: RosterPublishFailureKind.STALE_BASE };
+  }
+
+  if (isApiClientError(error) && error.code === ApiErrorCode.REVISION_CONFLICT) {
+    return { kind: RosterPublishFailureKind.STALE_VERSION };
+  }
+
+  return { kind: RosterPublishFailureKind.OTHER };
+};

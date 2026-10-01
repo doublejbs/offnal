@@ -1,4 +1,4 @@
-import { getErrorMessage, isApiClientError } from '@/client/ApiClient';
+import { ApiClientError, getErrorMessage, isApiClientError } from '@/client/ApiClient';
 import {
   EMPTY_EDITS,
   isEmptyEdits,
@@ -143,7 +143,8 @@ export const createRosterSaveQueue = ({
 
   const run = async (body: Omit<PatchTeamRosterRequest, 'version'>): Promise<TeamRosterResponse> => {
     if (!(await flush())) {
-      throw new Error(UNSAVED_MESSAGE);
+      // Status 0: the request never reached the server. getErrorMessage shows this text.
+      throw new ApiClientError(0, null, UNSAVED_MESSAGE);
     }
 
     return enqueue(async () => {

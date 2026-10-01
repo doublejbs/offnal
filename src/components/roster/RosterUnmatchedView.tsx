@@ -2,7 +2,7 @@
 
 import { useId, useState } from 'react';
 
-import { formatSameNameLabel } from '@/client/TeamDisplayText';
+import { formatRowName } from '@/client/TeamDisplayText';
 import { listRenameCandidates } from '@/client/TeamRosterGrid';
 import { type PreviousRowRef } from '@/domain/types/api/PreviousRowRef';
 import { type TeamRosterRowDto } from '@/domain/types/api/TeamRosterRowDto';
@@ -32,7 +32,7 @@ const UnmatchedItem = ({ previous, candidates, disabled, onMatch, onDismiss }: U
 
   return (
     <li className="member-item">
-      <strong>이전 근무표의 {previous.displayName}님이 안 보여요</strong>
+      <strong>이전 근무표의 {formatRowName(previous)}님이 안 보여요</strong>
       {previous.linked && (
         <div className="tiny">팀원과 연결된 행이에요. 이대로 배포하면 그분 달력에서 이 달이 사라져요.</div>
       )}
@@ -43,7 +43,7 @@ const UnmatchedItem = ({ previous, candidates, disabled, onMatch, onDismiss }: U
             <select value={rowId} disabled={disabled} onChange={(event) => setRowId(event.target.value)}>
               {candidates.map((row) => (
                 <option key={row.id} value={row.id}>
-                  {formatSameNameLabel(row.displayName, row.sameNameOrdinal, row.sameNameCount)}
+                  {formatRowName(row)}
                 </option>
               ))}
             </select>

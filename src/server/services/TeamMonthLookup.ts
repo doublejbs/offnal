@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, gt, inArray } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, lte, or } from 'drizzle-orm';
 
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
@@ -160,8 +160,16 @@ export const buildTeamMonthInfos = async (
   const ackByKey = new Map(
     acks.map((ack) => [buildTeamMonthKey(ack.teamId, ack.yearMonth), ack.ackedRevision]),
   );
-  const minAckedRevision = Math.min(
-    ...[...ackByKey.values(), 0],
+  // One condition per shown month: only that member row's changes after the acknowledged revision, up to
+  // the revision being shown (older acks are never read again).
+  const conditions = records.map((record) =>
+    and(
+      eq(teamRosters.teamId, record.teamId),
+      eq(teamRosters.yearMonth, record.yearMonth),
+      eq(teamRosterChanges.rowKey, record.rowKey),
+      gt(teamRosters.revision, ackByKey.get(buildTeamMonthKey(record.teamId, record.yearMonth)) ?? 0),
+      lte(teamRosters.revision, record.revision),
+    ),
   );
   const changes = await db
     .select({
@@ -175,14 +183,7 @@ export const buildTeamMonthInfos = async (
     })
     .from(teamRosterChanges)
     .innerJoin(teamRosters, eq(teamRosters.id, teamRosterChanges.rosterId))
-    .where(
-      and(
-        inArray(teamRosters.teamId, teamIds),
-        inArray(teamRosters.yearMonth, yearMonths),
-        inArray(teamRosterChanges.rowKey, [...new Set(records.map((record) => record.rowKey))]),
-        gt(teamRosters.revision ?? 0, minAckedRevision),
-      ),
-    );
+    .where(or(...conditions));
 
   return records.map((record) => {
     const acknowledgedRevision = ackByKey.get(buildTeamMonthKey(record.teamId, record.yearMonth)) ?? 0;

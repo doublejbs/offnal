@@ -189,3 +189,8 @@
   border-radius: 4px;
   padding: 2px 3px;
 }
+
+.header-link[aria-current='page'] {
+  color: var(--blue);
+  font-weight: 600;
+}

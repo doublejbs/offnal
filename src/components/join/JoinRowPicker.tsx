@@ -1,6 +1,6 @@
 'use client';
 
-import { formatFirstCodes, formatSameNameLabel } from '@/client/TeamDisplayText';
+import { formatFirstCodes, formatRowName } from '@/client/TeamDisplayText';
 import { NO_ROW_CHOICE } from '@/components/join/UseJoinState';
 import { type JoinableRowDto } from '@/domain/types/api/JoinableRowDto';
 
@@ -18,7 +18,7 @@ const JoinRowPicker = ({ rows, choice, disabled, onChange }: JoinRowPickerProps)
     {rows.map((row) => (
       <label key={row.rowKey} className="person">
         <span>
-          <strong>{formatSameNameLabel(row.displayName, row.sameNameOrdinal, row.sameNameCount)}</strong>
+          <strong>{formatRowName(row)}</strong>
           {row.firstCodes.length > 0 && (
             <small className="block-text tiny">
               1~{row.firstCodes.length}일 {formatFirstCodes(row.firstCodes)}

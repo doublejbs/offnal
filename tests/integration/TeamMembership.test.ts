@@ -13,6 +13,7 @@ import { type TeamInviteListResponse } from '@/domain/types/api/TeamInviteListRe
 import { type TeamListResponse } from '@/domain/types/api/TeamListResponse';
 import { type TeamMemberDto } from '@/domain/types/api/TeamMemberDto';
 import { type TeamMemberListResponse } from '@/domain/types/api/TeamMemberListResponse';
+import { type TeamMembershipSummary } from '@/domain/types/api/TeamMembershipSummary';
 import { type TeamMembershipConflictDetails } from '@/domain/types/api/TeamMembershipConflictDetails';
 import { hashSha256Hex } from '@/server/crypto/TokenCrypto';
 import { teamInvites, teamMembers } from '@/server/db/Schema';
@@ -373,13 +374,21 @@ describe('invite link abuse limits', () => {
     expect((await getInviteRows(visitor, team.token)).status).toBe(429);
   });
 
-  it('hides the picker rows from removed people (404)', async () => {
-    const fresh = await setupPublishedTeam('행 숨김 관리자', '행 숨김 병동');
-    const removed = await joinAndApprove(env.db, fresh, '행 숨김 대상', findRowKey(fresh.roster, '정겨울'));
+  it('lets removed people see the picker again and re-request (spec §15.2)', async () => {
+    const fresh = await setupPublishedTeam('재요청 관리자', '재요청 병동');
+    const rowKey = findRowKey(fresh.roster, '정겨울');
+    const removed = await joinAndApprove(env.db, fresh, '재요청 대상', rowKey);
 
-    expect((await getInviteRows(removed.member, fresh.token)).status).toBe(200);
     expect((await removeMember(fresh.admin, fresh.teamId, removed.userId)).status).toBe(200);
-    expect((await getInviteRows(removed.member, fresh.token)).status).toBe(404);
+
+    expect((await readInviteRows(removed.member, fresh.token)).rows.map((row) => row.rowKey)).toContain(
+      rowKey,
+    );
+
+    const again = await requestJoin(removed.member, fresh.token, rowKey);
+
+    expect(again.status).toBe(200);
+    expect((await readJson<TeamMembershipSummary>(again)).status).toBe(TeamMemberStatus.PENDING);
   });
 });
 

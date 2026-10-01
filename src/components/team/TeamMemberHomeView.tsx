@@ -3,7 +3,7 @@
 import Link from 'next/link';
 
 import { formatDateTime } from '@/client/DisplayText';
-import { formatRevision, formatRowKey } from '@/client/TeamDisplayText';
+import { formatRevision, formatRowKey, formatRowName } from '@/client/TeamDisplayText';
 import { getMyTeamMonths } from '@/client/TeamApiClient';
 import BackLink from '@/components/BackLink';
 import LeaveTeamButton from '@/components/team/LeaveTeamButton';
@@ -20,8 +20,9 @@ const TeamMemberHomeView = ({ detail }: TeamMemberHomeViewProps) => {
   const { team } = detail;
   const myMonths = useLoad(`my-months-${team.id}`, (signal) => getMyTeamMonths(team.id, signal));
   const months = myMonths.data?.months ?? [];
-  const myName =
-    months.at(-1)?.displayName ?? (detail.myLinkedRowKey ? formatRowKey(detail.myLinkedRowKey) : null);
+  const latestMonth = months.at(-1);
+  const linkedKeyName = detail.myLinkedRowKey ? formatRowKey(detail.myLinkedRowKey) : null;
+  const myName = latestMonth ? formatRowName(latestMonth) : linkedKeyName;
   const latest = detail.publishedMonths.at(-1);
 
   return (

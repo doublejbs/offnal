@@ -20,7 +20,12 @@ import {
   findAcknowledgedRevision,
   listTeamMonthsForUser,
 } from '@/server/services/TeamMonthLookup';
-import { findPublishedRoster, listRosterRows, toCodeEntries } from '@/server/services/TeamRosterRows';
+import {
+  findPublishedRoster,
+  listRosterRows,
+  toCodeEntries,
+  toJoinableRows,
+} from '@/server/services/TeamRosterRows';
 
 /** GET /api/teams/:id/my-months (ACTIVE): the member's own row of every published month of this team. */
 export const getMyTeamMonths = async (
@@ -31,11 +36,19 @@ export const getMyTeamMonths = async (
   const { context: loggedIn, team, membership } = await requireActiveMember(db, context, teamId);
   const records = await listTeamMonthsForUser(db, loggedIn.user.id, { teamId: team.id });
   const infos = await buildTeamMonthInfos(db, records, loggedIn.user.id);
+  // Same-name labels per month (few months per team: one row list each).
+  const labels = await Promise.all(
+    records.map(async (record) =>
+      toJoinableRows(await listRosterRows(db, record.rosterId)).find((row) => row.rowKey === record.rowKey),
+    ),
+  );
   const months = records.map((record, index): TeamMyMonthDto => ({
     yearMonth: record.yearMonth,
     revision: record.revision,
     publishedAt: record.publishedAt.toISOString(),
     displayName: record.displayName,
+    sameNameOrdinal: labels[index]?.sameNameOrdinal ?? 1,
+    sameNameCount: labels[index]?.sameNameCount ?? 1,
     definitions: record.definitions,
     entries: toCodeEntries(record.entries),
     changes: infos[index]?.changes ?? [],

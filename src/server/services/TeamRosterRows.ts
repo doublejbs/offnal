@@ -6,6 +6,7 @@ import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { normalizeExtraction, summarizeReview } from '@/domain/ScheduleValidator';
 import { computeSameNameLabels } from '@/domain/TeamRowKey';
 import { type JoinableRowDto } from '@/domain/types/api/JoinableRowDto';
+import { type PreviousRowRef } from '@/domain/types/api/PreviousRowRef';
 import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
 import { type ShiftCodeEntry } from '@/domain/types/ShiftCodeEntry';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
@@ -141,3 +142,13 @@ export const toJoinableRows = (rows: TeamRosterRowRow[]): JoinableRowDto[] => {
     firstCodes: row.entries.slice(0, FIRST_CODE_DAYS).map((entry) => entry.code),
   }));
 };
+
+/** Included rows of a published revision as PreviousRowRef (same-name labels like the picker; `linked` false). */
+export const toPreviousRowRefs = (rows: TeamRosterRowRow[]): PreviousRowRef[] =>
+  toJoinableRows(rows).map((row) => ({
+    rowKey: row.rowKey,
+    displayName: row.displayName,
+    sameNameOrdinal: row.sameNameOrdinal,
+    sameNameCount: row.sameNameCount,
+    linked: false,
+  }));
