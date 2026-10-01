@@ -1,13 +1,13 @@
 import 'server-only';
 
-import { and, eq, gt, isNull, or, type SQL } from 'drizzle-orm';
+import { and, eq, gt, isNull, notExists, or, type SQL, sql } from 'drizzle-orm';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { type RecognitionStatusResponse } from '@/domain/types/api/RecognitionStatusResponse';
 import { type DbExecutor } from '@/server/db/Database';
-import { type RecognitionJobRow, recognitionJobs } from '@/server/db/Schema';
+import { type RecognitionJobRow, recognitionJobs, teamRosters } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
 import { type LoggedInContext, type RequestContext } from '@/server/http/RequestContext';
 import { requireUser, requireUuid } from '@/server/validation/RequestGuards';
@@ -27,7 +27,7 @@ export const RETRYABLE_ERROR_CODES: RecognitionErrorCode[] = [
 export const isJobExpired = (job: RecognitionJobRow, now: Date): boolean =>
   job.status === RecognitionStatus.EXPIRED || job.expiresAt.getTime() <= now.getTime();
 
-const isRetryable = (job: RecognitionJobRow): boolean =>
+export const isJobRetryable = (job: RecognitionJobRow): boolean =>
   job.status === RecognitionStatus.FAILED &&
   job.errorCode !== null &&
   RETRYABLE_ERROR_CODES.includes(job.errorCode) &&
@@ -48,7 +48,7 @@ export const toStatusResponse = (
     id: job.id,
     status: expired ? RecognitionStatus.EXPIRED : job.status,
     errorCode: expired ? null : job.errorCode,
-    retryable: !expired && isRetryable(job),
+    retryable: !expired && isJobRetryable(job),
     expiresAt: job.expiresAt.toISOString(),
     ownerAuthenticated: context.user !== null,
   };
@@ -83,7 +83,19 @@ export const findOwnedJob = async (
   const [job] = await db
     .select()
     .from(recognitionJobs)
-    .where(and(eq(recognitionJobs.id, requireUuid(jobId)), ownership))
+    .where(
+      and(
+        eq(recognitionJobs.id, requireUuid(jobId)),
+        ownership,
+        // Team roster uploads are reachable only through the team roster API (admins of that team).
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(teamRosters)
+            .where(eq(teamRosters.sourceJobId, recognitionJobs.id)),
+        ),
+      ),
+    )
     .limit(1);
 
   if (!job) {

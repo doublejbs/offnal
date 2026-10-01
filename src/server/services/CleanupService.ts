@@ -1,11 +1,13 @@
 import 'server-only';
 
-import { and, asc, eq, exists, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, inArray, isNotNull, isNull, lt, lte, ne, or, sql } from 'drizzle-orm';
 
 import { MS_PER_DAY, MS_PER_HOUR } from '@/domain/DomainLimits';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
+import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
+import { getAppConfig } from '@/server/config/AppConfig';
 import { type Db } from '@/server/db/Database';
 import {
   anonymousSessions,
@@ -15,6 +17,7 @@ import {
   rateLimitCounters,
   recognitionJobs,
   sessions,
+  teamRosters,
 } from '@/server/db/Schema';
 import { type ObjectStorage } from '@/server/storage/ObjectStorage';
 
@@ -40,6 +43,8 @@ export type CleanupResult = {
   anonymousSessionsDeleted: number;
   paymentsCanceled: number;
   paymentEventsDeleted: number;
+  /** Team roster drafts untouched for DRAFT_TTL_DAYS (published revisions are kept). */
+  teamRosterDraftsDeleted: number;
 };
 
 type SourceRef = {
@@ -102,6 +107,18 @@ const listPendingSources = async (db: Db, now: Date): Promise<SourceRef[]> => {
                 ),
               ),
           ),
+          // Team roster uploads that were published (now PUBLISHED or ARCHIVED).
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(teamRosters)
+              .where(
+                and(
+                  eq(teamRosters.sourceJobId, recognitionJobs.id),
+                  inArray(teamRosters.status, [TeamRosterStatus.PUBLISHED, TeamRosterStatus.ARCHIVED]),
+                ),
+              ),
+          ),
         ),
       ),
     )
@@ -143,6 +160,7 @@ const countDeleted = (rows: unknown[]): number => rows.length;
 /**
  * Spec §7.6 cleanup. Idempotent: a second run right after the first changes nothing.
  * Drafts past DRAFT_TTL are deleted whatever their status (published months keep their own snapshot).
+ * Team roster sources follow the same source TTL (their jobs are ordinary recognition jobs).
  */
 export const runCleanup = async (
   db: Db,
@@ -159,6 +177,7 @@ export const runCleanup = async (
     anonymousSessionsDeleted: 0,
     paymentsCanceled: 0,
     paymentEventsDeleted: 0,
+    teamRosterDraftsDeleted: 0,
   };
 
   result.expiredJobs = await expireJobs(db, now);
@@ -205,6 +224,17 @@ export const runCleanup = async (
         ),
       )
       .returning({ id: paymentEvents.id }),
+  );
+  result.teamRosterDraftsDeleted = countDeleted(
+    await db
+      .delete(teamRosters)
+      .where(
+        and(
+          eq(teamRosters.status, TeamRosterStatus.DRAFT),
+          lte(teamRosters.updatedAt, daysBefore(now, getAppConfig().draftTtlDays)),
+        ),
+      )
+      .returning({ id: teamRosters.id }),
   );
 
   return result;

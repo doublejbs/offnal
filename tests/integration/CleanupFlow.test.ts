@@ -222,6 +222,7 @@ describe('cleanup run', () => {
       anonymousSessionsDeleted: 0,
       paymentsCanceled: 0,
       paymentEventsDeleted: 0,
+      teamRosterDraftsDeleted: 0,
     });
   });
 

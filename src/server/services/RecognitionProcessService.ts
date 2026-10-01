@@ -242,10 +242,23 @@ export const processRecognition = async (
   jobId: string,
 ): Promise<RecognitionStatusResponse> => {
   const job = await findOwnedJob(db, context, jobId);
+  const finished = await runRecognitionForJob(db, job);
+
+  return toStatusResponse(finished ?? (await findOwnedJob(db, context, jobId)), context);
+};
+
+/**
+ * First pass for an already authorized job (personal: owner checked; team roster: admin checked). Returns
+ * the finished job, or null when another caller holds the lease / the job expired (callers re-read it).
+ */
+export const runRecognitionForJob = async (
+  db: Db,
+  job: RecognitionJobRow,
+): Promise<RecognitionJobRow | null> => {
   const leased = isJobExpired(job, new Date()) ? null : await acquireLease(db, job.id, new Date());
 
   if (!leased) {
-    return toStatusResponse(await findOwnedJob(db, context, jobId), context);
+    return null;
   }
 
   const result = await runTableRecognition(leased);
@@ -253,7 +266,7 @@ export const processRecognition = async (
 
   track(AnalyticsEvent.RECOGNITION_COMPLETED, { success: result.ok, attempt: leased.attemptCount });
 
-  return toStatusResponse(finished ?? (await findOwnedJob(db, context, jobId)), context);
+  return finished;
 };
 
 export const getRecognitionStatus = async (
