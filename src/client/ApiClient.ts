@@ -88,22 +88,24 @@ export const apiFetch = async (path: string, init: RequestInit = {}): Promise<Re
   return response;
 };
 
-const requestJson = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
+/** JSON request through `apiFetch` (shared by the per-area API clients). */
+export const requestJson = async <T>(path: string, init: RequestInit = {}): Promise<T> => {
   const response = await apiFetch(path, init);
 
   return (await response.json()) as T;
 };
 
-const getJson = <T>(path: string, signal?: AbortSignal): Promise<T> => requestJson<T>(path, { signal });
+export const getJson = <T>(path: string, signal?: AbortSignal): Promise<T> =>
+  requestJson<T>(path, { signal });
 
-const sendJson = <T>(method: string, path: string, body?: unknown): Promise<T> =>
+export const sendJson = <T>(method: string, path: string, body?: unknown): Promise<T> =>
   requestJson<T>(path, {
     method,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-const encode = encodeURIComponent;
+export const encode = encodeURIComponent;
 
 export const getPublicConfig = (): Promise<PublicConfigResponse> => getJson('/api/config/public');
 

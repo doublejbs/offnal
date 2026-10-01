@@ -1,0 +1,191 @@
+/* Team sharing screens (docs/TeamShareSpec.md §8). Tokens only, so dark mode follows Tokens.css. */
+
+/* Header navigation (logged in) */
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.header-link {
+  padding: 0 8px;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.ink {
+  color: var(--ink);
+}
+
+/* Lists of teams / drafts / people */
+.team-intro {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+.team-list,
+.member-list,
+.history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.team-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+  font-size: 15px;
+}
+
+.team-item[data-pending='true'] {
+  background: var(--soft);
+}
+
+.team-item[data-review='true'] {
+  border-color: var(--tone-unknown-ink);
+}
+
+.team-item[data-excluded='true'] {
+  opacity: 0.6;
+}
+
+.team-item-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.team-item-body strong {
+  display: block;
+  font-weight: 500;
+}
+
+.team-item-body small {
+  display: block;
+  font-size: 13px;
+  color: var(--sub);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+.role-badge {
+  flex: none;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  background: var(--soft);
+  color: var(--sub);
+  margin-left: 6px;
+}
+
+.role-badge[data-tone='admin'] {
+  background: var(--bluefill);
+  color: var(--blue);
+}
+
+.role-badge[data-tone='pending'] {
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+}
+
+.count-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 20px;
+  background: var(--warn-bg);
+  color: var(--warn-ink);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Admin screen */
+.status-card {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  margin: 16px 0 6px;
+}
+
+.history-month h3 {
+  font-size: 14px;
+  margin: 12px 0 6px;
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.history-actions {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+
+.member-item {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+}
+
+.member-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.member-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.member-actions > * {
+  font-size: 14px;
+}
+
+.danger-zone {
+  margin: 24px 0 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* Member calendar: "변경" mark under a day's badge */
+.changed-mark {
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 600;
+  color: var(--warn-ink);
+  background: var(--warn-bg);
+  border-radius: 4px;
+  padding: 2px 3px;
+}
