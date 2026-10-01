@@ -1,5 +1,5 @@
 import { apiRoute, type YearMonthParams } from '@/server/http/ApiRoute';
-import { icsResponse, parseIncludeOff } from '@/server/http/RouteHelpers';
+import { icsResponse, parseIcsDisposition, parseIncludeOff } from '@/server/http/RouteHelpers';
 import { exportMonthIcs } from '@/server/services/ExportService';
 
 export const runtime = 'nodejs';
@@ -7,9 +7,10 @@ export const runtime = 'nodejs';
 export const GET = apiRoute<YearMonthParams>(
   { mutating: false },
   async ({ request, db, context, params }) => {
-    const includeOff = parseIncludeOff(request.nextUrl.searchParams);
+    const { searchParams } = request.nextUrl;
+    const includeOff = parseIncludeOff(searchParams);
     const { fileName, body } = await exportMonthIcs(db, context, params.yearMonth, includeOff);
 
-    return icsResponse(fileName, body);
+    return icsResponse(fileName, body, parseIcsDisposition(searchParams));
   },
 );

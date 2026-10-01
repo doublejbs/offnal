@@ -1,3 +1,4 @@
+import { buildIcsUrl, buildSharedIcsUrl } from '@/client/IcsUrls';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { type CalendarMonthResponse } from '@/domain/types/api/CalendarMonthResponse';
@@ -168,9 +169,7 @@ export const getExportData = (yearMonth: string): Promise<ExportDataResponse> =>
 
 /** ICS file as a Blob (the caller triggers the download). */
 export const downloadIcs = async (yearMonth: string, includeOff: boolean): Promise<Blob> => {
-  const response = await apiFetch(
-    `/api/calendar/${encode(yearMonth)}/export.ics?includeOff=${includeOff ? 1 : 0}`,
-  );
+  const response = await apiFetch(buildIcsUrl(yearMonth, includeOff));
 
   return response.blob();
 };
@@ -201,10 +200,10 @@ export const downloadSharedIcs = async (
   includeOff: boolean,
   signal?: AbortSignal,
 ): Promise<Blob> => {
-  const response = await apiFetch(
-    `/api/shared/${encode(token)}/export.ics?month=${encode(yearMonth)}&includeOff=${includeOff ? 1 : 0}`,
-    { credentials: 'omit', signal },
-  );
+  const response = await apiFetch(buildSharedIcsUrl(token, yearMonth, includeOff), {
+    credentials: 'omit',
+    signal,
+  });
 
   return response.blob();
 };

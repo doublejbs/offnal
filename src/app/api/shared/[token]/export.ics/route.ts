@@ -5,7 +5,7 @@ import { getDb } from '@/server/db/Database';
 import { type ParamsRouteContext, type TokenParams } from '@/server/http/ApiRoute';
 import { getClientIpFromHeaders } from '@/server/http/ClientIp';
 import { withPublicShareHeaders } from '@/server/http/PublicShareHeaders';
-import { icsResponse, parseIncludeOff, withRoute } from '@/server/http/RouteHelpers';
+import { icsResponse, parseIcsDisposition, parseIncludeOff, withRoute } from '@/server/http/RouteHelpers';
 import { enforceSharedViewLimit } from '@/server/services/RateLimitService';
 import { exportSharedMonthIcs } from '@/server/services/SharedCalendarService';
 
@@ -27,6 +27,6 @@ export const GET = withPublicShareHeaders(
       parseIncludeOff(searchParams),
     );
 
-    return icsResponse(fileName, body);
+    return icsResponse(fileName, body, parseIcsDisposition(searchParams));
   }),
 );

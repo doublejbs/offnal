@@ -3,12 +3,16 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { downloadSharedIcs, getErrorMessage, isApiClientError } from '@/client/ApiClient';
+import { ICS_DOWNLOADED_MESSAGE, ICS_NAVIGATE_HINT } from '@/client/IcsCopy';
+import { buildSharedIcsUrl } from '@/client/IcsUrls';
 import { buildSharedPngInput } from '@/client/PngLayout';
 import { renderMonthPng } from '@/client/PngRenderer';
 import { PNG_OUTCOME_MESSAGES } from '@/client/ShareOutcomeMessages';
 import { downloadBlob, shareOrDownloadFile } from '@/client/ShareOrDownload';
+import { useIcsOpenSupport } from '@/components/share/UseIcsOpenSupport';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { ExportPanel } from '@/domain/enums/ExportPanel';
+import { IcsOpenMethod } from '@/domain/enums/IcsOpenMethod';
 import { buildSharedIcsFileName, buildSharedPngFileName } from '@/domain/ExportFileNames';
 import { SHARE_EXPIRED_MESSAGE } from '@/domain/ShareMessages';
 import { type SharedMonth } from '@/domain/types/api/SharedCalendarResponse';
@@ -41,6 +45,7 @@ export const useSharedExportState = (token: string, displayName: string, month: 
   const inFlightRef = useRef(false);
   const isMountedRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
+  const icsOpenSupport = useIcsOpenSupport();
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -75,6 +80,7 @@ export const useSharedExportState = (token: string, displayName: string, month: 
   const handleToggle = (panel: ExportPanel) => {
     setMessage(null);
     setError(null);
+    icsOpenSupport.resetNotice();
     setOpenPanel((current) => (current === panel ? null : panel));
   };
 
@@ -105,7 +111,29 @@ export const useSharedExportState = (token: string, displayName: string, month: 
   };
 
   const handleDownloadIcs = async () => {
+    if (inFlightRef.current) {
+      return;
+    }
+
+    icsOpenSupport.resetNotice();
+
+    const method = icsOpenSupport.resolveMethod();
+
+    if (method === IcsOpenMethod.IN_APP_NOTICE) {
+      setMessage(null);
+      setError(null);
+
+      return;
+    }
+
     if (!startExport(ExportPanel.ICS)) {
+      return;
+    }
+
+    if (method === IcsOpenMethod.NAVIGATE) {
+      setMessage(ICS_NAVIGATE_HINT);
+      icsOpenSupport.navigateToIcs(buildSharedIcsUrl(token, month.yearMonth, includeOff, true), finishExport);
+
       return;
     }
 
@@ -121,7 +149,7 @@ export const useSharedExportState = (token: string, displayName: string, month: 
       }
 
       downloadBlob(blob, buildSharedIcsFileName(month.yearMonth));
-      setMessage('일정 파일을 받았어요. 파일을 열어 캘린더 앱으로 가져와 주세요.');
+      setMessage(ICS_DOWNLOADED_MESSAGE);
     } catch (caught: unknown) {
       if (!isAbortError(caught) && isMountedRef.current) {
         setError(toIcsErrorMessage(caught));
@@ -138,6 +166,7 @@ export const useSharedExportState = (token: string, displayName: string, month: 
     busyPanel,
     message,
     error,
+    icsOpenSupport,
     setIncludeOff,
     handleToggle,
     handleSavePng,

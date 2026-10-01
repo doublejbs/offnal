@@ -20,7 +20,7 @@ import {
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
 import { createEnvSandbox } from '../helpers/EnvSandbox';
-import { getEvents, unfold } from '../helpers/IcsTestUtils';
+import { getEvents, unfold, withoutStamp } from '../helpers/IcsTestUtils';
 import { createLoggedInJob, createReadyDraft } from '../helpers/OffnalFlows';
 import { findUserId, publishReady } from '../helpers/PaymentFlows';
 
@@ -157,6 +157,28 @@ describe('shared ICS export', () => {
     const uids = (text: string) => getEvents(text).map((event) => /UID:(.*)/.exec(event)?.[1]);
 
     expect(uids(unfold(await (await exportShared(token, '?month=2026-10')).text()))).toEqual(uids(ics));
+  });
+
+  it('answers inline for open=1 with the same file, share headers and includeOff', async () => {
+    const { token } = await setupShared('받은 사람 인라인 사용자');
+    const attachment = unfold(await (await exportShared(token, '?month=2026-10&includeOff=1')).text());
+    const response = await exportShared(token, '?month=2026-10&includeOff=1&open=1');
+    const ics = unfold(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('text/calendar; charset=utf-8');
+    expect(response.headers.get('content-disposition')).toBe('inline; filename="offnal-shared-2026-10.ics"');
+    expectPublicHeaders(response);
+    expect(withoutStamp(ics)).toBe(withoutStamp(attachment));
+
+    const withoutOff = unfold(await (await exportShared(token, '?month=2026-10&open=1')).text());
+
+    expect(getEvents(withoutOff).length).toBeLessThan(getEvents(ics).length);
+
+    const plain = await exportShared(token, '?month=2026-10&open=0');
+
+    expect(plain.headers.get('content-disposition')).toBe('attachment; filename="offnal-shared-2026-10.ics"');
+    await expectExpired(await exportShared(token, '?month=2026-11&open=1'));
   });
 
   it('defaults to the latest visible month and hides the rest with the same 404', async () => {

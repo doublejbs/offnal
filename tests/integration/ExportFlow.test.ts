@@ -15,7 +15,7 @@ import {
   readJson,
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
-import { unfold } from '../helpers/IcsTestUtils';
+import { unfold, withoutStamp } from '../helpers/IcsTestUtils';
 import { createLoggedInJob, createReadyDraft } from '../helpers/OffnalFlows';
 import { findUserId, publishReady } from '../helpers/PaymentFlows';
 
@@ -86,6 +86,41 @@ describe('ICS export', () => {
     expect(response.status).toBe(200);
     expect(countEvents(ics)).toBe(published.draft.entries.length);
     expect(ics).toContain(`DTSTART;VALUE=DATE:${offDate}`);
+  });
+
+  it('answers inline with the same file name and headers for open=1, keeping includeOff', async () => {
+    const attachment = unfold(await (await exportIcs(owner, '2026-10', '?includeOff=1')).text());
+
+    for (const query of ['?includeOff=1&open=1', '?includeOff=1&disposition=inline']) {
+      const response = await exportIcs(owner, '2026-10', query);
+      const ics = unfold(await response.text());
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('content-type')).toBe('text/calendar; charset=utf-8');
+      expect(response.headers.get('content-disposition')).toBe('inline; filename="offnal-2026-10.ics"');
+      expect(response.headers.get('cache-control')).toBe('no-store, max-age=0');
+      expect(countEvents(ics)).toBe(published.draft.entries.length);
+      expect(withoutStamp(ics)).toBe(withoutStamp(attachment));
+    }
+
+    const withoutOff = unfold(await (await exportIcs(owner, '2026-10', '?open=1')).text());
+
+    expect(countEvents(withoutOff)).toBeLessThan(published.draft.entries.length);
+
+    for (const query of ['?open=0', '?disposition=attachment', '?open=yes']) {
+      expect((await exportIcs(owner, '2026-10', query)).headers.get('content-disposition')).toBe(
+        'attachment; filename="offnal-2026-10.ics"',
+      );
+    }
+  });
+
+  it('keeps owner checks for open=1', async () => {
+    const stranger = createApiTestClient();
+
+    await createLoggedInJob(stranger, '인라인 내보내기 침입자');
+
+    expect((await exportIcs(stranger, '2026-10', '?open=1')).status).toBe(404);
+    expect((await exportIcs(createApiTestClient(), '2026-10', '?open=1')).status).toBe(401);
   });
 
   it('is 404 for other users, unpublished or invalid months and 401 when logged out', async () => {

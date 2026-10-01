@@ -57,6 +57,7 @@ const SharedExportActions = ({ token, displayName, month }: SharedExportActionsP
           error={state.error}
           message={state.message}
           onDownload={state.handleDownloadIcs}
+          openSupport={state.icsOpenSupport}
         />
       </ExportRow>
     </section>
