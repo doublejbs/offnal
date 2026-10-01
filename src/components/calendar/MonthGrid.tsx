@@ -22,6 +22,8 @@ type MonthGridProps = {
   selectedDate: string | null;
   onSelectDate?: (date: string) => void;
   showLegend?: boolean;
+  /** Team months: dates changed since the member's acknowledged revision ("변경" mark). */
+  changedDates?: string[];
 };
 
 const KEY_OFFSETS: Record<string, number> = {
@@ -43,6 +45,7 @@ const MonthGrid = ({
   selectedDate,
   onSelectDate,
   showLegend = true,
+  changedDates = [],
 }: MonthGridProps) => {
   const buttonsRef = useRef(new Map<string, HTMLButtonElement>());
   const entryByDate = new Map(entries.map((entry) => [entry.date, entry]));
@@ -104,11 +107,17 @@ const MonthGrid = ({
             }
 
             const entry = entryByDate.get(date) ?? { date, code: null, reviewReasons: [], confirmed: false };
-            const label = `${formatMonthDay(date)} ${describeEntryStatus(entry)}`;
+            const isChanged = changedDates.includes(date);
+            const label = `${formatMonthDay(date)} ${describeEntryStatus(entry)}${isChanged ? ' 변경됨' : ''}`;
             const content = (
               <>
                 <span>{dayOfDate(date)}</span>
                 <span className={toneClassName(getEntryTone(entry, definitions))}>{getBadgeText(entry)}</span>
+                {isChanged && (
+                  <span className="changed-mark" aria-hidden="true">
+                    변경
+                  </span>
+                )}
               </>
             );
 

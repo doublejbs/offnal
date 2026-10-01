@@ -9,10 +9,12 @@ type MonthSwitcherProps = {
   months: string[];
   current: string;
   onChange: (yearMonth: string) => void;
+  /** Extra option text per month, e.g. team months "· 7병동 간호팀". */
+  labels?: Record<string, string>;
 };
 
 /** Previous / next / pick among the given (published or shared) months only. */
-const MonthSwitcher = ({ months, current, onChange }: MonthSwitcherProps) => {
+const MonthSwitcher = ({ months, current, onChange, labels = {} }: MonthSwitcherProps) => {
   const previous = findAdjacentMonth(months, current, -1);
   const next = findAdjacentMonth(months, current, 1);
   const options = months.includes(current) ? months : [...months, current].sort();
@@ -36,6 +38,7 @@ const MonthSwitcher = ({ months, current, onChange }: MonthSwitcherProps) => {
         {options.map((month) => (
           <option key={month} value={month}>
             {formatYearMonthLabel(month)}
+            {labels[month] ? ` · ${labels[month]}` : ''}
           </option>
         ))}
       </select>

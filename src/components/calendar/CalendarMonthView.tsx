@@ -2,19 +2,19 @@
 
 import Link from 'next/link';
 
-import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import AuthRequired from '@/components/AuthRequired';
+import CalendarPersonalActions from '@/components/calendar/CalendarPersonalActions';
 import DayDetail from '@/components/calendar/DayDetail';
 import MonthGrid from '@/components/calendar/MonthGrid';
 import MonthHeading from '@/components/calendar/MonthHeading';
 import MonthSwitcher from '@/components/calendar/MonthSwitcher';
+import TeamMonthNotice from '@/components/calendar/TeamMonthNotice';
 import { useCalendarMonthState } from '@/components/calendar/UseCalendarMonthState';
-import ConfirmDialog from '@/components/ConfirmDialog';
 import EmptyState from '@/components/EmptyState';
 import LoadingState from '@/components/LoadingState';
 import RecoverableError from '@/components/RecoverableError';
+import { CalendarMonthSource } from '@/domain/enums/CalendarMonthSource';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
-import { formatYearMonthLabel } from '@/domain/YearMonth';
 
 type CalendarMonthViewProps = {
   yearMonth: string;
@@ -69,11 +69,16 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
   }
 
   const selectedEntry = month.entries.find((entry) => entry.date === state.selectedDate);
+  const team = month.source === CalendarMonthSource.TEAM ? month.team : null;
+  const changedDates = team?.changes.map((change) => change.date) ?? [];
+  const monthLabels = Object.fromEntries(
+    summary.months.filter((item) => item.team).map((item) => [item.yearMonth, item.team?.teamName ?? '팀']),
+  );
   const showShareBanner = summary.share.enabled && !month.shareVisible;
 
   return (
     <>
-      <div className="label">내 달력</div>
+      <div className="label">{team ? `${team.teamName} 근무표` : '내 달력'}</div>
       <MonthHeading
         displayName={month.displayName}
         yearMonth={month.yearMonth}
@@ -83,8 +88,17 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
       <MonthSwitcher
         months={summary.months.map((item) => item.yearMonth)}
         current={yearMonth}
+        labels={monthLabels}
         onChange={state.handleChangeMonth}
       />
+      {team && (
+        <TeamMonthNotice
+          team={team}
+          hasPersonalBackup={month.hasPersonalBackup}
+          isAcking={state.isAcking}
+          onAck={state.handleAckChanges}
+        />
+      )}
       {showShareBanner && (
         <div className="notice">
           공유 링크에 이 달을 공개할까요? 지금은 링크를 받은 사람에게 이 달이 보이지 않아요.
@@ -105,10 +119,16 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
           definitions={month.definitions}
           selectedDate={state.selectedDate}
           onSelectDate={state.setSelectedDate}
+          changedDates={changedDates}
         />
       </div>
       {selectedEntry && (
-        <DayDetail date={selectedEntry.date} code={selectedEntry.code} definitions={month.definitions} />
+        <DayDetail
+          date={selectedEntry.date}
+          code={selectedEntry.code}
+          definitions={month.definitions}
+          change={team?.changes.find((change) => change.date === selectedEntry.date)}
+        />
       )}
       {state.actionError && (
         <div className="warning" role="alert">
@@ -120,34 +140,20 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
           공유·내보내기
         </Link>
       </div>
-      <div className="actionrow">
-        <button type="button" className="secondary" onClick={state.handleEdit} disabled={state.isEditing}>
-          {state.isEditing ? '여는 중…' : '근무 수정'}
-        </button>
-        <Link href="/upload" className="secondary">
-          다음 달 등록
-        </Link>
-      </div>
-      <div className="hint">
-        {summary.freeRemaining > 0
-          ? `무료로 ${formatMonthCount(summary.freeRemaining)} 더 이용할 수 있어요.`
-          : `새 달은 한 달분 ${formatPrice(summary.priceKrw)} · 자동 결제 없음`}
-      </div>
-      <div className="center">
-        <button type="button" className="textbutton" onClick={() => state.setIsDeleteOpen(true)}>
-          이 달 달력 삭제
-        </button>
-      </div>
-      <ConfirmDialog
-        isOpen={state.isDeleteOpen}
-        title={`${formatYearMonthLabel(yearMonth)} 달력을 삭제할까요?`}
-        message="달력과 공유 링크에서 이 달이 사라져요. 이미 사용한 무료 월이나 구매한 이용권은 그대로 남아서, 같은 달을 다시 등록해도 추가 비용이 없어요."
-        confirmLabel="삭제"
-        isDanger
-        isBusy={state.isDeleting}
-        onConfirm={state.handleDelete}
-        onCancel={() => state.setIsDeleteOpen(false)}
-      />
+      {team ? (
+        <div className="center">
+          <Link href="/teams" className="textbutton">
+            내 팀 보기
+          </Link>
+        </div>
+      ) : (
+        <CalendarPersonalActions
+          yearMonth={yearMonth}
+          freeRemaining={summary.freeRemaining}
+          priceKrw={summary.priceKrw}
+          state={state}
+        />
+      )}
     </>
   );
 };

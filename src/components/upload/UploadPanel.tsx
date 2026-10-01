@@ -108,6 +108,9 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
           <Link href="/calendar" className="textbutton">
             내 달력 보기
           </Link>
+          <Link href="/teams" className="textbutton">
+            팀으로 함께 쓰기 (베타 기간 무료)
+          </Link>
         </div>
       ) : (
         <section className="block" aria-labelledby={loginSectionId}>
