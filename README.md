@@ -172,6 +172,10 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 - 결제 성공 리다이렉트만으로 권한을 주지 않습니다. 서버가 승인 API 결과의 주문·금액·통화를 주문 행과 대조한 뒤에만 해당 월 이용권을 발급하고, 웹훅은 본문을 믿지 않고 토스 API로 재조회합니다.
 - 가격은 `PRICE_KRW` 한 곳에서 관리합니다(기본 1,900원).
 
+### 함수 지역
+
+`vercel.json`의 `regions: ["icn1"]`로 서버 함수를 서울에서 실행합니다. DB·스토리지(Supabase)가 서울(ap-northeast-2)이라, 기본값(미국 동부 iad1)이면 요청마다 태평양 왕복이 생겨 느려집니다. Supabase 리전을 바꾸면 이 값도 함께 바꿉니다.
+
 ### 정리 작업 (cron)
 
 `CRON_SECRET`(32자 이상). `vercel.json`이 **매일 03:00 KST(`0 18 * * *`, UTC 기준)** `/api/cron/cleanup`을 호출하며 Vercel Cron은 `Authorization: Bearer $CRON_SECRET`을 자동으로 붙입니다. 현재 프로젝트가 **Vercel Hobby 플랜**이라 하루 1회만 허용되기 때문입니다. 그래서 만료된 원본 사진은 TTL 24시간 + 하루 1회 정리로 **최대 약 48시간까지** 남을 수 있습니다. 매시 정리(`0 * * * *`)로 24시간을 지키려면 Pro 플랜이 필요합니다. 다른 호스팅에서는 같은 헤더로 주기 호출하면 됩니다.
