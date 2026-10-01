@@ -3,8 +3,6 @@
 import { RotateCcw, ZoomIn, ZoomOut } from 'lucide-react';
 import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react';
 
-import { getRecognitionSourceUrl } from '@/client/ApiClient';
-
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 5;
 const ZOOM_STEP = 0.5;
@@ -22,14 +20,15 @@ const distance = (points: { x: number; y: number }[]): number => {
 };
 
 type SourcePreviewProps = {
-  recognitionId: string;
+  /** Owner-only original photo URL (personal recognition or team roster source). */
+  src: string;
 };
 
 /**
  * Owner-only original photo (served no-store). Zoom with buttons, +/- keys or a two-finger pinch;
  * the frame scrolls so a zoomed image can be panned by touch, mouse wheel or arrow keys.
  */
-const SourcePreview = ({ recognitionId }: SourcePreviewProps) => {
+const SourcePreview = ({ src }: SourcePreviewProps) => {
   const [zoom, setZoom] = useState(MIN_ZOOM);
   const [hasError, setHasError] = useState(false);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
@@ -104,7 +103,7 @@ const SourcePreview = ({ recognitionId }: SourcePreviewProps) => {
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- private no-store image, not optimizable */}
         <img
-          src={getRecognitionSourceUrl(recognitionId)}
+          src={src}
           alt="내가 올린 근무표 원본"
           style={{ width: `${zoom * 100}%` }}
           draggable={false}
