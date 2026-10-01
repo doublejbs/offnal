@@ -23,18 +23,18 @@ import {
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
 import { requestCandidates } from '../helpers/AuthFlows';
+import { createTeam, loggedInClient } from '../helpers/TeamFlows';
 import {
   createRoster,
-  createTeam,
   extractAll,
   extractNext,
   listRosters,
-  loggedInClient,
   patchRoster,
   readRoster,
+  requireValue,
   TEAM_MONTH,
   uploadRoster,
-} from '../helpers/TeamFlows';
+} from '../helpers/TeamRosterFlows';
 
 let env: IntegrationEnvironment;
 let admin: ApiTestClient;
@@ -244,7 +244,8 @@ describe('extract-next', () => {
     await extractAll(admin, teamId, rosterId);
 
     const rows = await env.db.select().from(teamRosterRows).where(eq(teamRosterRows.rosterId, rosterId));
-    const [stale, leased] = rows;
+    const stale = requireValue(rows[0], 'first row');
+    const leased = requireValue(rows[1], 'second row');
 
     await env.db
       .update(teamRosterRows)
@@ -253,7 +254,7 @@ describe('extract-next', () => {
         leaseExpiresAt: new Date(Date.now() - 1000),
         attemptCount: 1,
       })
-      .where(eq(teamRosterRows.id, stale!.id));
+      .where(eq(teamRosterRows.id, stale.id));
     await env.db
       .update(teamRosterRows)
       .set({
@@ -261,17 +262,17 @@ describe('extract-next', () => {
         leaseExpiresAt: new Date(Date.now() + 60_000),
         attemptCount: 1,
       })
-      .where(eq(teamRosterRows.id, leased!.id));
+      .where(eq(teamRosterRows.id, leased.id));
 
     const resumed = await readExtract(await extractNext(admin, teamId, rosterId));
 
-    expect(resumed.processedRowIds).toEqual([stale!.id]);
+    expect(resumed.processedRowIds).toEqual([stale.id]);
     expect(resumed.progress).toMatchObject({ phase: TeamRosterPhase.EXTRACTING, processing: 1 });
 
     const [after] = await env.db
       .select()
       .from(teamRosterRows)
-      .where(and(eq(teamRosterRows.rosterId, rosterId), eq(teamRosterRows.id, stale!.id)));
+      .where(and(eq(teamRosterRows.rosterId, rosterId), eq(teamRosterRows.id, stale.id)));
 
     expect(after?.attemptCount).toBe(2);
     expect(after?.extractStatus).toBe(RosterRowExtractStatus.DONE);

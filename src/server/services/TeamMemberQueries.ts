@@ -14,7 +14,7 @@ import { type DbExecutor } from '@/server/db/Database';
 import { type TeamMemberRow, teamMembers, users } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
-import { requireTeamAdmin, throwMembershipConflict } from '@/server/services/TeamAccess';
+import { findMembership, requireTeamAdmin, throwMembershipConflict } from '@/server/services/TeamAccess';
 import { findValidInvite } from '@/server/services/TeamInviteService';
 import { findPublishedRoster, listRosterRows, toJoinableRows } from '@/server/services/TeamRosterRows';
 import { requireUser } from '@/server/validation/RequestGuards';
@@ -27,7 +27,7 @@ export type JoinableRows = {
 };
 
 /** Non-excluded rows of the team's most recent published roster. */
-export const loadRosterRowsForLinking = async (db: DbExecutor, teamId: string): Promise<JoinableRows> => {
+const loadRosterRowsForLinking = async (db: DbExecutor, teamId: string): Promise<JoinableRows> => {
   const roster = await findPublishedRoster(db, teamId, null);
 
   if (!roster) {
@@ -71,11 +71,7 @@ export const assertLinkableRow = async (
   }
 };
 
-export const countActiveAdmins = async (
-  db: DbExecutor,
-  teamId: string,
-  exceptUserId?: string,
-): Promise<number> => {
+const countActiveAdmins = async (db: DbExecutor, teamId: string, exceptUserId?: string): Promise<number> => {
   const conditions = [
     eq(teamMembers.teamId, teamId),
     eq(teamMembers.role, TeamRole.ADMIN),
@@ -105,7 +101,7 @@ export const assertNotLastAdmin = async (db: DbExecutor, membership: TeamMemberR
   }
 };
 
-export const toTeamMemberDto = (
+const toTeamMemberDto = (
   membership: TeamMemberRow,
   displayName: string,
   rows: JoinableRowDto[],
@@ -177,9 +173,15 @@ export const listJoinableRows = async (
   context: RequestContext,
   token: string,
 ): Promise<InviteRowsResponse> => {
-  requireUser(context);
-
+  const { user } = requireUser(context);
   const { team } = await findValidInvite(db, token);
+  const membership = await findMembership(db, team.id, user.id);
+
+  // Removed (rejected, left, removed) people see nothing of the roster through an old link.
+  if (membership?.status === TeamMemberStatus.REMOVED) {
+    throw new ApiError(ApiErrorCode.NOT_FOUND);
+  }
+
   const { yearMonth, rows } = await loadRosterRowsForLinking(db, team.id);
   const linked = await listActiveLinkedKeys(db, team.id);
 

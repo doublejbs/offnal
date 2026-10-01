@@ -1,15 +1,24 @@
 import 'server-only';
 
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, max } from 'drizzle-orm';
 
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
-import { summarizeReview } from '@/domain/ScheduleValidator';
+import { normalizeExtraction, summarizeReview } from '@/domain/ScheduleValidator';
 import { computeSameNameLabels } from '@/domain/TeamRowKey';
 import { type JoinableRowDto } from '@/domain/types/api/JoinableRowDto';
+import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
 import { type ShiftCodeEntry } from '@/domain/types/ShiftCodeEntry';
+import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { type DbExecutor } from '@/server/db/Database';
-import { type TeamRosterRow, type TeamRosterRowRow, teamRosterRows, teamRosters } from '@/server/db/Schema';
+import {
+  type RecognitionJobRow,
+  recognitionJobs,
+  type TeamRosterRow,
+  type TeamRosterRowRow,
+  teamRosterRows,
+  teamRosters,
+} from '@/server/db/Schema';
 
 const FIRST_CODE_DAYS = 3;
 
@@ -19,6 +28,30 @@ export const listRosterRows = async (db: DbExecutor, rosterId: string): Promise<
     .from(teamRosterRows)
     .where(eq(teamRosterRows.rosterId, rosterId))
     .orderBy(asc(teamRosterRows.position));
+
+/** Rows of several rosters in one query, grouped by roster (each group by position). */
+export const listRowsByRoster = async (
+  db: DbExecutor,
+  rosterIds: string[],
+): Promise<Map<string, TeamRosterRowRow[]>> => {
+  const grouped = new Map<string, TeamRosterRowRow[]>(rosterIds.map((id) => [id, []]));
+
+  if (rosterIds.length === 0) {
+    return grouped;
+  }
+
+  const rows = await db
+    .select()
+    .from(teamRosterRows)
+    .where(inArray(teamRosterRows.rosterId, rosterIds))
+    .orderBy(asc(teamRosterRows.position));
+
+  for (const row of rows) {
+    grouped.get(row.rosterId)?.push(row);
+  }
+
+  return grouped;
+};
 
 /** Latest published roster of a month, or (no month) of the most recent published month. */
 export const findPublishedRoster = async (
@@ -49,6 +82,42 @@ export const listPublishedRosters = async (db: DbExecutor, teamId: string): Prom
     .where(and(eq(teamRosters.teamId, teamId), eq(teamRosters.status, TeamRosterStatus.PUBLISHED)))
     .orderBy(asc(teamRosters.yearMonth));
 
+/** Highest published revision number of a team month (0 = never published). */
+export const findLatestRevision = async (
+  db: DbExecutor,
+  teamId: string,
+  yearMonth: string,
+): Promise<number> => {
+  const [row] = await db
+    .select({ value: max(teamRosters.revision) })
+    .from(teamRosters)
+    .where(and(eq(teamRosters.teamId, teamId), eq(teamRosters.yearMonth, yearMonth)));
+
+  return row?.value ?? 0;
+};
+
+/** The upload's recognition job (null for copies made by edit/revert, or once the job is gone). */
+export const findRosterJob = async (
+  db: DbExecutor,
+  roster: TeamRosterRow,
+): Promise<RecognitionJobRow | null> => {
+  if (!roster.sourceJobId) {
+    return null;
+  }
+
+  const [job] = await db
+    .select()
+    .from(recognitionJobs)
+    .where(eq(recognitionJobs.id, roster.sourceJobId))
+    .limit(1);
+
+  return job ?? null;
+};
+
+/** Every date of the month empty (MISSING_DATE) with the given legend normalized. */
+export const buildEmptyMonth = (yearMonth: string, definitions: ShiftDefinition[]): NormalizedSchedule =>
+  normalizeExtraction({ yearMonth, rowId: '', displayName: '', definitions, cells: [] }, yearMonth);
+
 /** Members see dates and codes only. */
 export const toCodeEntries = (entries: ShiftEntry[]): ShiftCodeEntry[] =>
   entries.map((entry) => ({ date: entry.date, code: entry.code }));
@@ -71,18 +140,4 @@ export const toJoinableRows = (rows: TeamRosterRowRow[]): JoinableRowDto[] => {
     sameNameCount: labels[index]?.sameNameCount ?? 1,
     firstCodes: row.entries.slice(0, FIRST_CODE_DAYS).map((entry) => entry.code),
   }));
-};
-
-/** Re-numbers same display names after names were added or changed (stored for spec fidelity). */
-export const refreshSameNameOrdinals = async (db: DbExecutor, rosterId: string): Promise<void> => {
-  const rows = await listRosterRows(db, rosterId);
-  const labels = computeSameNameLabels(rows.map((row) => row.displayName));
-
-  for (const [index, row] of rows.entries()) {
-    const sameNameOrdinal = labels[index]?.sameNameOrdinal ?? 1;
-
-    if (row.sameNameOrdinal !== sameNameOrdinal) {
-      await db.update(teamRosterRows).set({ sameNameOrdinal }).where(eq(teamRosterRows.id, row.id));
-    }
-  }
 };

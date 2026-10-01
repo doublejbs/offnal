@@ -1,35 +1,36 @@
 import 'server-only';
 
-import { and, eq, max } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
+import { MAX_ROSTER_ROWS } from '@/domain/DomainLimits';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { RosterRowExtractStatus } from '@/domain/enums/RosterRowExtractStatus';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
-import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { assignRowKeys } from '@/domain/TeamRowKey';
 import { type CreateTeamRosterResponse } from '@/domain/types/api/CreateTeamRosterResponse';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
 import { currentYearMonthInSeoul, isValidYearMonth, nextYearMonth } from '@/domain/YearMonth';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { type Db, type DbExecutor } from '@/server/db/Database';
-import {
-  type RecognitionJobRow,
-  recognitionJobs,
-  type TeamRosterRow,
-  teamRosterRows,
-  teamRosters,
-} from '@/server/db/Schema';
+import { type Db } from '@/server/db/Database';
+import { type RecognitionJobRow, type TeamRosterRow, teamRosterRows, teamRosters } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
-import { type RequestContext } from '@/server/http/RequestContext';
 import { enforceUploadLimits } from '@/server/services/RateLimitService';
-import { createRecognitionJob, runRecognitionForJob } from '@/server/services/RecognitionProcessService';
-import { assertTeamPlanActive, requireTeamAdmin } from '@/server/services/TeamAccess';
-import { MAX_ROSTER_ROWS } from '@/server/services/TeamRequestSchemas';
-import { countReviewDates } from '@/server/services/TeamRosterRows';
+import {
+  insertUploadedJob,
+  runRecognitionForJob,
+  withStoredSource,
+} from '@/server/services/RecognitionProcessService';
+import { assertTeamPlanActive, type TeamAccess } from '@/server/services/TeamAccess';
+import {
+  buildEmptyMonth,
+  countReviewDates,
+  findLatestRevision,
+  findRosterJob,
+} from '@/server/services/TeamRosterRows';
 import { validateUpload } from '@/server/services/UploadValidator';
 
-export const AUTHORITY_REQUIRED_MESSAGE = '“이 근무표를 팀에 공유할 권한이 있어요”에 동의해 주세요.';
+const AUTHORITY_REQUIRED_MESSAGE = '“이 근무표를 팀에 공유할 권한이 있어요”에 동의해 주세요.';
 
 export type RosterUploadInput = {
   bytes: Buffer;
@@ -38,32 +39,18 @@ export type RosterUploadInput = {
   authorityConfirmed: boolean;
 };
 
-/** Latest published revision number of a team month (0 = never published). */
-export const findLatestRevision = async (
-  db: DbExecutor,
-  teamId: string,
-  yearMonth: string,
-): Promise<number> => {
-  const [row] = await db
-    .select({ value: max(teamRosters.revision) })
-    .from(teamRosters)
-    .where(and(eq(teamRosters.teamId, teamId), eq(teamRosters.yearMonth, yearMonth)));
-
-  return row?.value ?? 0;
-};
-
 /**
- * POST /api/teams/:id/rosters (ADMIN): stores the photo privately under a recognition job owned by the
- * uploading admin (same source TTL and limits as personal uploads) and creates the DRAFT roster with the
- * admin's authority consent time. Recognition itself runs in extract-next.
+ * POST /api/teams/:id/rosters (ADMIN; the route checks admin access before reading the body): stores the
+ * photo privately, then creates the recognition job (owned by the uploading admin, same source TTL and limits
+ * as personal uploads) and the DRAFT roster with the consent time in ONE transaction — a failure leaves
+ * neither a job nor the photo. Recognition itself runs in extract-next.
  */
 export const uploadRoster = async (
   db: Db,
-  context: RequestContext,
-  teamId: string,
+  access: TeamAccess,
   input: RosterUploadInput,
 ): Promise<CreateTeamRosterResponse> => {
-  const { context: loggedIn, team } = await requireTeamAdmin(db, context, teamId);
+  const { context: loggedIn, team } = access;
 
   await assertTeamPlanActive(db, team.id);
 
@@ -91,48 +78,34 @@ export const uploadRoster = async (
     maxBytes: config.uploadMaxBytes,
     maxPixels: config.uploadMaxPixels,
   });
-  const job = await createRecognitionJob(db, {
-    userId: loggedIn.user.id,
-    anonymousSessionId: null,
-    ipHash: loggedIn.ipHash,
-    bytes: input.bytes,
-    mime: upload.mime,
+  const yearMonth = input.yearMonth;
+
+  return withStoredSource(db, input.bytes, upload.mime, async (tx, source) => {
+    await insertUploadedJob(tx, source, {
+      userId: loggedIn.user.id,
+      anonymousSessionId: null,
+      mime: upload.mime,
+    });
+
+    const [roster] = await tx
+      .insert(teamRosters)
+      .values({
+        teamId: team.id,
+        yearMonth,
+        status: TeamRosterStatus.DRAFT,
+        baseRevision: yearMonth ? await findLatestRevision(tx, team.id, yearMonth) : 0,
+        sourceJobId: source.jobId,
+        authorityConfirmedAt: new Date(),
+        createdBy: loggedIn.user.id,
+      })
+      .returning({ id: teamRosters.id });
+
+    if (!roster) {
+      throw new Error('Roster insert returned no row');
+    }
+
+    return { rosterId: roster.id };
   });
-  const [roster] = await db
-    .insert(teamRosters)
-    .values({
-      teamId: team.id,
-      yearMonth: input.yearMonth,
-      status: TeamRosterStatus.DRAFT,
-      baseRevision: input.yearMonth ? await findLatestRevision(db, team.id, input.yearMonth) : 0,
-      sourceJobId: job.id,
-      authorityConfirmedAt: new Date(),
-      createdBy: loggedIn.user.id,
-    })
-    .returning({ id: teamRosters.id });
-
-  if (!roster) {
-    throw new Error('Roster insert returned no row');
-  }
-
-  return { rosterId: roster.id };
-};
-
-export const findRosterJob = async (
-  db: DbExecutor,
-  roster: TeamRosterRow,
-): Promise<RecognitionJobRow | null> => {
-  if (!roster.sourceJobId) {
-    return null;
-  }
-
-  const [job] = await db
-    .select()
-    .from(recognitionJobs)
-    .where(eq(recognitionJobs.id, roster.sourceJobId))
-    .limit(1);
-
-  return job ?? null;
 };
 
 /** Rows from pass-1 candidates (once): row_key = normalized name + same-name ordinal, every date empty. */
@@ -148,10 +121,7 @@ const createRowsFromTable = async (db: Db, rosterId: string, table: TableRecogni
       roster.yearMonth ?? table.yearMonth ?? nextYearMonth(currentYearMonthInSeoul(new Date()));
     const candidates = table.candidates.slice(0, MAX_ROSTER_ROWS);
     const keys = assignRowKeys(candidates.map((candidate) => candidate.name));
-    const empty = normalizeExtraction(
-      { yearMonth, rowId: '', displayName: '', definitions: table.definitions, cells: [] },
-      yearMonth,
-    );
+    const empty = buildEmptyMonth(yearMonth, table.definitions);
 
     if (candidates.length > 0) {
       await tx.insert(teamRosterRows).values(

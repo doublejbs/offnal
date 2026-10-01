@@ -31,24 +31,21 @@ import {
 import { getEvents, unfold } from '../helpers/IcsTestUtils';
 import { createLoggedInJob, createReadyDraft } from '../helpers/OffnalFlows';
 import { findUserId, publishReady } from '../helpers/PaymentFlows';
+import { approveMember, leaveTeam, removeMember, requestJoin } from '../helpers/TeamFlows';
 import {
   ackChanges,
-  approveMember,
   createRosterDraft,
   findRowKey,
   getMyMonths,
   joinAndApprove,
-  leaveTeam,
   patchRoster,
   publishReadyRoster,
   type PublishedTeam,
   readRoster,
-  removeMember,
-  requestJoin,
   setupPublishedTeam,
   TEAM_MONTH,
   uploadAndPublishRoster,
-} from '../helpers/TeamFlows';
+} from '../helpers/TeamRosterFlows';
 
 const PERSONAL_ONLY_MONTH = '2026-10';
 const TEAM_ONLY_MONTH = '2026-12';
@@ -172,7 +169,7 @@ describe('team months in the member calendar', () => {
     expect(edit.status).toBe(409);
     expect(body.error).toMatchObject({
       code: ApiErrorCode.TEAM_MONTH_READ_ONLY,
-      message: '팀 근무표는 관리자만 수정할 수 있어요',
+      message: '팀 근무표는 관리자만 수정할 수 있어요.',
     });
 
     const removal = await member.send(deleteMonthRoute, `/api/calendar/${TEAM_MONTH}`, {

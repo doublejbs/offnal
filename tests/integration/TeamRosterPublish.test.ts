@@ -4,7 +4,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { PublishBlockReason } from '@/domain/enums/PublishBlockReason';
 import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
-import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { type CreateRosterDraftResponse } from '@/domain/types/api/CreateRosterDraftResponse';
@@ -19,28 +18,26 @@ import { teamRosterChanges, teamRosters } from '@/server/db/Schema';
 import { createMockVisionProvider } from '@/server/vision/MockVisionProvider';
 import { setVisionProviderForTesting } from '@/server/vision/VisionFactory';
 import { type IntegrationEnvironment, readJson, setupIntegrationEnvironment } from '../helpers/ApiTestClient';
-import { resolveEntries } from '../helpers/OffnalFlows';
 import {
   createRoster,
   createRosterDraft,
-  createTeam,
   extractAll,
   findRowKey,
   getMyMonths,
   getRosterView,
-  issueInvite,
+  type InvitedTeam,
   joinAndApprove,
-  loggedInClient,
   patchRoster,
   publishReadyRoster,
   publishRoster,
-  type PublishedTeam,
   readRoster,
+  requireValue,
   resolveRoster,
   revertRoster,
+  setupInvitedTeam,
   TEAM_MONTH,
   uploadAndPublishRoster,
-} from '../helpers/TeamFlows';
+} from '../helpers/TeamRosterFlows';
 
 let env: IntegrationEnvironment;
 
@@ -56,18 +53,13 @@ afterAll(async () => {
   await env.close();
 });
 
-const setupTeam = async (prefix: string): Promise<PublishedTeam> => {
-  const admin = await loggedInClient(`${prefix} 관리자`);
-  const { team } = await createTeam(admin, `${prefix} 병동`);
-  const { token } = await issueInvite(admin, team.id);
-
-  return { admin, teamId: team.id, rosterId: '', roster: {} as TeamRosterResponse, token };
-};
+const setupTeam = (prefix: string): Promise<InvitedTeam> =>
+  setupInvitedTeam(`${prefix} 관리자`, `${prefix} 병동`);
 
 const withCode = (entries: ShiftEntry[], changes: Record<string, string>): ShiftEntry[] =>
   entries.map((entry) => (changes[entry.date] ? { ...entry, code: changes[entry.date] ?? null } : entry));
 
-const createDraftOf = async (team: PublishedTeam, rosterId: string): Promise<TeamRosterResponse> => {
+const createDraftOf = async (team: InvitedTeam, rosterId: string): Promise<TeamRosterResponse> => {
   const response = await createRosterDraft(team.admin, team.teamId, rosterId);
 
   expect(response.status).toBe(200);
@@ -76,84 +68,6 @@ const createDraftOf = async (team: PublishedTeam, rosterId: string): Promise<Tea
 
   return readRoster(team.admin, team.teamId, draftId);
 };
-
-describe('roster PATCH', () => {
-  it('rejects a stale version with 409 and the current roster', async () => {
-    const team = await setupTeam('충돌');
-    const rosterId = await createRoster(team.admin, team.teamId);
-
-    await extractAll(team.admin, team.teamId, rosterId);
-
-    const current = await readRoster(team.admin, team.teamId, rosterId);
-    const first = await patchRoster(team.admin, team.teamId, rosterId, {
-      version: current.roster.version,
-      rows: [{ rowId: current.rows[0]?.id, displayName: '김하루 수정' }],
-    });
-
-    expect(first.status).toBe(200);
-    expect((await readJson<TeamRosterResponse>(first)).roster.version).toBe(current.roster.version + 1);
-
-    const stale = await patchRoster(team.admin, team.teamId, rosterId, {
-      version: current.roster.version,
-      rows: [{ rowId: current.rows[1]?.id, excluded: true }],
-    });
-    const body = await readJson<ApiErrorBody>(stale);
-    const details = body.error.details as TeamRosterConflictDetails;
-
-    expect(stale.status).toBe(409);
-    expect(body.error.code).toBe(ApiErrorCode.REVISION_CONFLICT);
-    expect(details).toMatchObject({
-      reason: RevisionConflictReason.STALE_REVISION,
-      currentVersion: current.roster.version + 1,
-    });
-    expect(details.roster?.rows[0]?.displayName).toBe('김하루 수정');
-    // The renamed row keeps its key.
-    expect(details.roster?.rows[0]?.rowKey).toBe('김하루#1');
-  });
-
-  it('validates entries, definitions and new rows', async () => {
-    const team = await setupTeam('검증');
-    const rosterId = await createRoster(team.admin, team.teamId);
-
-    await extractAll(team.admin, team.teamId, rosterId);
-
-    const current = await readRoster(team.admin, team.teamId, rosterId);
-    const version = current.roster.version;
-
-    expect(
-      (
-        await patchRoster(team.admin, team.teamId, rosterId, {
-          version,
-          rows: [{ rowId: current.rows[0]?.id, entries: current.rows[0]?.entries.slice(1) }],
-        })
-      ).status,
-    ).toBe(400);
-    expect(
-      (
-        await patchRoster(team.admin, team.teamId, rosterId, {
-          version,
-          rows: [{ rowId: '00000000-0000-4000-8000-000000000000', excluded: true }],
-        })
-      ).status,
-    ).toBe(400);
-
-    const added = await patchRoster(team.admin, team.teamId, rosterId, {
-      version,
-      addRows: [{ displayName: '신규 입사자' }, { displayName: '김하루' }],
-    });
-    const roster = await readJson<TeamRosterResponse>(added);
-
-    expect(added.status).toBe(200);
-    // Nothing published yet, so no row counts as a "new person" compared with a previous revision.
-    expect(
-      roster.rows.slice(-2).map((row) => [row.rowKey, row.displayName, row.sameNameOrdinal, row.isNewPerson]),
-    ).toEqual([
-      ['신규입사자#1', '신규 입사자', 1, false],
-      ['김하루#3', '김하루', 3, false],
-    ]);
-    expect(roster.rows.at(-1)?.reviewCount).toBe(30);
-  });
-});
 
 describe('publishing', () => {
   it('refuses rows that still need review (422) but ignores excluded rows', async () => {
@@ -327,12 +241,7 @@ describe('publishing', () => {
   it('keeps a linked member through a renamed row (matchRowKey) and through name fixes', async () => {
     const team = await setupTeam('이름');
     const first = await uploadAndPublishRoster(team.admin, team.teamId);
-    const { member } = await joinAndApprove(
-      env.db,
-      { ...team, rosterId: first.rosterId, roster: first.roster },
-      '오하늘 본인',
-      findRowKey(first.roster, '오하늘'),
-    );
+    const { member } = await joinAndApprove(env.db, team, '오하늘 본인', findRowKey(first.roster, '오하늘'));
     const base = createMockVisionProvider({ delayMs: 0 });
 
     setVisionProviderForTesting({
@@ -409,47 +318,76 @@ describe('publishing', () => {
       [TEAM_MONTH, 2, '오하늘빛'],
     ]);
   });
+});
 
-  it('confirms codes outside the legend in every row once the roster defines them', async () => {
-    const team = await setupTeam('정의');
+describe('publish and revert protection', () => {
+  it('answers alreadyPublished only for the current revision; an archived one is 409', async () => {
+    const team = await setupTeam('보관');
+    const first = await uploadAndPublishRoster(team.admin, team.teamId);
+    const draft = await createDraftOf(team, first.rosterId);
+    const yeoreum = requireValue(
+      draft.rows.find((row) => row.displayName === '이여름'),
+      '이여름 row',
+    );
+    const edited = await readJson<TeamRosterResponse>(
+      await patchRoster(team.admin, team.teamId, draft.roster.id, {
+        version: draft.roster.version,
+        rows: [{ rowId: yeoreum.id, entries: withCode(yeoreum.entries, { '2026-11-03': 'N' }) }],
+      }),
+    );
+
+    await publishReadyRoster(team.admin, team.teamId, edited);
+
+    const archived = await publishRoster(
+      team.admin,
+      team.teamId,
+      first.rosterId,
+      first.roster.roster.version,
+    );
+    const body = await readJson<ApiErrorBody>(archived);
+
+    expect(archived.status).toBe(409);
+    expect(body.error.code).toBe(ApiErrorCode.ROSTER_NOT_EDITABLE);
+  });
+
+  it('refuses a revert that would drop a linked member unless confirmed', async () => {
+    const team = await setupTeam('되돌림');
     const rosterId = await createRoster(team.admin, team.teamId);
 
     await extractAll(team.admin, team.teamId, rosterId);
 
-    const current = await readRoster(team.admin, team.teamId, rosterId);
-    // Confirm everything except codes outside the legend, then define those codes once for the whole roster.
-    const partially = await readJson<TeamRosterResponse>(
-      await patchRoster(team.admin, team.teamId, rosterId, {
-        version: current.roster.version,
-        rows: current.rows.map((row) => ({
-          rowId: row.id,
-          entries: resolveEntries(row.entries).map((entry, index) => {
-            const original = row.entries[index];
-
-            return original?.reviewReasons.length === 1 &&
-              original.reviewReasons[0] === ShiftReviewReason.UNDEFINED_CODE
-              ? original
-              : entry;
-          }),
-        })),
+    // Revision 1 without 오하늘 (excluded), revision 2 with 오하늘, then 오하늘 joins.
+    const withoutOh = await resolveRoster(team.admin, team.teamId, rosterId, (row) =>
+      row.displayName === '오하늘' ? { excluded: true } : {},
+    );
+    const first = await publishReadyRoster(team.admin, team.teamId, withoutOh);
+    const draft = await createDraftOf(team, first.rosterId);
+    const oh = requireValue(
+      draft.rows.find((row) => row.displayName === '오하늘'),
+      '오하늘 row',
+    );
+    const included = await readJson<TeamRosterResponse>(
+      await patchRoster(team.admin, team.teamId, draft.roster.id, {
+        version: draft.roster.version,
+        rows: [{ rowId: oh.id, excluded: false }],
       }),
     );
 
-    expect(partially.publishable).toBe(false);
+    await publishReadyRoster(team.admin, team.teamId, included);
+    await joinAndApprove(env.db, team, '되돌림 오하늘', oh.rowKey);
 
-    const defined = await readJson<TeamRosterResponse>(
-      await patchRoster(team.admin, team.teamId, rosterId, {
-        version: partially.roster.version,
-        definitions: partially.definitions.map((definition) =>
-          definition.code === '연차'
-            ? { ...definition, isOff: true }
-            : definition.code === 'W'
-              ? { ...definition, startTime: '09:00', endTime: '18:00', endsNextDay: false }
-              : definition,
-        ),
-      }),
-    );
+    const blocked = await revertRoster(team.admin, team.teamId, first.rosterId);
+    const blockedBody = await readJson<ApiErrorBody>(blocked);
 
-    expect(defined.publishable).toBe(true);
+    expect(blocked.status).toBe(422);
+    expect(blockedBody.error.details).toEqual({
+      blockers: [],
+      unlinkedRows: [{ rowKey: oh.rowKey, displayName: '오하늘', linked: true }],
+    });
+
+    const confirmed = await revertRoster(team.admin, team.teamId, first.rosterId, { confirmUnlinked: true });
+
+    expect(confirmed.status).toBe(200);
+    expect((await readJson<PublishTeamRosterResponse>(confirmed)).revision).toBe(3);
   });
 });

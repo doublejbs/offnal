@@ -6,15 +6,15 @@ import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { type CreateRosterDraftResponse } from '@/domain/types/api/CreateRosterDraftResponse';
 import { type PublishTeamRosterResponse } from '@/domain/types/api/PublishTeamRosterResponse';
+import { type RevertTeamRosterRequest } from '@/domain/types/api/RevertTeamRosterRequest';
 import { type Db, type DbTransaction } from '@/server/db/Database';
 import { type TeamRosterRowRow, teamRosterRows, teamRosters } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { assertTeamPlanActive, lockTeamAsAdmin, requireTeamAdmin } from '@/server/services/TeamAccess';
 import { requireTeamRoster } from '@/server/services/TeamRosterQueries';
-import { lockRoster, promote } from '@/server/services/TeamRosterPublishService';
-import { listRosterRows } from '@/server/services/TeamRosterRows';
-import { findLatestRevision } from '@/server/services/TeamRosterUploadService';
+import { assertKeepsLinkedRows, lockRoster, promote } from '@/server/services/TeamRosterPublishService';
+import { findLatestRevision, findPublishedRoster, listRosterRows } from '@/server/services/TeamRosterRows';
 
 const ALREADY_CURRENT_MESSAGE = '지금 배포 중인 버전이에요.';
 
@@ -38,6 +38,7 @@ export const revertTeamRoster = async (
   context: RequestContext,
   teamId: string,
   rosterId: string,
+  request: RevertTeamRosterRequest,
 ): Promise<PublishTeamRosterResponse> => {
   const { context: loggedIn, team } = await requireTeamAdmin(db, context, teamId);
 
@@ -57,6 +58,16 @@ export const revertTeamRoster = async (
       throw new ApiError(ApiErrorCode.ROSTER_NOT_EDITABLE);
     }
 
+    const sourceRows = await listRosterRows(tx, source.id);
+
+    // Same protection as publish: reverting must not silently drop linked members.
+    await assertKeepsLinkedRows(
+      tx,
+      await findPublishedRoster(tx, team.id, source.yearMonth),
+      sourceRows,
+      request.confirmUnlinked === true,
+    );
+
     const [copy] = await tx
       .insert(teamRosters)
       .values({
@@ -74,7 +85,7 @@ export const revertTeamRoster = async (
       throw new Error('Roster copy returned no row');
     }
 
-    await copyRows(tx, await listRosterRows(tx, source.id), copy.id);
+    await copyRows(tx, sourceRows, copy.id);
 
     const promoted = await promote(tx, copy, source.yearMonth, await listRosterRows(tx, copy.id));
 

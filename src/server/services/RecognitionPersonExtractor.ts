@@ -68,7 +68,7 @@ export const tryPrepareJobImage = async (
 };
 
 /** Like tryPrepareJobImage, failures as ApiError (410 source gone, 502/503 provider). */
-export const prepareJobImage = async (
+const prepareJobImage = async (
   job: RecognitionJobRow,
   table: TableRecognition,
 ): Promise<PreparedJobImage> => {

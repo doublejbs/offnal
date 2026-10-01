@@ -8,7 +8,7 @@ import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { type Db } from '@/server/db/Database';
+import { type Db, type DbExecutor } from '@/server/db/Database';
 import {
   anonymousSessions,
   drafts,
@@ -158,6 +158,42 @@ const deletePendingSources = async (
 const countDeleted = (rows: unknown[]): number => rows.length;
 
 /**
+ * Ends upload jobs right away (team roster drafts deleted, team deleted): status expired, temporary table
+ * (everyone's names) removed. Their photos are deleted by the pending-source step.
+ */
+export const expireJobsNow = async (db: DbExecutor, jobIds: string[], now = new Date()): Promise<void> => {
+  if (jobIds.length === 0) {
+    return;
+  }
+
+  await db
+    .update(recognitionJobs)
+    .set({ status: RecognitionStatus.EXPIRED, tableResult: null, leaseExpiresAt: null, expiresAt: now })
+    .where(inArray(recognitionJobs.id, jobIds));
+};
+
+/** Team roster drafts untouched for DRAFT_TTL_DAYS, with their upload jobs (like deleting a team). */
+const deleteStaleRosterDrafts = async (db: Db, now: Date): Promise<number> => {
+  const deleted = await db
+    .delete(teamRosters)
+    .where(
+      and(
+        eq(teamRosters.status, TeamRosterStatus.DRAFT),
+        lte(teamRosters.updatedAt, daysBefore(now, getAppConfig().draftTtlDays)),
+      ),
+    )
+    .returning({ id: teamRosters.id, jobId: teamRosters.sourceJobId });
+
+  await expireJobsNow(
+    db,
+    deleted.flatMap((row) => (row.jobId ? [row.jobId] : [])),
+    now,
+  );
+
+  return deleted.length;
+};
+
+/**
  * Spec §7.6 cleanup. Idempotent: a second run right after the first changes nothing.
  * Drafts past DRAFT_TTL are deleted whatever their status (published months keep their own snapshot).
  * Team roster sources follow the same source TTL (their jobs are ordinary recognition jobs).
@@ -180,6 +216,8 @@ export const runCleanup = async (
     teamRosterDraftsDeleted: 0,
   };
 
+  // Before job expiry, so the deleted drafts' photos and tables go in this same run.
+  result.teamRosterDraftsDeleted = await deleteStaleRosterDrafts(db, now);
   result.expiredJobs = await expireJobs(db, now);
   await deletePendingSources(db, storage, now, result);
 
@@ -224,17 +262,6 @@ export const runCleanup = async (
         ),
       )
       .returning({ id: paymentEvents.id }),
-  );
-  result.teamRosterDraftsDeleted = countDeleted(
-    await db
-      .delete(teamRosters)
-      .where(
-        and(
-          eq(teamRosters.status, TeamRosterStatus.DRAFT),
-          lte(teamRosters.updatedAt, daysBefore(now, getAppConfig().draftTtlDays)),
-        ),
-      )
-      .returning({ id: teamRosters.id }),
   );
 
   return result;

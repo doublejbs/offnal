@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { MAX_ROW_ATTEMPTS } from '@/domain/DomainLimits';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { RosterRowExtractStatus } from '@/domain/enums/RosterRowExtractStatus';
@@ -8,9 +9,6 @@ import { type TeamRosterFailedRow } from '@/domain/types/api/TeamRosterFailedRow
 import { type TeamRosterProgress } from '@/domain/types/api/TeamRosterProgress';
 import { type RecognitionJobRow, type TeamRosterRow, type TeamRosterRowRow } from '@/server/db/Schema';
 import { isJobExpired, isJobRetryable, RETRYABLE_ERROR_CODES } from '@/server/services/RecognitionOwnership';
-
-/** Per row, like the recognition job (Team spec §6: "실패 행은 재시도 버튼, 최대 3회"). */
-export const MAX_ROW_ATTEMPTS = 3;
 
 /**
  * Effective state of a row: a PROCESSING row whose lease ran out is claimable again (PENDING) or, with no
@@ -28,7 +26,16 @@ export const classifyRow = (row: TeamRosterRowRow, now: Date): RosterRowExtractS
   return row.attemptCount < MAX_ROW_ATTEMPTS ? RosterRowExtractStatus.PENDING : RosterRowExtractStatus.FAILED;
 };
 
+/** Waiting for or being read by extract-next: not editable, blocks publish and month changes. */
+export const isRowBusy = (row: TeamRosterRowRow, now: Date): boolean => {
+  const status = classifyRow(row, now);
+
+  return status === RosterRowExtractStatus.PENDING || status === RosterRowExtractStatus.PROCESSING;
+};
+
+/** The single rule for "다시 시도" (counts, failed-row lists and the actual requeue all use it). */
 export const isRowRetryable = (row: TeamRosterRowRow, now: Date): boolean =>
+  !row.excluded &&
   classifyRow(row, now) === RosterRowExtractStatus.FAILED &&
   row.attemptCount < MAX_ROW_ATTEMPTS &&
   (row.extractErrorCode === null || RETRYABLE_ERROR_CODES.includes(row.extractErrorCode));

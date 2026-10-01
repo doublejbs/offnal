@@ -54,7 +54,7 @@ const DEFAULT_MESSAGE_BY_CODE: Record<ApiErrorCode, string> = {
   [ApiErrorCode.RECOGNITION_NOT_READY]: '아직 근무표를 읽는 중이에요.',
   [ApiErrorCode.DRAFT_NOT_EDITABLE]: '이미 저장했거나 취소한 초안이라 수정할 수 없어요.',
   [ApiErrorCode.TEAM_MEMBERSHIP_CONFLICT]: '지금은 처리할 수 없는 팀 참여 요청이에요.',
-  [ApiErrorCode.TEAM_MONTH_READ_ONLY]: '팀 근무표는 관리자만 수정할 수 있어요',
+  [ApiErrorCode.TEAM_MONTH_READ_ONLY]: '팀 근무표는 관리자만 수정할 수 있어요.',
   [ApiErrorCode.ROSTER_NOT_EDITABLE]: '배포된 근무표는 바로 고칠 수 없어요. 새 초안을 만들어 수정해 주세요.',
   [ApiErrorCode.INTERNAL_ERROR]: '일시적인 문제가 생겼어요. 잠시 후 다시 시도해 주세요.',
 };

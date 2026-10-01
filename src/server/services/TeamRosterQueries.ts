@@ -7,9 +7,10 @@ import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRosterPhase } from '@/domain/enums/TeamRosterPhase';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { getPublishBlockers } from '@/domain/ScheduleValidator';
-import { diffRosterRows, type RosterCellChange } from '@/domain/TeamRosterDiff';
-import { computeSameNameLabels } from '@/domain/TeamRowKey';
+import { type DiffRow, diffRosterRows, type RosterCellChange } from '@/domain/TeamRosterDiff';
+import { computeSameNameLabels, matchRowKeys } from '@/domain/TeamRowKey';
 import { type TeamRosterChangePreview } from '@/domain/types/api/TeamRosterChangePreview';
+import { type TeamRosterConflictDetails } from '@/domain/types/api/TeamRosterConflictDetails';
 import { type TeamRosterDto } from '@/domain/types/api/TeamRosterDto';
 import { type TeamRosterListResponse } from '@/domain/types/api/TeamRosterListResponse';
 import { type TeamRosterResponse } from '@/domain/types/api/TeamRosterResponse';
@@ -31,9 +32,18 @@ import { isSourceAvailable } from '@/server/services/RecognitionOwnership';
 import { readSourceBytes } from '@/server/services/RecognitionProcessService';
 import { requireTeamAdmin } from '@/server/services/TeamAccess';
 import { buildRosterProgress } from '@/server/services/TeamRosterProgressBuilder';
-import { findPublishedRoster, listRosterRows } from '@/server/services/TeamRosterRows';
-import { findRosterJob } from '@/server/services/TeamRosterUploadService';
+import {
+  findPublishedRoster,
+  findRosterJob,
+  listRosterRows,
+  listRowsByRoster,
+} from '@/server/services/TeamRosterRows';
 import { requireUuid } from '@/server/validation/RequestGuards';
+
+/** The one way roster PATCH/publish/revert report a 409 REVISION_CONFLICT. */
+export const throwRosterConflict = (details: TeamRosterConflictDetails): never => {
+  throw new ApiError(ApiErrorCode.REVISION_CONFLICT, { details });
+};
 
 /** A roster of this team, else 404 (rosters of other teams are never revealed). */
 export const requireTeamRoster = async (
@@ -54,7 +64,7 @@ export const requireTeamRoster = async (
   return roster;
 };
 
-export const toRosterDto = (roster: TeamRosterRow, job: RecognitionJobRow | null): TeamRosterDto => ({
+const toRosterDto = (roster: TeamRosterRow, job: RecognitionJobRow | null): TeamRosterDto => ({
   id: roster.id,
   teamId: roster.teamId,
   yearMonth: roster.yearMonth,
@@ -81,7 +91,7 @@ export const listRowBlockers = (
       : [];
   });
 
-export const toDiffRows = (rows: TeamRosterRowRow[]) =>
+export const toDiffRows = (rows: TeamRosterRowRow[]): DiffRow[] =>
   rows.map((row) => ({ rowKey: row.rowKey, excluded: row.excluded, entries: row.entries }));
 
 const buildChangePreview = (
@@ -130,13 +140,26 @@ export const buildRosterResponse = async (
   const compareWith =
     published && published.id !== roster.id && roster.status === TeamRosterStatus.DRAFT ? published : null;
   const previousRows = compareWith ? await listRosterRows(db, compareWith.id) : [];
-  const previousKeys = new Set(previousRows.map((row) => row.rowKey));
-  const currentKeys = new Set(rows.map((row) => row.rowKey));
+  const match = matchRowKeys(
+    previousRows.map((row) => row.rowKey),
+    rows.map((row) => row.rowKey),
+  );
+  const added = new Set(match.added);
+  const missing = new Set(match.missing);
   const linked = await listLinkedMembers(db, roster.teamId);
   const labels = computeSameNameLabels(rows.map((row) => row.displayName));
-  const blockers = listRowBlockers(rows, roster.definitions);
+  // Blockers once per row, reused by the row DTOs and the roster-level list.
+  const rowBlockers = rows.map((row) =>
+    row.excluded ? [] : getPublishBlockers(row.entries, roster.definitions),
+  );
+  const blockers = rows.flatMap((row, index): TeamRosterRowBlocker[] => {
+    const list = rowBlockers[index] ?? [];
+
+    return list.length > 0
+      ? [{ rowId: row.id, rowKey: row.rowKey, displayName: row.displayName, blockers: list }]
+      : [];
+  });
   const changes = compareWith ? diffRosterRows(toDiffRows(previousRows), toDiffRows(rows)) : [];
-  const waiting = progress.phase !== TeamRosterPhase.READY;
 
   return {
     roster: toRosterDto(roster, job),
@@ -156,20 +179,20 @@ export const buildRosterResponse = async (
       attemptCount: row.attemptCount,
       extractErrorCode: row.extractErrorCode,
       reviewCount: row.reviewCount,
-      blockers: row.excluded ? [] : getPublishBlockers(row.entries, roster.definitions),
+      blockers: rowBlockers[index] ?? [],
       linkedMember: linked.get(row.rowKey) ?? null,
-      isNewPerson: compareWith !== null && !previousKeys.has(row.rowKey),
+      isNewPerson: compareWith !== null && added.has(row.rowKey),
     })),
     blockers,
     publishable:
       roster.status === TeamRosterStatus.DRAFT &&
       roster.yearMonth !== null &&
-      !waiting &&
+      progress.phase === TeamRosterPhase.READY &&
       blockers.length === 0 &&
       rows.some((row) => !row.excluded),
     latestPublishedRevision: published?.revision ?? 0,
     unmatchedPreviousRows: previousRows
-      .filter((row) => !row.excluded && !currentKeys.has(row.rowKey))
+      .filter((row) => !row.excluded && missing.has(row.rowKey))
       .map((row) => ({ rowKey: row.rowKey, displayName: row.displayName, linked: linked.has(row.rowKey) })),
     changesPreview: compareWith ? buildChangePreview(compareWith, changes, rows) : null,
   };
@@ -200,15 +223,18 @@ export const listTeamRosters = async (
     .leftJoin(recognitionJobs, eq(recognitionJobs.id, teamRosters.sourceJobId))
     .where(eq(teamRosters.teamId, team.id))
     .orderBy(desc(teamRosters.createdAt), desc(teamRosters.id));
-  const summaries = [];
+  // One query for every roster's rows instead of one per roster.
+  const rowsByRoster = await listRowsByRoster(
+    db,
+    rosters.map(({ roster }) => roster.id),
+  );
 
-  for (const { roster, job } of rosters) {
-    const rows = await listRosterRows(db, roster.id);
-
-    summaries.push({ ...toRosterDto(roster, job), progress: buildRosterProgress(roster, rows, job) });
-  }
-
-  return { rosters: summaries };
+  return {
+    rosters: rosters.map(({ roster, job }) => ({
+      ...toRosterDto(roster, job),
+      progress: buildRosterProgress(roster, rowsByRoster.get(roster.id) ?? [], job),
+    })),
+  };
 };
 
 /** GET /api/teams/:id/rosters/:rid/source (ADMIN): the upload's photo while it is kept, else 410. */

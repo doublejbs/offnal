@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, desc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm';
 
-import { MS_PER_DAY } from '@/domain/DomainLimits';
+import { DEFAULT_INVITE_DAYS, MS_PER_DAY } from '@/domain/DomainLimits';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { type CreateTeamInviteRequest } from '@/domain/types/api/CreateTeamInviteRequest';
@@ -17,8 +17,8 @@ import { type TeamInviteRow, teamInvites, type TeamRow, teams } from '@/server/d
 import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { buildAppUrl } from '@/server/http/RouteHelpers';
-import { findMembership, requireTeamAdmin } from '@/server/services/TeamAccess';
-import { DEFAULT_INVITE_DAYS } from '@/server/services/TeamRequestSchemas';
+import { findMembership, requireTeamAdmin, toMembershipSummary } from '@/server/services/TeamAccess';
+
 import { requireUuid } from '@/server/validation/RequestGuards';
 
 /** 32 random bytes in base64url (256 bits), like share tokens. */
@@ -46,7 +46,7 @@ const toInviteDto = (invite: TeamInviteRow, now = new Date()): TeamInviteDto => 
   active: isInviteActive(invite, now),
 });
 
-export const buildInviteUrl = (token: string): string => buildAppUrl(`/join/${token}`).toString();
+const buildInviteUrl = (token: string): string => buildAppUrl(`/join/${token}`).toString();
 
 const throwInviteGone = (): never => {
   throw new ApiError(ApiErrorCode.NOT_FOUND, { message: INVITE_GONE_MESSAGE });
@@ -190,13 +190,7 @@ export const lookupInvite = async (
     teamName: team.name,
     membership:
       membership && membership.status !== TeamMemberStatus.REMOVED
-        ? {
-            teamId: team.id,
-            teamName: team.name,
-            role: membership.role,
-            status: membership.status,
-            linkedRowKey: membership.linkedRowKey,
-          }
+        ? toMembershipSummary(team, membership)
         : null,
   };
 };

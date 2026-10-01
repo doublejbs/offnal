@@ -1,5 +1,5 @@
 import { eq, inArray } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { MS_PER_DAY, MS_PER_HOUR } from '@/domain/DomainLimits';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
@@ -14,18 +14,17 @@ import {
 } from '@/server/db/Schema';
 import { runCleanup } from '@/server/services/CleanupService';
 import { type IntegrationEnvironment, setupIntegrationEnvironment } from '../helpers/ApiTestClient';
+import { createEnvSandbox } from '../helpers/EnvSandbox';
 import { findUserId } from '../helpers/PaymentFlows';
+import { deleteTeam, getTeam, lookupInvite } from '../helpers/TeamFlows';
 import {
   createRoster,
-  deleteTeam,
   extractNext,
   findRowKey,
   getMyMonths,
-  getTeam,
   joinAndApprove,
-  lookupInvite,
   setupPublishedTeam,
-} from '../helpers/TeamFlows';
+} from '../helpers/TeamRosterFlows';
 
 let env: IntegrationEnvironment;
 
@@ -136,5 +135,31 @@ describe('deleting a team', () => {
         .from(users)
         .where(inArray(users.id, [adminId, userId])),
     ).toHaveLength(2);
+  });
+});
+
+describe('stale roster drafts', () => {
+  const envSandbox = createEnvSandbox();
+
+  afterEach(() => {
+    envSandbox.restore();
+  });
+
+  it('expires the upload job (names, photo) together with a draft deleted at the draft TTL', async () => {
+    // A source TTL longer than the draft TTL isolates the draft deletion from ordinary job expiry.
+    envSandbox.set({ SOURCE_TTL_HOURS: '2000' });
+
+    const team = await setupPublishedTeam('초안 정리 관리자', '초안 정리 병동');
+    const draftId = await createRoster(team.admin, team.teamId);
+
+    await extractNext(team.admin, team.teamId, draftId);
+
+    const jobId = (await findRoster(draftId))?.sourceJobId ?? null;
+    const result = await runCleanup(env.db, env.storage, new Date(Date.now() + 31 * MS_PER_DAY));
+
+    expect(result.teamRosterDraftsDeleted).toBeGreaterThanOrEqual(1);
+    expect(await findRoster(draftId)).toBeUndefined();
+    expect(await findJob(jobId)).toMatchObject({ status: RecognitionStatus.EXPIRED, tableResult: null });
+    expect(await env.storage.exists(`sources/${jobId}`)).toBe(false);
   });
 });

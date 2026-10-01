@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { POST as joinRoute } from '@/app/api/invites/[token]/join/route';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
@@ -23,31 +23,36 @@ import {
   setupIntegrationEnvironment,
   TEST_APP_URL,
 } from '../helpers/ApiTestClient';
+import { createEnvSandbox } from '../helpers/EnvSandbox';
 import { findUserId } from '../helpers/PaymentFlows';
 import {
   approveMember,
   createInvite,
-  findRowKey,
-  getMyMonths,
+  getInviteRows,
   getTeam,
   issueInvite,
-  joinAndApprove,
   leaveTeam,
   listInvites,
   listMembers,
   listTeams,
   loggedInClient,
   lookupInvite,
-  type PublishedTeam,
   readInviteRows,
   rejectMember,
   removeMember,
   requestJoin,
   revokeInvite,
-  setupPublishedTeam,
-  TEAM_MONTH,
   updateMember,
 } from '../helpers/TeamFlows';
+import {
+  findRowKey,
+  getMyMonths,
+  joinAndApprove,
+  type PublishedTeam,
+  setupInvitedTeam,
+  setupPublishedTeam,
+  TEAM_MONTH,
+} from '../helpers/TeamRosterFlows';
 
 let env: IntegrationEnvironment;
 let team: PublishedTeam;
@@ -343,5 +348,69 @@ describe('leaving, removal and admins', () => {
     expect(await readConflict(await leaveTeam(deputy.member, team.teamId))).toBe(
       TeamMembershipConflictReason.LAST_ADMIN,
     );
+  });
+});
+
+describe('invite link abuse limits', () => {
+  const envSandbox = createEnvSandbox();
+
+  afterEach(() => {
+    envSandbox.restore();
+  });
+
+  it('answers 429 for invite lookups and picker rows beyond the per-IP limit', async () => {
+    envSandbox.set({ RATE_LIMIT_SHARED_IP_DAILY: '2' });
+
+    const visitor = await loggedInClient('초대 한도 방문자');
+
+    expect((await lookupInvite(visitor, team.token)).status).toBe(200);
+    expect((await getInviteRows(visitor, team.token)).status).toBe(200);
+
+    const limited = await lookupInvite(visitor, team.token);
+
+    expect(limited.status).toBe(429);
+    expect((await readJson<ApiErrorBody>(limited)).error.code).toBe(ApiErrorCode.RATE_LIMITED);
+    expect((await getInviteRows(visitor, team.token)).status).toBe(429);
+  });
+
+  it('hides the picker rows from removed people (404)', async () => {
+    // A fresh team: the shared one's first admin has left by now (see the last-admin test above).
+    const fresh = await setupPublishedTeam('행 숨김 관리자', '행 숨김 병동');
+    const removed = await joinAndApprove(env.db, fresh, '행 숨김 대상', findRowKey(fresh.roster, '정겨울'));
+
+    expect((await getInviteRows(removed.member, fresh.token)).status).toBe(200);
+    expect((await removeMember(fresh.admin, fresh.teamId, removed.userId)).status).toBe(200);
+    expect((await getInviteRows(removed.member, fresh.token)).status).toBe(404);
+  });
+});
+
+describe('last-admin protection under repeated attempts', () => {
+  it('lets only one of two admins leave, sequentially and concurrently', async () => {
+    // PGlite has one connection, so concurrent transactions run one after another here; the team-row
+    // FOR UPDATE lock gives the same outcome on real Postgres (`pnpm test:pg`).
+    for (const round of ['순차', '동시']) {
+      const invited = await setupInvitedTeam(`${round} 관리자 A`, `${round} 관리자 병동`);
+      const second = await joinAndApprove(env.db, invited, `${round} 관리자 B`, null);
+      const promoted = await updateMember(invited.admin, invited.teamId, second.userId, {
+        role: TeamRole.ADMIN,
+      });
+
+      expect(promoted.status).toBe(200);
+
+      const statuses =
+        round === '순차'
+          ? [
+              (await leaveTeam(invited.admin, invited.teamId)).status,
+              (await leaveTeam(second.member, invited.teamId)).status,
+            ]
+          : (
+              await Promise.all([
+                leaveTeam(invited.admin, invited.teamId),
+                leaveTeam(second.member, invited.teamId),
+              ])
+            ).map((response) => response.status);
+
+      expect([...statuses].sort()).toEqual([200, 409]);
+    }
   });
 });

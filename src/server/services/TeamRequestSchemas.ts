@@ -2,7 +2,7 @@ import 'server-only';
 
 import { z } from 'zod';
 
-import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
+import { MAX_DISPLAY_NAME_LENGTH, MAX_ROSTER_ROWS } from '@/domain/DomainLimits';
 import { TeamRole } from '@/domain/enums/TeamRole';
 import { type AckTeamChangesRequest } from '@/domain/types/api/AckTeamChangesRequest';
 import { type ApproveTeamMemberRequest } from '@/domain/types/api/ApproveTeamMemberRequest';
@@ -12,6 +12,7 @@ import { type ExtractNextRequest } from '@/domain/types/api/ExtractNextRequest';
 import { type JoinTeamRequest } from '@/domain/types/api/JoinTeamRequest';
 import { type PatchTeamRosterRequest } from '@/domain/types/api/PatchTeamRosterRequest';
 import { type PublishTeamRosterRequest } from '@/domain/types/api/PublishTeamRosterRequest';
+import { type RevertTeamRosterRequest } from '@/domain/types/api/RevertTeamRosterRequest';
 import { type UpdateTeamMemberRequest } from '@/domain/types/api/UpdateTeamMemberRequest';
 import { type UpdateTeamRequest } from '@/domain/types/api/UpdateTeamRequest';
 import {
@@ -21,11 +22,8 @@ import {
   yearMonthSchema,
 } from '@/server/services/RequestSchemas';
 
-export const MAX_TEAM_NAME_LENGTH = MAX_DISPLAY_NAME_LENGTH;
-export const DEFAULT_INVITE_DAYS = 14;
-export const MAX_INVITE_DAYS = 30;
-/** Upper bound of people in one roster (pass-1 candidates beyond it are ignored). */
-export const MAX_ROSTER_ROWS = 80;
+const MAX_TEAM_NAME_LENGTH = MAX_DISPLAY_NAME_LENGTH;
+const MAX_INVITE_DAYS = 30;
 
 const MAX_DEFINITIONS = 40;
 const MAX_DAYS_IN_MONTH = 31;
@@ -35,7 +33,7 @@ const MAX_REVISION = 100_000;
 
 const teamNameSchema = z.string().trim().min(1).max(MAX_TEAM_NAME_LENGTH);
 
-export const rowKeySchema = z.string().min(1).max(MAX_ROW_KEY_LENGTH);
+const rowKeySchema = z.string().min(1).max(MAX_ROW_KEY_LENGTH);
 
 export const createTeamRequestSchema = z.strictObject({
   name: teamNameSchema,
@@ -104,6 +102,10 @@ export const publishTeamRosterRequestSchema = z.strictObject({
   version: rosterVersionSchema,
   confirmUnlinked: z.boolean().optional(),
 }) satisfies z.ZodType<PublishTeamRosterRequest>;
+
+export const revertTeamRosterRequestSchema = z.strictObject({
+  confirmUnlinked: z.boolean().optional(),
+}) satisfies z.ZodType<RevertTeamRosterRequest>;
 
 export const ackTeamChangesRequestSchema = z.strictObject({
   yearMonth: yearMonthSchema,

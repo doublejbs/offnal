@@ -7,6 +7,7 @@ import { TeamMembershipConflictReason } from '@/domain/enums/TeamMembershipConfl
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRole } from '@/domain/enums/TeamRole';
 import { type TeamMembershipConflictDetails } from '@/domain/types/api/TeamMembershipConflictDetails';
+import { type TeamMembershipSummary } from '@/domain/types/api/TeamMembershipSummary';
 import { type DbExecutor, type DbTransaction } from '@/server/db/Database';
 import { type TeamMemberRow, teamMembers, type TeamRow, teams } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
@@ -20,7 +21,7 @@ export type TeamAccess = {
   membership: TeamMemberRow;
 };
 
-export const MEMBERSHIP_CONFLICT_MESSAGES: Record<TeamMembershipConflictReason, string> = {
+const MEMBERSHIP_CONFLICT_MESSAGES: Record<TeamMembershipConflictReason, string> = {
   [TeamMembershipConflictReason.ALREADY_MEMBER]: '이미 이 팀의 팀원이에요.',
   [TeamMembershipConflictReason.ALREADY_REQUESTED]:
     '이미 참여를 요청했어요. 관리자가 승인하면 달력에 나타나요.',
@@ -86,6 +87,18 @@ export const requireActiveMember = async (
 
   return { context: loggedIn, team: row.team, membership: row.membership };
 };
+
+/** The viewer's membership as listed in GET /api/teams, invite lookups and join responses. */
+export const toMembershipSummary = (
+  team: { id: string; name: string },
+  membership: { role: TeamRole; status: TeamMemberStatus; linkedRowKey: string | null },
+): TeamMembershipSummary => ({
+  teamId: team.id,
+  teamName: team.name,
+  role: membership.role,
+  status: membership.status,
+  linkedRowKey: membership.linkedRowKey,
+});
 
 export const isTeamAdmin = (membership: TeamMemberRow): boolean =>
   membership.status === TeamMemberStatus.ACTIVE && membership.role === TeamRole.ADMIN;

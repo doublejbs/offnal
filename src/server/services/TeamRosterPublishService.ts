@@ -4,13 +4,11 @@ import { and, eq } from 'drizzle-orm';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
-import { RosterRowExtractStatus } from '@/domain/enums/RosterRowExtractStatus';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { diffRosterRows } from '@/domain/TeamRosterDiff';
 import { type PreviousRowRef } from '@/domain/types/api/PreviousRowRef';
 import { type PublishTeamRosterRequest } from '@/domain/types/api/PublishTeamRosterRequest';
 import { type PublishTeamRosterResponse } from '@/domain/types/api/PublishTeamRosterResponse';
-import { type TeamRosterConflictDetails } from '@/domain/types/api/TeamRosterConflictDetails';
 import { type Db, type DbTransaction } from '@/server/db/Database';
 import {
   type TeamRosterRow,
@@ -23,21 +21,23 @@ import { type RequestContext } from '@/server/http/RequestContext';
 import { deleteJobSourceBestEffort } from '@/server/services/PublishService';
 import { assertTeamPlanActive, lockTeamAsAdmin, requireTeamAdmin } from '@/server/services/TeamAccess';
 import { listActiveLinkedKeys } from '@/server/services/TeamMemberQueries';
-import { classifyRow } from '@/server/services/TeamRosterProgressBuilder';
-import { listRowBlockers, requireTeamRoster, toDiffRows } from '@/server/services/TeamRosterQueries';
-import { findPublishedRoster, listRosterRows } from '@/server/services/TeamRosterRows';
-import { findLatestRevision } from '@/server/services/TeamRosterUploadService';
+import { isRowBusy } from '@/server/services/TeamRosterProgressBuilder';
+import {
+  listRowBlockers,
+  requireTeamRoster,
+  throwRosterConflict,
+  toDiffRows,
+} from '@/server/services/TeamRosterQueries';
+import { findLatestRevision, findPublishedRoster, listRosterRows } from '@/server/services/TeamRosterRows';
 
 const UNLINKED_MESSAGE =
   '연결된 팀원의 행이 새 근무표에 없어요. “이름 바뀜”으로 이어 주거나, 그대로 배포하려면 한 번 더 확인해 주세요.';
 const NOTHING_TO_PUBLISH_MESSAGE = '배포할 사람이 없어요. 제외하지 않은 행이 하나 이상 있어야 해요.';
+const REPLACED_MESSAGE =
+  '이미 더 새 버전이 배포된 근무표예요. 되돌리려면 “이 버전으로 되돌리기”를 써 주세요.';
 const STILL_READING_MESSAGE = '아직 읽는 중인 사람이 있어요. 모두 읽은 뒤 배포해 주세요.';
 
 type PublishOutcome = PublishTeamRosterResponse & { sourceJobId: string | null };
-
-const throwConflict = (details: TeamRosterConflictDetails): never => {
-  throw new ApiError(ApiErrorCode.REVISION_CONFLICT, { details });
-};
 
 export const lockRoster = async (
   tx: DbTransaction,
@@ -114,6 +114,23 @@ const findDroppedLinkedRows = async (
     .map((row) => ({ rowKey: row.rowKey, displayName: row.displayName, linked: true }));
 };
 
+/** 422 `details.unlinkedRows` unless the admin confirmed (`confirmUnlinked`). Shared by publish and revert. */
+export const assertKeepsLinkedRows = async (
+  tx: DbTransaction,
+  published: TeamRosterRow | null,
+  rows: TeamRosterRowRow[],
+  confirmed: boolean,
+): Promise<void> => {
+  const unlinkedRows = published && !confirmed ? await findDroppedLinkedRows(tx, published, rows) : [];
+
+  if (unlinkedRows.length > 0) {
+    throw new ApiError(ApiErrorCode.PUBLISH_BLOCKED, {
+      message: UNLINKED_MESSAGE,
+      details: { blockers: [], unlinkedRows },
+    });
+  }
+};
+
 const runPublish = async (
   db: Db,
   userId: string,
@@ -126,12 +143,9 @@ const runPublish = async (
 
     const roster = await lockRoster(tx, teamId, rosterId);
 
-    if (roster.status !== TeamRosterStatus.DRAFT) {
-      if (roster.revision === null || !roster.yearMonth) {
-        throw new ApiError(ApiErrorCode.ROSTER_NOT_EDITABLE);
-      }
-
-      // Repeating a publish (e.g. a retried request) succeeds without a new revision.
+    // Repeating a publish (e.g. a retried request) succeeds without a new revision — only while it is still
+    // the current one. An ARCHIVED roster was replaced by a newer revision: answering "published" would lie.
+    if (roster.status === TeamRosterStatus.PUBLISHED && roster.revision !== null && roster.yearMonth) {
       return {
         rosterId: roster.id,
         yearMonth: roster.yearMonth,
@@ -142,8 +156,12 @@ const runPublish = async (
       };
     }
 
+    if (roster.status !== TeamRosterStatus.DRAFT) {
+      throw new ApiError(ApiErrorCode.ROSTER_NOT_EDITABLE, { message: REPLACED_MESSAGE });
+    }
+
     if (roster.version !== request.version) {
-      throwConflict({ reason: RevisionConflictReason.STALE_REVISION, currentVersion: roster.version });
+      throwRosterConflict({ reason: RevisionConflictReason.STALE_REVISION, currentVersion: roster.version });
     }
 
     if (!roster.rowsCreatedAt || !roster.yearMonth) {
@@ -154,7 +172,7 @@ const runPublish = async (
     const publishedRevision = published?.revision ?? 0;
 
     if (publishedRevision > roster.baseRevision) {
-      throwConflict({
+      throwRosterConflict({
         reason: RevisionConflictReason.STALE_BASE,
         currentVersion: roster.version,
         publishedRevision,
@@ -164,13 +182,7 @@ const runPublish = async (
     const rows = await listRosterRows(tx, roster.id);
     const now = new Date();
 
-    if (
-      rows.some(
-        (row) =>
-          !row.excluded &&
-          [RosterRowExtractStatus.PENDING, RosterRowExtractStatus.PROCESSING].includes(classifyRow(row, now)),
-      )
-    ) {
+    if (rows.some((row) => !row.excluded && isRowBusy(row, now))) {
       throw new ApiError(ApiErrorCode.ROSTER_NOT_EDITABLE, { message: STILL_READING_MESSAGE });
     }
 
@@ -187,14 +199,7 @@ const runPublish = async (
       });
     }
 
-    const unlinkedRows = published ? await findDroppedLinkedRows(tx, published, rows) : [];
-
-    if (unlinkedRows.length > 0 && !request.confirmUnlinked) {
-      throw new ApiError(ApiErrorCode.PUBLISH_BLOCKED, {
-        message: UNLINKED_MESSAGE,
-        details: { blockers: [], unlinkedRows },
-      });
-    }
+    await assertKeepsLinkedRows(tx, published, rows, request.confirmUnlinked === true);
 
     const promoted = await promote(tx, roster, roster.yearMonth, rows);
 
