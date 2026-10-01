@@ -5,6 +5,8 @@ export type ShareSettingsResponse = {
   url: string | null;
   displayName: string;
   visibleMonths: string[];
-  /** All published months of the owner, ascending. */
+  /** Every month of the owner's calendar (personal and team), ascending. Team months start hidden. */
   availableMonths: string[];
+  /** Months of `availableMonths` that are team months (label them with the team name). */
+  teamMonths: string[];
 };

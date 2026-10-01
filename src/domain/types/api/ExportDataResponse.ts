@@ -11,4 +11,6 @@ export type ExportDataResponse = {
   generatedAt: string;
   /** ISO 8601, last publish of this month. */
   updatedAt: string;
+  /** Team name when the month comes from a team roster, else null. */
+  teamName: string | null;
 };

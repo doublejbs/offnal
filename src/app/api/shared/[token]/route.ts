@@ -7,7 +7,7 @@ import { getClientIpFromHeaders } from '@/server/http/ClientIp';
 import { withPublicShareHeaders } from '@/server/http/PublicShareHeaders';
 import { jsonResponse, withRoute } from '@/server/http/RouteHelpers';
 import { enforceSharedViewLimit } from '@/server/services/RateLimitService';
-import { getSharedCalendar } from '@/server/services/ShareService';
+import { getSharedCalendar } from '@/server/services/SharedCalendarService';
 
 export const runtime = 'nodejs';
 

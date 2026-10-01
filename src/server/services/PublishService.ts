@@ -24,8 +24,12 @@ import {
   hasEntitlement,
   insertTrialEntitlement,
 } from '@/server/services/EntitlementService';
+import { findTeamMonthForUser } from '@/server/services/TeamMonthLookup';
 import { getObjectStorage } from '@/server/storage/StorageFactory';
 import { requireUser, requireUuid } from '@/server/validation/RequestGuards';
+
+const TEAM_MONTH_PUBLISH_MESSAGE =
+  '이 달은 팀 근무표가 있어 개인으로 저장할 수 없어요. 고칠 곳이 있으면 관리자에게 요청해 주세요.';
 
 type PublishOutcome = PublishDraftResponse & { recognitionJobId: string | null };
 
@@ -150,6 +154,12 @@ const runPublishTransaction = async (
         currentRevision: draft.revision,
         publishedRevision,
       });
+    }
+
+    // Team spec §0·§12-3: a month the member's team publishes is not saved personally (no free month spent
+    // on a copy that would stay hidden behind the team month).
+    if (await findTeamMonthForUser(tx, userId, draft.yearMonth)) {
+      throw new ApiError(ApiErrorCode.TEAM_MONTH_READ_ONLY, { message: TEAM_MONTH_PUBLISH_MESSAGE });
     }
 
     const blockers = getPublishBlockers(draft.entries, draft.definitions);
