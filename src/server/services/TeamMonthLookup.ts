@@ -1,11 +1,10 @@
 import 'server-only';
 
-import { and, asc, eq, gt, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { collapseRevisionChanges } from '@/domain/TeamRosterDiff';
-import { type TeamCellChange } from '@/domain/types/api/TeamCellChange';
 import { type TeamMonthInfo } from '@/domain/types/api/TeamMonthInfo';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
@@ -109,6 +108,9 @@ export const findTeamMonthForUser = async (
   yearMonth: string,
 ): Promise<TeamMonthRecord | null> => (await listTeamMonthsForUser(db, userId, { yearMonth }))[0] ?? null;
 
+/** `${teamId}:${yearMonth}`: identifies one team month of a member (acks, share flags, changes). */
+export const buildTeamMonthKey = (teamId: string, yearMonth: string): string => `${teamId}:${yearMonth}`;
+
 export const findAcknowledgedRevision = async (
   db: DbExecutor,
   teamId: string,
@@ -130,15 +132,40 @@ export const findAcknowledgedRevision = async (
   return ack?.revision ?? 0;
 };
 
-/** Changed dates of the member's row in revisions after the acknowledged one (collapsed per date). */
-export const loadUnacknowledgedChanges = async (
+/**
+ * `TeamMonthInfo` for many team months with two queries in total (acks, then every candidate change), not
+ * two per month. Changes of revisions after the acknowledged one are collapsed per date. Same order as input.
+ */
+export const buildTeamMonthInfos = async (
   db: DbExecutor,
-  record: TeamMonthRecord,
-  acknowledgedRevision: number,
-): Promise<TeamCellChange[]> => {
-  const rows = await db
+  records: TeamMonthRecord[],
+  userId: string,
+): Promise<TeamMonthInfo[]> => {
+  if (records.length === 0) {
+    return [];
+  }
+
+  const teamIds = [...new Set(records.map((record) => record.teamId))];
+  const yearMonths = [...new Set(records.map((record) => record.yearMonth))];
+  const acks = await db
+    .select()
+    .from(memberChangeAcks)
+    .where(
+      and(
+        eq(memberChangeAcks.userId, userId),
+        inArray(memberChangeAcks.teamId, teamIds),
+        inArray(memberChangeAcks.yearMonth, yearMonths),
+      ),
+    );
+  const ackByKey = new Map(
+    acks.map((ack) => [buildTeamMonthKey(ack.teamId, ack.yearMonth), ack.ackedRevision]),
+  );
+  const changes = await db
     .select({
+      teamId: teamRosters.teamId,
+      yearMonth: teamRosters.yearMonth,
       revision: teamRosters.revision,
+      rowKey: teamRosterChanges.rowKey,
       date: teamRosterChanges.date,
       fromCode: teamRosterChanges.fromCode,
       toCode: teamRosterChanges.toCode,
@@ -147,15 +174,39 @@ export const loadUnacknowledgedChanges = async (
     .innerJoin(teamRosters, eq(teamRosters.id, teamRosterChanges.rosterId))
     .where(
       and(
-        eq(teamRosters.teamId, record.teamId),
-        eq(teamRosters.yearMonth, record.yearMonth),
-        gt(teamRosters.revision, acknowledgedRevision),
-        lte(teamRosters.revision, record.revision),
-        eq(teamRosterChanges.rowKey, record.rowKey),
+        inArray(teamRosters.teamId, teamIds),
+        inArray(teamRosters.yearMonth, yearMonths),
+        inArray(teamRosterChanges.rowKey, [...new Set(records.map((record) => record.rowKey))]),
       ),
     );
 
-  return collapseRevisionChanges(rows.map((row) => ({ ...row, revision: row.revision ?? 0 })));
+  return records.map((record) => {
+    const acknowledgedRevision = ackByKey.get(buildTeamMonthKey(record.teamId, record.yearMonth)) ?? 0;
+    const own = changes.filter(
+      (change) =>
+        change.teamId === record.teamId &&
+        change.yearMonth === record.yearMonth &&
+        change.rowKey === record.rowKey &&
+        (change.revision ?? 0) > acknowledgedRevision &&
+        (change.revision ?? 0) <= record.revision,
+    );
+
+    return {
+      teamId: record.teamId,
+      teamName: record.teamName,
+      revision: record.revision,
+      publishedAt: record.publishedAt.toISOString(),
+      changes: collapseRevisionChanges(
+        own.map((change) => ({
+          date: change.date,
+          fromCode: change.fromCode,
+          toCode: change.toCode,
+          revision: change.revision ?? 0,
+        })),
+      ),
+      acknowledgedRevision,
+    };
+  });
 };
 
 export const buildTeamMonthInfo = async (
@@ -163,19 +214,16 @@ export const buildTeamMonthInfo = async (
   record: TeamMonthRecord,
   userId: string,
 ): Promise<TeamMonthInfo> => {
-  const acknowledgedRevision = await findAcknowledgedRevision(db, record.teamId, userId, record.yearMonth);
+  const [info] = await buildTeamMonthInfos(db, [record], userId);
 
-  return {
-    teamId: record.teamId,
-    teamName: record.teamName,
-    revision: record.revision,
-    publishedAt: record.publishedAt.toISOString(),
-    changes: await loadUnacknowledgedChanges(db, record, acknowledgedRevision),
-    acknowledgedRevision,
-  };
+  if (!info) {
+    throw new Error('Team month info missing');
+  }
+
+  return info;
 };
 
-/** `${teamId}:${yearMonth}` keys of team months the member made visible on their share link. */
+/** Keys (`buildTeamMonthKey`) of team months the member made visible on their share link. */
 export const listSharedTeamMonthKeys = async (db: DbExecutor, userId: string): Promise<Set<string>> => {
   const rows = await db
     .select({ teamId: memberSharedTeamMonths.teamId, yearMonth: memberSharedTeamMonths.yearMonth })
@@ -184,5 +232,3 @@ export const listSharedTeamMonthKeys = async (db: DbExecutor, userId: string): P
 
   return new Set(rows.map((row) => buildTeamMonthKey(row.teamId, row.yearMonth)));
 };
-
-export const buildTeamMonthKey = (teamId: string, yearMonth: string): string => `${teamId}:${yearMonth}`;

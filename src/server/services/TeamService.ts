@@ -1,8 +1,7 @@
 import 'server-only';
 
-import { and, asc, count, eq, inArray, isNotNull, ne } from 'drizzle-orm';
+import { and, asc, count, eq, isNotNull, ne } from 'drizzle-orm';
 
-import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRole } from '@/domain/enums/TeamRole';
 import { type CreateTeamRequest } from '@/domain/types/api/CreateTeamRequest';
@@ -12,11 +11,13 @@ import { type TeamDto } from '@/domain/types/api/TeamDto';
 import { type TeamListResponse } from '@/domain/types/api/TeamListResponse';
 import { type UpdateTeamRequest } from '@/domain/types/api/UpdateTeamRequest';
 import { type Db, type DbExecutor } from '@/server/db/Database';
-import { recognitionJobs, teamMembers, teamRosters, type TeamRow, teams } from '@/server/db/Schema';
+import { teamMembers, teamRosters, type TeamRow, teams } from '@/server/db/Schema';
 import { type RequestContext } from '@/server/http/RequestContext';
+import { expireJobsNow } from '@/server/services/CleanupService';
 import { deleteJobSourceBestEffort } from '@/server/services/PublishService';
 import {
   isTeamAdmin,
+  toMembershipSummary,
   lockTeamAsAdmin,
   requireActiveMember,
   requireTeamAdmin,
@@ -25,7 +26,7 @@ import {
 import { listPublishedRosters } from '@/server/services/TeamRosterRows';
 import { requireUser } from '@/server/validation/RequestGuards';
 
-export const toTeamDto = (team: TeamRow): TeamDto => ({
+const toTeamDto = (team: TeamRow): TeamDto => ({
   id: team.id,
   name: team.name,
   shareRosterWithMembers: team.shareRosterWithMembers,
@@ -107,13 +108,7 @@ export const listMyTeams = async (db: DbExecutor, context: RequestContext): Prom
     .orderBy(asc(teams.createdAt), asc(teams.id));
 
   return {
-    teams: rows.map(({ team, membership }) => ({
-      teamId: team.id,
-      teamName: team.name,
-      role: membership.role,
-      status: membership.status,
-      linkedRowKey: membership.linkedRowKey,
-    })),
+    teams: rows.map(({ team, membership }) => toMembershipSummary(team, membership)),
   };
 };
 
@@ -161,17 +156,7 @@ export const deleteTeam = async (db: Db, context: RequestContext, teamId: string
       .where(and(eq(teamRosters.teamId, team.id), isNotNull(teamRosters.sourceJobId)));
     const ids = jobs.flatMap((job) => (job.id ? [job.id] : []));
 
-    if (ids.length > 0) {
-      await tx
-        .update(recognitionJobs)
-        .set({
-          status: RecognitionStatus.EXPIRED,
-          tableResult: null,
-          leaseExpiresAt: null,
-          expiresAt: new Date(),
-        })
-        .where(inArray(recognitionJobs.id, ids));
-    }
+    await expireJobsNow(tx, ids);
 
     await tx.delete(teams).where(eq(teams.id, team.id));
 

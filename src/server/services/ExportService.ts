@@ -1,7 +1,5 @@
 import 'server-only';
 
-import { createHash } from 'node:crypto';
-
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { CalendarMonthSource } from '@/domain/enums/CalendarMonthSource';
@@ -12,6 +10,7 @@ import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { track } from '@/server/analytics/Analytics';
 import { getAppConfig } from '@/server/config/AppConfig';
+import { buildStableUidBase } from '@/server/crypto/StableUid';
 import { getPricing } from '@/server/config/PricingConfig';
 import { type DbExecutor } from '@/server/db/Database';
 import { ApiError } from '@/server/errors/ApiError';
@@ -57,10 +56,7 @@ const requireExportableMonth = async (
     return {
       // Stable per member and team (re-importing a changed team month updates the same events), without
       // putting internal IDs into a file members may forward.
-      calendarId: createHash('sha256')
-        .update(`team:${month.team.teamId}:${user.id}`)
-        .digest('hex')
-        .slice(0, 16),
+      calendarId: buildStableUidBase(`team:${month.team.teamId}:${user.id}`),
       displayName: month.calendar?.displayName ?? user.displayName,
       yearMonth: month.yearMonth,
       definitions: month.team.definitions,

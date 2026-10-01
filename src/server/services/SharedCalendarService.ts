@@ -1,7 +1,5 @@
 import 'server-only';
 
-import { createHash } from 'node:crypto';
-
 import { and, eq } from 'drizzle-orm';
 
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
@@ -10,10 +8,12 @@ import { buildSharedIcsFileName } from '@/domain/ExportFileNames';
 import { buildIcs } from '@/domain/IcsBuilder';
 import { SHARE_EXPIRED_MESSAGE } from '@/domain/ShareMessages';
 import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
+import { type ShiftCodeEntry } from '@/domain/types/ShiftCodeEntry';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { formatYearMonthLabel, isValidYearMonth } from '@/domain/YearMonth';
 import { track } from '@/server/analytics/Analytics';
 import { hashShareToken, isShareTokenFormat } from '@/server/crypto/ShareTokens';
+import { buildStableUidBase } from '@/server/crypto/StableUid';
 import { type DbExecutor } from '@/server/db/Database';
 import { type CalendarRow, calendars } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
@@ -83,7 +83,9 @@ const findSharedMonth = async (
 };
 
 /** Date and code only: never review data, sources, team names or other people. */
-const toPublicSchedule = (month: EffectiveMonth) => {
+const toPublicSchedule = (
+  month: EffectiveMonth,
+): { definitions: ShiftDefinition[]; entries: ShiftCodeEntry[] } => {
   const { definitions, entries } = getEffectiveSchedule(month);
 
   return {
@@ -117,12 +119,6 @@ export const getSharedCalendar = async (
   };
 };
 
-const SHARED_UID_HASH_LENGTH = 16;
-
-/** Stable per calendar but not reversible to the internal id, for UIDs in files anyone with the link gets. */
-export const buildSharedUidBase = (calendarId: string): string =>
-  createHash('sha256').update(calendarId).digest('hex').slice(0, SHARED_UID_HASH_LENGTH);
-
 /**
  * GET /api/shared/:token/export.ics?month=YYYY-MM&includeOff=1 — the recipient's one-time import of the
  * viewed month. Same checks as getSharedCalendar; nothing visible → 404. Titles carry the sharer's name.
@@ -141,7 +137,7 @@ export const exportSharedMonthIcs = async (
 
   const body = buildIcs({
     calendarId: calendar.id,
-    uidBase: buildSharedUidBase(calendar.id),
+    uidBase: buildStableUidBase(calendar.id),
     displayName: calendar.displayName,
     titlePrefix: calendar.displayName,
     calendarName: `${calendar.displayName}님의 근무 · ${formatYearMonthLabel(target.yearMonth)}`,

@@ -16,7 +16,7 @@ import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { isTeamAdmin, requireActiveMember } from '@/server/services/TeamAccess';
 import {
-  buildTeamMonthInfo,
+  buildTeamMonthInfos,
   findAcknowledgedRevision,
   listTeamMonthsForUser,
 } from '@/server/services/TeamMonthLookup';
@@ -30,22 +30,17 @@ export const getMyTeamMonths = async (
 ): Promise<TeamMyMonthsResponse> => {
   const { context: loggedIn, team, membership } = await requireActiveMember(db, context, teamId);
   const records = await listTeamMonthsForUser(db, loggedIn.user.id, { teamId: team.id });
-  const months: TeamMyMonthDto[] = [];
-
-  for (const record of records) {
-    const info = await buildTeamMonthInfo(db, record, loggedIn.user.id);
-
-    months.push({
-      yearMonth: record.yearMonth,
-      revision: record.revision,
-      publishedAt: info.publishedAt,
-      displayName: record.displayName,
-      definitions: record.definitions,
-      entries: toCodeEntries(record.entries),
-      changes: info.changes,
-      acknowledgedRevision: info.acknowledgedRevision,
-    });
-  }
+  const infos = await buildTeamMonthInfos(db, records, loggedIn.user.id);
+  const months = records.map((record, index): TeamMyMonthDto => ({
+    yearMonth: record.yearMonth,
+    revision: record.revision,
+    publishedAt: record.publishedAt.toISOString(),
+    displayName: record.displayName,
+    definitions: record.definitions,
+    entries: toCodeEntries(record.entries),
+    changes: infos[index]?.changes ?? [],
+    acknowledgedRevision: infos[index]?.acknowledgedRevision ?? 0,
+  }));
 
   return { team: { id: team.id, name: team.name }, linkedRowKey: membership.linkedRowKey, months };
 };

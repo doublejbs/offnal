@@ -30,13 +30,18 @@ import { type RequestContext } from '@/server/http/RequestContext';
 import { buildDraftInsert } from '@/server/services/DraftFactory';
 import {
   type EffectiveMonth,
+  findCalendarForOwner,
   findEffectiveMonth,
   getEffectiveSchedule,
   getEffectiveUpdatedAt,
   listEffectiveMonths,
 } from '@/server/services/EffectiveMonthService';
 import { getFreeRemainingForUser } from '@/server/services/EntitlementService';
-import { buildTeamMonthInfo, findTeamMonthForUser } from '@/server/services/TeamMonthLookup';
+import {
+  buildTeamMonthInfo,
+  buildTeamMonthInfos,
+  findTeamMonthForUser,
+} from '@/server/services/TeamMonthLookup';
 import { resolveShareUrl } from '@/server/crypto/ShareTokens';
 import { requireUser } from '@/server/validation/RequestGuards';
 
@@ -45,12 +50,6 @@ const TEAM_MONTH_DELETE_MESSAGE = '팀 근무표는 달력에서 지울 수 없�
 export type OwnedPublishedMonth = {
   calendar: CalendarRow;
   month: PublishedMonthRow;
-};
-
-export const findCalendarForOwner = async (db: DbExecutor, userId: string): Promise<CalendarRow | null> => {
-  const [calendar] = await db.select().from(calendars).where(eq(calendars.ownerId, userId)).limit(1);
-
-  return calendar ?? null;
 };
 
 /** Owner's personal published month or null (team months: EffectiveMonthService). */
@@ -94,18 +93,7 @@ export const buildShareSummary = (calendar: CalendarRow | null): ShareSummary =>
   displayName: calendar?.displayName ?? null,
 });
 
-const buildTeamInfo = async (
-  db: DbExecutor,
-  month: EffectiveMonth,
-  userId: string,
-): Promise<TeamMonthInfo | null> =>
-  month.source === CalendarMonthSource.TEAM ? buildTeamMonthInfo(db, month.team, userId) : null;
-
-const toMonthSummary = async (
-  db: DbExecutor,
-  month: EffectiveMonth,
-  userId: string,
-): Promise<CalendarMonthSummary> => {
+const toMonthSummary = (month: EffectiveMonth, team: TeamMonthInfo | null): CalendarMonthSummary => {
   const { definitions, entries } = getEffectiveSchedule(month);
 
   return {
@@ -114,7 +102,7 @@ const toMonthSummary = async (
     updatedAt: getEffectiveUpdatedAt(month).toISOString(),
     ...countWorkAndOff(entries, definitions),
     source: month.source,
-    team: await buildTeamInfo(db, month, userId),
+    team,
     hasPersonalBackup: month.source === CalendarMonthSource.TEAM && month.personal !== null,
   };
 };
@@ -127,11 +115,13 @@ export const getCalendarSummary = async (
   const { user } = requireUser(context);
   const calendar = await findCalendarForOwner(db, user.id);
   const months = await listEffectiveMonths(db, user.id, calendar);
-  const summaries: CalendarMonthSummary[] = [];
-
-  for (const month of months) {
-    summaries.push(await toMonthSummary(db, month, user.id));
-  }
+  const teamMonths = months.flatMap((month) =>
+    month.source === CalendarMonthSource.TEAM ? [month.team] : [],
+  );
+  // Acks and changes of every team month in two queries (no per-month reads).
+  const infos = await buildTeamMonthInfos(db, teamMonths, user.id);
+  const infoByMonth = new Map(infos.map((info, index) => [teamMonths[index]?.yearMonth, info]));
+  const summaries = months.map((month) => toMonthSummary(month, infoByMonth.get(month.yearMonth) ?? null));
 
   return {
     calendar: calendar ? { displayName: calendar.displayName } : null,

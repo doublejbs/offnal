@@ -369,7 +369,8 @@ export const teamRosters = pgTable(
     uniqueIndex('team_rosters_published_unique')
       .on(table.teamId, table.yearMonth)
       .where(sql`${table.status} = 'published'`),
-    index('team_rosters_team_id_idx').on(table.teamId),
+    // Cleanup and personal-API exclusion look rosters up by their upload job.
+    index('team_rosters_source_job_id_idx').on(table.sourceJobId),
     buildYearMonthCheck('team_rosters_year_month_check', table.yearMonth),
     buildEnumCheck('team_rosters_status_check', table.status, TeamRosterStatus),
     check('team_rosters_revision_check', sql`(${table.status} = 'draft') = (${table.revision} is null)`),

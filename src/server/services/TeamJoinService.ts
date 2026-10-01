@@ -12,7 +12,7 @@ import { type Db } from '@/server/db/Database';
 import { teamMembers, teams } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
-import { findMembership, throwMembershipConflict } from '@/server/services/TeamAccess';
+import { findMembership, throwMembershipConflict, toMembershipSummary } from '@/server/services/TeamAccess';
 import { consumeInviteUse, findValidInvite, INVITE_GONE_MESSAGE } from '@/server/services/TeamInviteService';
 import { assertLinkableRow } from '@/server/services/TeamMemberQueries';
 import { requireUser } from '@/server/validation/RequestGuards';
@@ -66,12 +66,6 @@ export const requestToJoin = async (
       await tx.insert(teamMembers).values({ teamId: team.id, userId: user.id, ...values });
     }
 
-    return {
-      teamId: team.id,
-      teamName: team.name,
-      role: values.role,
-      status: values.status,
-      linkedRowKey: body.rowKey,
-    };
+    return toMembershipSummary(team, { ...values, linkedRowKey: body.rowKey });
   });
 };

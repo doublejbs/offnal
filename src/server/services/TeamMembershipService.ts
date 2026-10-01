@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { TeamMembershipConflictReason } from '@/domain/enums/TeamMembershipConflictReason';
@@ -85,19 +85,24 @@ const acknowledgePublishedMonths = async (
   teamId: string,
   userId: string,
 ): Promise<void> => {
-  for (const roster of await listPublishedRosters(tx, teamId)) {
-    if (!roster.yearMonth || roster.revision === null) {
-      continue;
-    }
+  const values = (await listPublishedRosters(tx, teamId)).flatMap((roster) =>
+    roster.yearMonth && roster.revision !== null
+      ? [{ teamId, userId, yearMonth: roster.yearMonth, ackedRevision: roster.revision }]
+      : [],
+  );
 
-    await tx
-      .insert(memberChangeAcks)
-      .values({ teamId, userId, yearMonth: roster.yearMonth, ackedRevision: roster.revision })
-      .onConflictDoUpdate({
-        target: [memberChangeAcks.teamId, memberChangeAcks.userId, memberChangeAcks.yearMonth],
-        set: { ackedRevision: roster.revision },
-      });
+  if (values.length === 0) {
+    return;
   }
+
+  // One multi-row upsert for every published month.
+  await tx
+    .insert(memberChangeAcks)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [memberChangeAcks.teamId, memberChangeAcks.userId, memberChangeAcks.yearMonth],
+      set: { ackedRevision: sql`excluded.acked_revision` },
+    });
 };
 
 /** POST .../members/:userId/approve (ADMIN): PENDING → ACTIVE with the requested or a corrected row. */
