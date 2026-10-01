@@ -58,6 +58,7 @@ const ShareSettings = ({ yearMonth, fallbackName }: ShareSettingsProps) => {
               onChange={(event) => state.handleToggleMonth(month, event.target.checked)}
             />
             {formatYearMonthLabel(month)}
+            {settings.teamMonths.includes(month) && <span className="tiny"> · 팀 근무표</span>}
           </label>
         ))}
       </fieldset>

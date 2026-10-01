@@ -1,0 +1,249 @@
+# 오프날 팀 요금제 스펙 (팀 공유 + 근무표 작성·관리)
+
+작성일: 2026-09-30 · 상태: 초안(결정 필요 항목 포함) · 선행 문서: [`Spec.md`](./Spec.md), [`Handoff.md`](./Handoff.md)
+
+
+## 0. 요금제 구조 (2026-09-30 결정)
+
+| 구분 | 개인 요금제 (기존) | 팀 요금제 (신규) |
+|---|---|---|
+| 대상 | 교대근무자 개인 | 병동·팀 관리자(수간호사·근무표 담당) + 팀원 |
+| 입력 | 개인이 근무표 사진 업로드, 자기 행만 추출 | 관리자가 사진 업로드(전원 추출) **또는 앱에서 직접 근무표 작성** |
+| 포함 기능 | 내 달력·공유 링크·ICS·PNG | 개인 기능 전부(팀원 모두) + 팀 공유 + 근무표 작성·수정·배포 + 근무 신청·교환(T3) |
+| 결제 | 서로 다른 두 달 무료, 이후 월 1,900원 단건 (변경 없음) | 팀 단위 월 구독, 관리자가 결제 (가격·인원 기준 결정 필요 §12-1) |
+| 팀원 비용 | — | 팀 근무 달은 팀원의 개인 이용권을 소모하지 않음 |
+
+- 개인 요금제는 그대로 유지한다(병동에 퍼지는 입구 역할). 개인 사용자 화면에 “우리 팀 전체가 쓰려면 팀 요금제” 안내를 둔다.
+- 팀 요금제는 단계적으로 연다: **T1 팀 공유**(이 문서 §1~§11) → **T2 근무표 작성·관리**(§13) → **T3 근무 신청·교환**(§14). 자동 배정은 T3 이후 검토.
+- 팀 요금제 구독이 끝나면: 배포된 근무 달은 팀원 달력에 계속 보이고(열람·공유·내보내기 유지), 새 업로드·작성·배포만 막는다(개인 요금제의 ‘기존 월 유지’ 원칙과 동일).
+
+## 1. 목표와 범위 (T1 팀 공유)
+
+관리자(수간호사·근무표 담당자)가 **근무표 사진을 한 번 올리면**, 팀원 전원이 **각자 로그인해 자기 근무 달력을 받아** 기존 기능(공유 링크·캘린더 추가·이미지 저장)을 그대로 쓴다.
+
+지금 구조는 개인이 자기 행만 뽑는다. 팀 공유는 관리자가 팀 전체를 한 번에 다루고, 팀원은 사진을 올릴 필요가 없다.
+
+### 포함
+- 팀 만들기, 초대 링크, 팀원 참여·자기 행 연결(관리자 승인)
+- 관리자 근무표 업로드 → 전원 행 추출 → 전체 표 확인·수정 → 월 확정(배포)
+- 근무표 변경 시 새 버전 배포, 팀원에게 바뀐 날짜 표시
+- 팀원의 개인 달력에 팀 근무 반영(읽기 전용), 기존 공유·ICS·PNG 재사용
+
+### 제외 (2단계 이후)
+- 앱 안에서 근무표 새로 작성·자동 배정, 근무 규칙(연속 야간 등) 검사
+- 근무 교환 신청·승인, 푸시·카카오 알림톡 알림
+- 엑셀 업로드·내보내기, 병원 시스템 연동 (2026-09-30 결정: 당분간 하지 않음)
+- 여러 병동을 묶는 병원 단위 관리 화면
+
+## 2. 역할
+
+| 역할 | 할 수 있는 일 |
+|---|---|
+| 팀 관리자 | 팀 설정, 초대 링크 발급·중지, 참여 요청 승인·거절, 근무표 업로드·수정·배포, 팀원 내보내기, 관리자 추가 |
+| 팀원 | 초대 링크로 참여 요청, 승인된 자기 행의 달력 보기·공유·내보내기, 팀 나가기 |
+| 비가입 행 | 근무표에는 있지만 아직 가입·연결 안 된 사람. 관리자 화면에서만 보임 |
+
+- 한 사용자는 여러 팀에 속할 수 있다(예: 파견·겸직). 1단계 화면은 팀을 하나씩 선택해 본다.
+- 팀에는 관리자가 최소 1명 있어야 한다. 마지막 관리자는 나갈 수 없다.
+
+## 3. 사용자 흐름
+
+### 3.1 관리자 — 첫 사용
+1. 로그인 → “팀 만들기”(팀 이름 예: “7병동 간호팀”) → 관리자가 된다.
+2. 근무표 사진 업로드 → 1차 인식(연월·이름 후보·범례·격자) → 원근 보정.
+3. **전원 추출**: 이름 후보마다 행 찾기 + 행 읽기(§6). 진행률은 “12/18명 읽는 중”처럼 실제 처리 수만 표시.
+4. **전체 확인 화면**: 행(사람) × 날짜 표. “확인 필요” 칸과 처음 보는 코드(W, 연차, M)를 강조. 코드 정의(시간·휴무)는 팀 근무표 단위로 한 번만 정한다. 이름이 잘못 읽혔으면 행 이름 수정, 빠진 사람은 행 추가, 근무자 아닌 행(“-”만 있는 행)은 제외.
+5. **확정(배포)**: 확인 필요 칸이 남아 있으면 배포할 수 없다. 배포하면 해당 월 팀 근무표 revision 1 생성.
+6. **초대 링크 공유**: 카카오톡 단톡방 등에 링크를 보낸다.
+
+### 3.2 팀원 — 참여
+1. 초대 링크 열기 → 팀 이름과 “참여하려면 로그인” → 카카오 로그인.
+2. “근무표에서 내 이름을 골라 주세요” → 배포된 최신 근무표의 행 이름 목록(이미 연결된 행 제외)에서 선택 → 참여 요청.
+3. 관리자가 승인하면 팀원이 되고, 팀 근무 달이 내 달력에 나타난다.
+   - 승인 전에는 팀 근무 데이터를 볼 수 없다(이름 목록만).
+4. 동명이인: 이름 옆에 행 순번(“김하루 (2)”)과 첫 3일 근무 코드를 보여 구분. 관리자 승인 화면에도 같은 정보를 보여 준다.
+
+### 3.3 근무표가 바뀔 때
+1. 관리자가 새 사진을 올리거나 전체 확인 화면에서 직접 수정 → 새 revision 초안.
+2. 배포 전 “바뀐 칸 N개(사람별)” 미리보기.
+3. 배포하면 팀원 달력이 즉시 새 revision으로 바뀌고, 바뀐 날짜에 “변경” 표시(팀원이 확인하면 사라짐). 공유 링크도 같은 링크에서 갱신된다(기존 정책: 공개한 달만).
+4. 캘린더(ICS)로 이미 가져간 일정은 자동으로 바뀌지 않는다 → “근무가 바뀌었어요. 캘린더에 다시 추가해 주세요” 안내(자동 동기화 약속 금지, Handoff §8).
+
+### 3.4 기존 개인 기능과의 관계
+- 팀원이 같은 달을 개인으로도 저장해 둔 경우: 팀 근무가 배포되면 **팀 근무를 우선** 보여 주고 개인 저장본은 “이전 개인 저장본”으로 보관(삭제하지 않음). 결정 필요 §12-3.
+- 팀 근무 달은 팀원이 직접 수정할 수 없다(읽기 전용). 오류는 “관리자에게 수정 요청” 문구로 안내(1단계는 요청 기능 없이 안내만).
+- 개인 공유 링크·ICS·PNG는 팀 근무 달에도 그대로 동작한다.
+
+## 4. 개인정보·권한 원칙
+
+- 팀 전체 근무표(모든 이름·근무)는 **그 팀의 승인된(ACTIVE) 구성원**이 볼 수 있다. 병동에 게시되는 근무표와 같은 범위다. 팀 설정 `share_roster_with_members`는 **기본 켜짐**이고, 관리자가 끄면 팀원은 자기 행만 본다(2026-09-30 결정). PENDING·비팀원·로그인 전에는 볼 수 없다.
+- 편집·배포·원본 사진·확인 필요 표시·비가입 행 관리는 관리자만. 팀원에게 보이는 전체 표는 배포된 최신 revision의 이름·날짜·코드만(검토 사유·원본 칸 텍스트 제외).
+- 관리자가 업로드할 때 “이 근무표를 팀에 공유할 권한이 있다”는 확인 체크를 받는다. 비가입자 이름·근무는 팀 근무표 데이터로 저장된다(개인 공유 기능과 달리 목적상 필요) → 개인정보 처리 안내와 보관 기간(팀 삭제·월 삭제 시 삭제) 명시.
+- 원본 사진 수명 규칙은 그대로(확정 후 삭제, 미확정 24시간 후 접근 차단·이후 삭제).
+- 권한 판정은 모두 서버. 초대 토큰은 256비트, DB에는 해시만. 참여 요청·승인은 CSRF Origin 검사.
+- 팀원이 팀을 나가거나 내보내지면: 팀 근무 달이 그 사람 달력에서 사라지고, 그 사람의 공유 링크에서도 팀 근무 달이 빠진다.
+- 로그인 전 응답·HTML에 팀 근무 데이터 없음(초대 페이지는 팀 이름만).
+
+## 5. 데이터 모델 (추가)
+
+모든 새 테이블은 RLS 활성 + anon/authenticated 권한 없음(CLAUDE.md 규칙).
+
+| 테이블 | 핵심 컬럼 | 제약 |
+|---|---|---|
+| `teams` | id, name, created_by, share_roster_with_members(bool, 기본 true), created_at | |
+| `team_members` | team_id, user_id, role(ADMIN/MEMBER), status(PENDING/ACTIVE/REMOVED), linked_row_key null, requested_at, approved_by, approved_at | unique(team_id, user_id) |
+| `team_invites` | id, team_id, token_hash, created_by, expires_at, revoked_at, max_uses null, use_count | unique(token_hash) |
+| `team_rosters` | id, team_id, year_month, status(DRAFT/PUBLISHED/ARCHIVED), revision, source_job_id null, definitions jsonb, created_by, published_at | unique(team_id, year_month, revision) |
+| `team_roster_rows` | id, roster_id, row_key, display_name, same_name_ordinal, entries jsonb, source_cells jsonb, excluded bool, extract_status(PENDING/DONE/FAILED/MANUAL), review_count | unique(roster_id, row_key) |
+| `team_roster_changes` | roster_id(new revision), row_key, date, from_code, to_code | 변경 표시용 |
+| `member_change_acks` | team_id, user_id, year_month, acked_revision | 팀원이 “변경” 표시를 확인한 revision |
+
+- `row_key`: 팀·월 안에서 사람을 이어 주는 키. 새 revision 업로드 시 이름(정규화)+동명이인 순번으로 이전 행과 매칭, 매칭 안 되면 관리자 화면에서 “새 사람/이름 바뀜” 선택.
+- 팀원 달력 표시는 `team_members.linked_row_key` + 최신 PUBLISHED revision의 행을 조회(개인 `published_months`로 복사하지 않음 → 변경 즉시 반영, 나가면 즉시 사라짐).
+
+## 6. 인식 파이프라인 (전원 추출)
+
+- 1차 인식·원근 보정은 기존과 동일하게 1회.
+- 사람마다 행 찾기 1회 + 행 읽기 1회(현재 warp-strip), 이름 불일치 시 표 전체 재읽기. 20명 기준 약 41회 호출, 비용 약 70원(Gemini 3.1 Flash-Lite 유료 단가 추정).
+- **실행 방식**: 서버리스 시간 제한 때문에 요청 하나에서 전원을 끝내지 않는다. `team_roster_rows.extract_status`를 영속 상태로 두고, 클라이언트가 `POST .../extract-next`를 반복 호출해 서버가 PENDING 행을 최대 N개(기본 4, 동시 처리) 원자적으로 가져가 처리한다. 브라우저를 닫아도 다시 열면 이어서 처리. 실패 행은 재시도 버튼, 최대 3회.
+- 동명이인 순번·이웃 행 확인·범례 밖 코드 처리 규칙은 개인 추출과 동일하게 적용.
+- 비용 절감 후보(평가로 검증 후 적용): 행 찾기를 한 번 호출로 전원 처리, 띠 하나에 2~3명. 정확도가 유지될 때만.
+
+## 7. API (추가)
+
+| API | 권한 | 동작 |
+|---|---|---|
+| `POST /api/teams` | 로그인 | 팀 생성, 생성자 ADMIN |
+| `GET /api/teams` | 로그인 | 내가 속한 팀 목록(역할·상태) |
+| `POST /api/teams/:id/invites` · `DELETE .../invites/:inviteId` | ADMIN | 초대 링크 발급·중지(토큰은 발급 응답에서만 원문) |
+| `GET /api/invites/:token` | 공개 | 팀 이름만(없거나 중지·만료 시 404) |
+| `POST /api/invites/:token/join` `{ rowKey }` | 로그인 | 참여 요청(PENDING). 이미 연결된 행·중복 요청 거절 |
+| `GET /api/invites/:token/rows` | 로그인 | 연결 가능한 행 이름·순번·첫 3일 코드(배포된 근무표가 있을 때) |
+| `GET /api/teams/:id/members` · `POST .../members/:userId/approve` · `.../reject` · `DELETE .../members/:userId` | ADMIN | 승인·거절·내보내기, 행 연결 변경 |
+| `POST /api/teams/:id/rosters` (multipart) | ADMIN | 근무표 업로드 → 인식 작업 + DRAFT 생성 |
+| `POST /api/teams/:id/rosters/:rid/extract-next` | ADMIN | PENDING 행 N개 처리, 진행 상황 반환 |
+| `GET /api/teams/:id/rosters/:rid` · `PATCH` | ADMIN | 전체 표 조회·수정(revision 충돌 409) |
+| `POST /api/teams/:id/rosters/:rid/publish` | ADMIN | 확인 필요 0개일 때 배포, 변경 내역 기록 |
+| `GET /api/teams/:id/my-months` | ACTIVE MEMBER | 내 행의 배포된 월 목록·근무·변경 표시 |
+| `GET /api/teams/:id/roster/:yearMonth` | ACTIVE MEMBER (설정 켜짐) · ADMIN | 배포된 최신 전체 근무표(이름·날짜·코드·범례). 설정 꺼짐이면 팀원은 404 |
+| `PATCH /api/teams/:id` `{ name?, shareRosterWithMembers? }` | ADMIN | 팀 설정 변경(전체 근무표 공개 기본 켜짐) |
+| `POST /api/teams/:id/acks` `{ yearMonth, revision }` | ACTIVE MEMBER | 변경 확인 처리 |
+| `DELETE /api/teams/:id/membership` | MEMBER | 팀 나가기 |
+
+## 8. 화면 (추가)
+
+| 경로 | 내용 |
+|---|---|
+| `/teams` | 내 팀 목록, 팀 만들기 |
+| `/teams/:id` | (관리자) 이번 달 근무표 상태, 근무표 올리기, 팀원·요청 관리, 초대 링크 |
+| `/teams/:id/roster/:ym` | (팀원·관리자) 배포된 전체 근무표 읽기 전용 보기. 내 행 강조, 날짜별 D/E/N 인원 요약, 가로 스크롤은 표 안에서만(이름 열 고정). 설정 꺼짐이면 “관리자가 전체 근무표 공개를 꺼 두었어요” |
+| `/teams/:id/rosters/:rid` | (관리자) 전원 추출 진행률 → 전체 확인 표(가로 스크롤은 표 안에서만, 사람 행 고정 열), 셀 탭 → 하단 편집, 코드 정의, 배포 |
+| `/join/:token` | 팀 이름 → 로그인 → 내 이름 선택 → 요청 완료(“관리자가 승인하면 달력에 나타나요”) |
+| `/calendar/:ym` (기존) | 팀 근무 달은 “7병동 간호팀 근무표” 표시, 읽기 전용, 바뀐 날짜 “변경” 배지, ICS 재추가 안내 |
+
+- 모바일 우선 유지. 전체 확인 표는 768px 이상에서 넓게, 모바일은 사람별 목록 → 사람 선택 시 기존 달력 편집 UI 재사용.
+
+## 9. 요금 (§0 구조, 세부는 결정 필요 §12-1)
+
+- 팀 월 구독(관리자 결제, 단건이 아닌 정기결제 또는 월 단위 구매 — 결정 필요). 결제 검증·멱등 처리는 기존 PaymentProvider(토스) 규칙 재사용, 정기결제는 토스 빌링키 방식 검토.
+- 서버 권한 판정: `team_subscriptions(team_id, status, current_period_end, plan)`로 업로드·작성·배포 허용 여부 판단. 클라이언트 플래그로 판단하지 않는다.
+- 베타 기간 무료 제공 여부와 가격(병동당 월 N원, 인원 상한)은 결정 필요.
+
+## 10. 예외 처리
+
+- 전원 추출 중 일부 실패: 실패 행만 재시도·수동 입력, 나머지는 진행.
+- 근무표에 팀원 이름이 없음(신규 입사 등): 관리자가 행 추가 후 배포 → 팀원이 선택 가능.
+- 이름 변경·오인식: 관리자가 행 이름 수정. 이미 연결된 팀원은 `row_key`로 유지.
+- 관리자 실수 배포: 이전 revision으로 되돌리기(새 revision으로 재배포).
+- 팀원이 잘못된 행을 요청: 관리자가 거절하거나 올바른 행으로 바꿔 승인.
+- 초대 링크 유출: 링크 중지·재발급, 요청은 관리자 승인이 있어야 하므로 데이터는 노출되지 않음.
+
+## 11. 테스트 (계약)
+
+- 권한: 비팀원·PENDING 팀원·다른 팀 관리자는 팀 근무표·다른 사람 행 접근 404. 초대 페이지 로그인 전 응답에 이름 없음. ACTIVE 팀원은 설정이 켜져 있으면 전체 배포 근무표(이름·날짜·코드만), 꺼져 있으면 자기 행만. 설정 변경 즉시 반영.
+- 전원 추출: extract-next 동시 호출에도 행 중복 처리 없음, 실패 재시도 3회 제한, 브라우저 재진입 이어하기.
+- 배포: 확인 필요 칸 있으면 422, revision 충돌 409, 변경 내역 정확, 팀원 달력 즉시 반영, 공유 링크(공개한 달만) 반영.
+- 팀 나가기·내보내기 후 달력·공유 링크에서 팀 달 사라짐.
+- 동명이인 참여 요청·승인, 이름 수정 후 연결 유지.
+- 평가: 샘플 3장 전원 추출 정확도·비용·시간(`pnpm vision:eval`에 전원 모드 추가).
+
+## 12. 결정 (2026-10-01 확정)
+
+1. **팀 요금**: T1은 **베타 무료**. 결제·`team_subscriptions`는 T1에서 만들지 않고, 서버 권한 판정 지점(`assertTeamPlanActive`)만 두어 항상 허용한다. 가격·결제 방식은 베타 반응 후 결정.
+2. **팀원 참여**: 관리자 승인 필수.
+3. **개인 저장본과 충돌**: 팀 근무 우선 표시, 개인 저장본은 보관(삭제하지 않음). 팀에서 나가면 개인 저장본이 다시 보인다.
+4. **팀원 간 전체 근무표 보기**: 기본 켜짐, 관리자가 끌 수 있음.
+5. **엑셀**: 업로드·내보내기 모두 당분간 하지 않음.
+6. **관리자 자격**: 업로드 시 “이 근무표를 팀에 공유할 권한이 있어요” 확인 체크(동의 시각 저장) + 신고 대응. 병원 이메일 인증은 하지 않음.
+
+## 13. T2 근무표 작성·관리 (팀 요금제)
+
+사진 없이 **앱에서 근무표를 만들고 고치는** 기능. T1의 전체 확인 표를 편집 도구로 확장한다.
+
+### 13.1 기능
+- **새 달 만들기**: 빈 표 / 지난달 복사(패턴 유지) / 사진 업로드(T1 인식) 중 선택.
+- **팀원·행 관리**: 표의 행 = 팀원 또는 비가입 인원(이름만). 순서 변경, 추가·제외, 팀별 그룹(예: 책임·일반) 구분선.
+- **근무 코드 관리**: 팀 기본 코드 세트(D/E/N/S/OFF + 사용자 정의: 연차·교육 등, 시간·휴무 여부·색). 월마다 스냅샷.
+- **편집**: 칸 선택 → 코드 입력(키보드 단축키 D/E/N/O, 여러 칸 드래그·일괄 입력), 행 복사·붙여넣기, 되돌리기/다시하기, 자동 저장(revision 충돌 409).
+- **요약·점검(경고만, 강제 아님)**: 사람별 근무·야간·휴무 수, 날짜별 시간대 인원(D/E/N 인원), 규칙 경고(예: N 다음 날 D, 연속 야간 N일 초과, 월 휴무 최소 미달 — 팀 설정값). 법규 준수 판정은 하지 않고 “팀이 정한 규칙” 경고로만 표시.
+- **배포·변경**: T1과 동일(배포 전 변경 미리보기, 팀원 달력 즉시 반영, 변경 표시).
+- **내보내기(관리자)**: 전체 근무표 PNG·PDF(인쇄용). 엑셀은 하지 않음.
+
+### 13.2 권한·데이터
+- 편집·배포는 ADMIN만. 관리자 여러 명 동시 편집은 칸 단위 저장 + revision 충돌 시 최신 불러오기(실시간 공동 편집은 제외).
+- 추가 테이블: `team_code_sets`(팀 기본 코드), `team_rules`(경고 규칙 설정), `team_roster_groups`. 편집 이력은 revision 단위로 남긴다.
+
+### 13.3 제외(T2)
+- 자동 배정, 병원 인사 시스템 연동, 실시간 공동 편집, 근무 신청·교환(T3).
+
+## 14. T3 근무 신청·교환 (예고, 상세 스펙은 T2 이후)
+
+- 팀원: 희망 휴무·근무 신청(마감일 전), 교환 요청(상대 동의 → 관리자 승인).
+- 관리자: 신청 현황을 편집 화면에 겹쳐 보기, 승인 시 새 revision.
+- 알림: 우선 앱 내 표시, 카카오 알림톡은 비용·심사 확인 후.
+
+## 15. T1 서버 구현 결정 (2026-10-01)
+
+T1 서버(데이터 모델·API·인식·달력 연동)를 구현하며 확정한 세부 규칙. 요청·응답 타입은 모두 `src/domain/types/api/`에 있고(아래 표의 DTO 이름), zod 스키마는 `src/server/services/TeamRequestSchemas.ts`.
+
+### 15.1 API·DTO
+
+| API | 요청 | 응답 |
+|---|---|---|
+| `GET /api/teams` · `POST /api/teams` | `CreateTeamRequest` | `TeamListResponse` · 201 `TeamDetailResponse` |
+| `GET` · `PATCH` · `DELETE /api/teams/:id` | `UpdateTeamRequest` | `TeamDetailResponse` · `OkResponse` |
+| `GET` · `POST /api/teams/:id/invites` · `DELETE .../invites/:inviteId` | `CreateTeamInviteRequest`(생략 가능) | `TeamInviteListResponse` · 201 `CreateTeamInviteResponse` · `OkResponse` |
+| `GET /api/invites/:token` | — | `InviteLookupResponse`(로그인 전 `{ teamName }`만) |
+| `GET /api/invites/:token/rows` | — | `InviteRowsResponse` |
+| `POST /api/invites/:token/join` | `JoinTeamRequest` | `TeamMembershipSummary`(PENDING) |
+| `GET /api/teams/:id/members` | — | `TeamMemberListResponse` |
+| `POST .../members/:userId/approve` · `.../reject` | `ApproveTeamMemberRequest`(생략 가능) | `TeamMemberDto` · `OkResponse` |
+| `PATCH` · `DELETE .../members/:userId` | `UpdateTeamMemberRequest` | `TeamMemberDto` · `OkResponse` |
+| `DELETE /api/teams/:id/membership` | — | `OkResponse` |
+| `GET` · `POST /api/teams/:id/rosters` | multipart `file`, `authorityConfirmed=true`, `yearMonth?` | `TeamRosterListResponse` · 201 `CreateTeamRosterResponse` |
+| `GET` · `PATCH .../rosters/:rid` | `PatchTeamRosterRequest` | `TeamRosterResponse` (409 `TeamRosterConflictDetails`) |
+| `POST .../rosters/:rid/extract-next` | `ExtractNextRequest`(생략 가능) | `ExtractNextResponse` |
+| `POST .../rosters/:rid/publish` | `PublishTeamRosterRequest` | `PublishTeamRosterResponse` (422 `details.blockers: TeamRosterRowBlocker[]`) |
+| `POST .../rosters/:rid/draft` | — | `CreateRosterDraftResponse` (배포본 → 수정용 초안) |
+| `POST .../rosters/:rid/revert` | — | `PublishTeamRosterResponse` (ARCHIVED 버전을 새 revision으로 재배포) |
+| `GET .../rosters/:rid/source` | — | 원본 이미지(관리자, 삭제·만료 후 410) |
+| `GET /api/teams/:id/my-months` | — | `TeamMyMonthsResponse` |
+| `GET /api/teams/:id/roster/:yearMonth` | — | `TeamRosterViewResponse` |
+| `POST /api/teams/:id/acks` | `AckTeamChangesRequest` | `AckTeamChangesResponse` |
+
+- 권한 없음(비팀원·PENDING·REMOVED·다른 팀 관리자·팀원이 관리자 API 호출)은 모두 404, 로그인 전 401. 상태 변경은 모두 Origin 검사.
+- 새 오류 코드: `TEAM_MEMBERSHIP_CONFLICT`(409, `details.reason: TeamMembershipConflictReason` — ALREADY_MEMBER·ALREADY_REQUESTED·ROW_TAKEN·LAST_ADMIN·INVALID_STATE), `TEAM_MONTH_READ_ONLY`(409, 팀원이 팀 달 수정·삭제), `ROSTER_NOT_EDITABLE`(409, 배포본 수정·읽는 중인 행 수정 등).
+
+### 15.2 규칙
+
+- **상태**: 거절·내보내기·나가기는 모두 `REMOVED`(접근 즉시 종료, 공유 표시·변경 확인 기록 삭제). REMOVED 사용자는 초대 링크로 다시 요청할 수 있다.
+- **row_key**: `정규화 이름(NFC·공백 제거)#동명이인 순번`(예 `김하루#2`). 이름 수정은 키를 바꾸지 않는다. 새 사진 업로드의 행은 같은 키로 이전 배포본과 자동 매칭되고, 매칭 안 된 이전 행은 `unmatchedPreviousRows`로 보여 관리자가 `matchRowKey`로 “이름 바뀜”을 연결한다. 알려진 한계: 동명이인 중 한 명이 빠지면 순번이 당겨져 다른 사람과 매칭될 수 있다(관리자가 `matchRowKey`로 바로잡는다).
+- **전원 추출**: 업로드는 관리자 소유 인식 작업 + DRAFT(연월 미정 가능)만 만든다. 첫 `extract-next`가 1차 인식을 돌리고 후보마다 행(전 날짜 빈칸)을 만든다. 이후 호출마다 트랜잭션 안에서 `SELECT … FOR UPDATE SKIP LOCKED LIMIT 4` → 조건 재확인 `UPDATE`로 lease(제공자 제한 시간 + 30초)를 잡고, 같은 사진을 한 번만 준비해 4명을 병렬로 읽는다. 결과는 status·attempt로 fencing해 저장. 실패 행은 `retryFailed: true`일 때만 다시 대기열로, 최대 3회. lease가 만료된 행은 다음 호출이 이어 받는다.
+- **범례**: 팀 근무표 단위 하나. 행 읽기에서 처음 보는 코드는 범례에 자리표시로 추가되고, 정의하면 모든 행에 `resolveDefinedCodes` 적용.
+- **배포**: 팀 단위 잠금, `version` 일치, 초안의 `baseRevision`보다 새 배포가 있으면 409 `STALE_BASE`, 읽는 중인 행이 있거나 제외 안 된 행에 차단 사유가 있으면 422. revision = 그 달 최대 + 1, 이전 배포본은 ARCHIVED, 행 키 기준 변경 칸을 `team_roster_changes`에 기록(새로 생긴·빠진 사람은 변경으로 세지 않음). 배포 후 원본 사진 삭제(실패 시 cleanup 재시도). 업로드 시 동의 시각은 `team_rosters.authority_confirmed_at`.
+- **팀원 달력**: 최신 배포본의 연결 행을 실시간 조회. 같은 달 개인 저장본보다 팀 달이 우선(`source: TEAM`, `hasPersonalBackup`), 개인본은 그대로 두어 나가면 다시 보인다. 여러 팀이 같은 달을 배포하면 가장 최근 배포가 우선. 팀 달은 개인 이용권과 무관하게 ICS·PNG 내보내기 가능(ACTIVE인 동안).
+- **변경 표시**: 승인 시점의 배포본은 확인한 것으로 기록. 이후 revision의 변경을 날짜별로 합쳐(처음 코드 → 마지막 코드, 원래대로 돌아오면 제외) `team.changes`로 준다. `acks`는 현재 revision을 넘지 않고 뒤로 가지 않는다.
+- **공유 링크**: 팀 달도 공유 달 목록(`availableMonths`, `teamMonths`)에 나오며 기본 비공개(“새 달은 자동 공개 안 됨”과 같은 규칙). 공개 여부는 `member_shared_team_months`(팀·사용자·월). 팀 달에 가려진 개인 달의 공개 여부는 건드리지 않는다. 팀 전용 팀원은 처음 공유할 때 `calendars` 행이 만들어진다.
+- **정리**: 팀 업로드 원본·1차 표는 개인과 같은 원본 TTL. 손대지 않은 DRAFT 근무표는 `DRAFT_TTL_DAYS` 후 삭제. 팀 삭제는 근무표·행·변경·초대·멤버십을 지우고(사용자 유지) 미배포 업로드의 1차 표·원본을 즉시 만료·삭제.
+- **보호 장치**: 연결된 팀원의 행이 새 버전에 없으면(제외 포함) 배포·되돌리기는 422 `details.unlinkedRows`, `confirmUnlinked: true`로 다시 보내야 한다(`PublishTeamRosterRequest`·`RevertTeamRosterRequest`). 같은 배포 재요청은 그 근무표가 아직 PUBLISHED일 때만 200 `alreadyPublished`, ARCHIVED면 409. 추출이 범례에 새 코드를 더하면 `version`이 올라가 옛 범례로 보낸 PATCH는 409. 업로드는 인식 작업과 DRAFT를 한 트랜잭션으로 만들고 실패하면 원본도 지운다. 읽는 중인 행이 있으면 연월 변경 409. 늦게 끝난 추출 결과는 lease 만료·배포 후에는 저장되지 않는다. 팀 업로드 인식 작업은 개인 인식 API(`/api/recognitions/:id/*`)에서 404. 팀 근무 달은 개인으로 발행할 수 없다(409 `TEAM_MONTH_READ_ONLY`, 무료 달 소모 방지) — 팀 가입 전에 저장한 개인 달은 보관.
+- **요금**: `assertTeamPlanActive`(업로드·추출·수정·배포·되돌리기)는 베타 동안 항상 허용.

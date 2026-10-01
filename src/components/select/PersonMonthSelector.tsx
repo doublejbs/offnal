@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 
+import { getRecognitionSourceUrl } from '@/client/ApiClient';
 import AuthRequired from '@/components/AuthRequired';
 import BackLink from '@/components/BackLink';
 import LoadingState from '@/components/LoadingState';
@@ -90,7 +91,7 @@ const PersonMonthSelector = ({ recognitionId }: PersonMonthSelectorProps) => {
           <div className="notice">
             직접 입력하면 모든 날짜가 비어 있는 상태로 시작해요. 원본 사진을 확대해 보면서 근무를 채워 주세요.
           </div>
-          <SourcePreview recognitionId={recognitionId} />
+          <SourcePreview src={getRecognitionSourceUrl(recognitionId)} />
         </div>
       )}
       {state.submitError && (

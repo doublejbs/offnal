@@ -33,6 +33,12 @@ export const LANDING_RECIPIENT_TITLE = '공유받은 사람은';
 
 export const LANDING_FAQ_TITLE = '자주 묻는 질문';
 
+export const LANDING_TEAM_TITLE = '팀 전체가 함께 쓰려면';
+
+/** One honest line about team sharing (TeamShareSpec §0·§12-1: beta, free; no price promised). */
+export const LANDING_TEAM_TEXT =
+  '근무표 담당자가 사진을 한 번 올리면 팀원 모두가 각자 달력을 받아요. 팀 공유는 베타 기간 무료예요.';
+
 export const LANDING_STEPS: LandingStep[] = [
   {
     title: '근무표 사진 올리기',

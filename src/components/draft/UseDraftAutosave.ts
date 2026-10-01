@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 
 import { patchDraft } from '@/client/ApiClient';
 import { createDraftSaveQueue, type DraftSaveQueue, type LocalDraft } from '@/client/DraftSaveQueue';
+import { useAutosaveTimer } from '@/components/UseAutosaveTimer';
 import { DraftSaveState } from '@/domain/enums/DraftSaveState';
 import { type DraftResponse } from '@/domain/types/api/DraftResponse';
 
@@ -24,7 +25,6 @@ export const useDraftAutosave = (
 ): DraftAutosave => {
   const [saveState, setSaveState] = useState(DraftSaveState.IDLE);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const timerRef = useRef<number | undefined>(undefined);
   const [queue] = useState(() =>
     createDraftSaveQueue({
       send: (body) => patchDraft(draftId, body),
@@ -36,53 +36,37 @@ export const useDraftAutosave = (
     }),
   );
 
-  useEffect(() => {
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (queue.isDirty()) {
-        event.preventDefault();
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.clearTimeout(timerRef.current);
-
-      // Leaving inside the app: send what is pending (best effort).
-      if (queue.isDirty() && !queue.hasConflict()) {
-        void queue.flush();
-      }
-    };
-  }, [queue]);
+  // Leaving inside the app sends what is pending (best effort), except after a 409.
+  const [target] = useState(() => ({ ...queue, canSaveOnLeave: () => !queue.hasConflict() }));
+  const timer = useAutosaveTimer(target, AUTOSAVE_DELAY_MS);
 
   const actions = useMemo<DraftSaveQueue>(
     () => ({
       ...queue,
       markDirty: (snapshot: LocalDraft) => {
         queue.markDirty(snapshot);
-        window.clearTimeout(timerRef.current);
+        timer.cancel();
 
         if (!queue.hasConflict()) {
-          timerRef.current = window.setTimeout(() => void queue.flush(), AUTOSAVE_DELAY_MS);
+          timer.schedule();
         }
       },
       flush: () => {
-        window.clearTimeout(timerRef.current);
+        timer.cancel();
 
         return queue.flush();
       },
       patch: (body) => {
-        window.clearTimeout(timerRef.current);
+        timer.cancel();
 
         return queue.patch(body);
       },
       reset: (revision: number) => {
-        window.clearTimeout(timerRef.current);
+        timer.cancel();
         queue.reset(revision);
       },
     }),
-    [queue],
+    [queue, timer],
   );
 
   return { ...actions, saveState, saveMessage };

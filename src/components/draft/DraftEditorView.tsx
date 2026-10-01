@@ -3,6 +3,7 @@
 import { Image as ImageIcon } from 'lucide-react';
 import { useRef, useState } from 'react';
 
+import { getRecognitionSourceUrl } from '@/client/ApiClient';
 import { formatReviewWarning, formatUndefinedCodesWarning } from '@/client/DisplayText';
 import { type LocalDraft } from '@/client/DraftSaveQueue';
 import BackLink from '@/components/BackLink';
@@ -128,7 +129,9 @@ const DraftEditorView = ({ state, server, local }: DraftEditorViewProps) => {
           {isSourceOpen ? '원본 사진 닫기' : '원본 사진 크게 보기'}
         </button>
       )}
-      {canShowSource && isSourceOpen && server.jobId && <SourcePreview recognitionId={server.jobId} />}
+      {canShowSource && isSourceOpen && server.jobId && (
+        <SourcePreview src={getRecognitionSourceUrl(server.jobId)} />
+      )}
       <div className="mt-14">
         <MonthGrid
           yearMonth={local.yearMonth}
@@ -141,7 +144,13 @@ const DraftEditorView = ({ state, server, local }: DraftEditorViewProps) => {
       {selectedEntry && (
         <ShiftEditor
           entry={selectedEntry}
-          rawText={server.sourceCells.length > 0 ? (sourceByDate.has(selectedEntry.date) ? sourceByDate.get(selectedEntry.date) : undefined) : undefined}
+          rawText={
+            server.sourceCells.length > 0
+              ? sourceByDate.has(selectedEntry.date)
+                ? sourceByDate.get(selectedEntry.date)
+                : undefined
+              : undefined
+          }
           definitions={local.definitions}
           disabled={state.isLocked}
           hasSourceCells={server.sourceCells.length > 0}

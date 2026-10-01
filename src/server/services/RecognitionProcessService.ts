@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 import { and, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
 
-import { MS_PER_HOUR } from '@/domain/DomainLimits';
+import { LEASE_GRACE_MS, MS_PER_HOUR } from '@/domain/DomainLimits';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { type ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
@@ -14,7 +14,7 @@ import { type TableRecognitionResult } from '@/domain/types/TableRecognitionResu
 import { track } from '@/server/analytics/Analytics';
 import { createAnonymousSession, type IssuedToken } from '@/server/auth/SessionService';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { type Db, type DbExecutor } from '@/server/db/Database';
+import { type Db, type DbExecutor, type DbTransaction } from '@/server/db/Database';
 import { type RecognitionJobRow, recognitionJobs } from '@/server/db/Schema';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { countNewAnonymousUpload } from '@/server/services/RateLimitService';
@@ -30,9 +30,6 @@ import { getObjectStorage } from '@/server/storage/StorageFactory';
 import { getVisionProvider } from '@/server/vision/VisionFactory';
 import { prepareImageForVision } from '@/server/vision/VisionImagePreparer';
 import { toRecognitionErrorCode, type VisionImage } from '@/server/vision/VisionProvider';
-
-/** Extra lease time beyond the provider timeout so a slow finish is not taken over mid-write. */
-const LEASE_GRACE_MS = 30_000;
 
 const describeError = (error: unknown): string => (error instanceof Error ? error.name : typeof error);
 
@@ -52,56 +49,89 @@ export type CreatedRecognition = {
   issuedAnonymousSession: IssuedToken | null;
 };
 
-/**
- * Stores the source privately at `sources/{jobId}`, then creates (in one transaction) the anonymous
- * session if needed and the `uploaded` job. If the DB step fails, the stored object is deleted.
- */
-export const createRecognitionJob = async (
-  db: Db,
-  input: CreateRecognitionInput,
+export type StoredSource = {
+  jobId: string;
+  sourceObjectKey: string;
+};
+
+export type UploadedJobInput = {
+  userId: string | null;
+  anonymousSessionId: string | null;
+  mime: ImageMimeType;
+};
+
+/** The `uploaded` job row for a stored source (inside the caller's transaction). */
+export const insertUploadedJob = async (
+  tx: DbExecutor,
+  source: StoredSource,
+  input: UploadedJobInput,
   now = new Date(),
-): Promise<CreatedRecognition> => {
-  const id = randomUUID();
-  const sourceObjectKey = buildSourceObjectKey(id);
+): Promise<void> => {
+  await tx.insert(recognitionJobs).values({
+    id: source.jobId,
+    userId: input.userId,
+    anonymousSessionId: input.userId ? null : input.anonymousSessionId,
+    status: RecognitionStatus.UPLOADED,
+    sourceObjectKey: source.sourceObjectKey,
+    sourceMime: input.mime,
+    expiresAt: new Date(now.getTime() + getAppConfig().sourceTtlHours * MS_PER_HOUR),
+  });
+};
+
+/**
+ * Stores the source privately at `sources/{jobId}` (outside any transaction), then runs `write` in one
+ * transaction that must insert the job (and whatever belongs with it). If the DB step fails, the stored
+ * object is deleted, so no orphan source or half-created upload remains.
+ */
+export const withStoredSource = async <T>(
+  db: Db,
+  bytes: Buffer,
+  mime: ImageMimeType,
+  write: (tx: DbTransaction, source: StoredSource) => Promise<T>,
+): Promise<T> => {
+  const jobId = randomUUID();
+  const source = { jobId, sourceObjectKey: buildSourceObjectKey(jobId) };
   const storage = getObjectStorage();
 
-  await storage.put(sourceObjectKey, input.bytes, input.mime);
+  await storage.put(source.sourceObjectKey, bytes, mime);
 
   try {
-    const issuedAnonymousSession = await db.transaction(async (tx) => {
-      let anonymousSessionId = input.anonymousSessionId;
-      let issued: IssuedToken | null = null;
-
-      if (!input.userId && !anonymousSessionId) {
-        issued = await createAnonymousSession(tx, input.ipHash, now);
-        anonymousSessionId = issued.id;
-        await countNewAnonymousUpload(tx, anonymousSessionId);
-      }
-
-      await tx.insert(recognitionJobs).values({
-        id,
-        userId: input.userId,
-        anonymousSessionId: input.userId ? null : anonymousSessionId,
-        status: RecognitionStatus.UPLOADED,
-        sourceObjectKey,
-        sourceMime: input.mime,
-        expiresAt: new Date(now.getTime() + getAppConfig().sourceTtlHours * MS_PER_HOUR),
-      });
-
-      return issued;
-    });
+    const result = await db.transaction((tx) => write(tx, source));
 
     track(AnalyticsEvent.UPLOAD_STARTED);
 
-    return { id, issuedAnonymousSession };
+    return result;
   } catch (error: unknown) {
-    await storage.delete(sourceObjectKey).catch((deleteError: unknown) => {
+    await storage.delete(source.sourceObjectKey).catch((deleteError: unknown) => {
       console.warn('[recognition] orphan source cleanup failed', { name: describeError(deleteError) });
     });
 
     throw error;
   }
 };
+
+/**
+ * Personal upload: the source, then (in one transaction) the anonymous session if needed and the job.
+ */
+export const createRecognitionJob = async (
+  db: Db,
+  input: CreateRecognitionInput,
+  now = new Date(),
+): Promise<CreatedRecognition> =>
+  withStoredSource(db, input.bytes, input.mime, async (tx, source) => {
+    let anonymousSessionId = input.anonymousSessionId;
+    let issued: IssuedToken | null = null;
+
+    if (!input.userId && !anonymousSessionId) {
+      issued = await createAnonymousSession(tx, input.ipHash, now);
+      anonymousSessionId = issued.id;
+      await countNewAnonymousUpload(tx, anonymousSessionId);
+    }
+
+    await insertUploadedJob(tx, source, { userId: input.userId, anonymousSessionId, mime: input.mime }, now);
+
+    return { id: source.jobId, issuedAnonymousSession: issued };
+  });
 
 /** Atomic lease: only one caller may move the job into `processing` for a given attempt. */
 const acquireLease = async (db: DbExecutor, jobId: string, now: Date): Promise<RecognitionJobRow | null> => {
@@ -242,10 +272,23 @@ export const processRecognition = async (
   jobId: string,
 ): Promise<RecognitionStatusResponse> => {
   const job = await findOwnedJob(db, context, jobId);
+  const finished = await runRecognitionForJob(db, job);
+
+  return toStatusResponse(finished ?? (await findOwnedJob(db, context, jobId)), context);
+};
+
+/**
+ * First pass for an already authorized job (personal: owner checked; team roster: admin checked). Returns
+ * the finished job, or null when another caller holds the lease / the job expired (callers re-read it).
+ */
+export const runRecognitionForJob = async (
+  db: Db,
+  job: RecognitionJobRow,
+): Promise<RecognitionJobRow | null> => {
   const leased = isJobExpired(job, new Date()) ? null : await acquireLease(db, job.id, new Date());
 
   if (!leased) {
-    return toStatusResponse(await findOwnedJob(db, context, jobId), context);
+    return null;
   }
 
   const result = await runTableRecognition(leased);
@@ -253,7 +296,7 @@ export const processRecognition = async (
 
   track(AnalyticsEvent.RECOGNITION_COMPLETED, { success: result.ok, attempt: leased.attemptCount });
 
-  return toStatusResponse(finished ?? (await findOwnedJob(db, context, jobId)), context);
+  return finished;
 };
 
 export const getRecognitionStatus = async (

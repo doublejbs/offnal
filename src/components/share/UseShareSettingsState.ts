@@ -9,19 +9,11 @@ import {
   stopSharing,
   updateShareSettings,
 } from '@/client/ApiClient';
+import { SHARE_LINK_OUTCOME_MESSAGES } from '@/client/ShareOutcomeMessages';
 import { getBrowserShareEnvironment, shareOrCopyLink } from '@/client/ShareOrDownload';
 import { useLoad } from '@/components/UseLoad';
 import { ShareConfirmAction } from '@/domain/enums/ShareConfirmAction';
-import { ShareOutcome } from '@/domain/enums/ShareOutcome';
 import { type ShareSettingsResponse } from '@/domain/types/api/ShareSettingsResponse';
-
-const OUTCOME_MESSAGES: Record<ShareOutcome, string | null> = {
-  [ShareOutcome.SHARED]: '링크를 공유했어요.',
-  [ShareOutcome.COPIED]: '링크를 복사했어요. 원하는 곳에 붙여 넣어 보내 주세요.',
-  [ShareOutcome.DOWNLOADED]: null,
-  [ShareOutcome.CANCELLED]: null,
-  [ShareOutcome.FAILED]: '자동으로 복사하지 못했어요. 위 링크를 길게 눌러 복사해 주세요.',
-};
 
 /**
  * Months checked by default: the server keeps month visibility even while sharing is off, so a
@@ -79,12 +71,14 @@ export const useShareSettingsState = (yearMonth: string, fallbackName: string) =
 
   /** Runs directly in the click handler so the browser keeps the user gesture for navigator.share. */
   const handleShareUrl = async (url: string) => {
-    setMessage(OUTCOME_MESSAGES[await shareOrCopyLink(url)]);
+    setMessage(SHARE_LINK_OUTCOME_MESSAGES[await shareOrCopyLink(url)]);
   };
 
   const handleCopyUrl = async (url: string) => {
     setMessage(
-      OUTCOME_MESSAGES[await shareOrCopyLink(url, { ...getBrowserShareEnvironment(), share: undefined })],
+      SHARE_LINK_OUTCOME_MESSAGES[
+        await shareOrCopyLink(url, { ...getBrowserShareEnvironment(), share: undefined })
+      ],
     );
   };
 

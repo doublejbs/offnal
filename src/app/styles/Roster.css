@@ -1,0 +1,175 @@
+/* Admin roster screens: extraction progress, review table, read-only roster (TeamShareSpec §8). */
+
+/* Extraction progress */
+.progress-card {
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--soft);
+  margin: 16px 0;
+  display: grid;
+  gap: 10px;
+}
+
+.progress-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+}
+
+.roster-progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--blue);
+}
+
+/* Wide roster screens: the column grows from 768px so the table has room (still scrolls inside itself). */
+@media (min-width: 768px) {
+  .app:has(.roster-wide) {
+    max-width: 1120px;
+  }
+}
+
+.roster-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overscroll-behavior-x: contain;
+}
+
+.roster-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.roster-table th,
+.roster-table td {
+  padding: 2px;
+  text-align: center;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+  min-width: 40px;
+}
+
+.roster-table thead th {
+  font-weight: 500;
+  padding: 6px 2px;
+}
+
+.roster-table th[data-weekend='true'] {
+  color: var(--blue);
+}
+
+.roster-table .roster-name {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 96px;
+  max-width: 132px;
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 500;
+  border-right: 1px solid var(--line);
+  box-shadow: 2px 0 4px var(--shadow);
+}
+
+.roster-table thead .roster-name {
+  z-index: 2;
+}
+
+.roster-table tr[data-excluded='true'] th,
+.roster-table tr[data-excluded='true'] td {
+  color: var(--sub);
+  background: var(--soft);
+}
+
+.roster-table tr[data-mine='true'] th,
+.roster-table tr[data-mine='true'] td {
+  background: var(--bluefill);
+}
+
+.roster-table tfoot th,
+.roster-table tfoot td {
+  background: var(--soft);
+  font-size: 12px;
+  color: var(--sub);
+}
+
+.roster-cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 2px;
+}
+
+.roster-cell[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 2px var(--blue);
+  background: var(--bluefill);
+}
+
+.roster-table.is-readonly td {
+  height: 38px;
+}
+
+.roster-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin-top: 12px;
+  padding: 4px 16px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--bg);
+  box-shadow: 0 -4px 16px var(--shadow);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.row-actions {
+  margin: 8px 0 4px;
+}
+
+.add-row-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  margin: 18px 0;
+}
+
+.add-row-form .secondary {
+  width: auto;
+}
+
+.publish-panel {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.change-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  display: grid;
+  gap: 4px;
+}
+
+.roster-legend {
+  list-style: none;
+  padding: 0;
+  margin: 14px 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 12px;
+  color: var(--sub);
+}

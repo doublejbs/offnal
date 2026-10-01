@@ -8,3 +8,12 @@ export const PNG_OUTCOME_MESSAGES: Record<ShareOutcome, string | null> = {
   [ShareOutcome.CANCELLED]: null,
   [ShareOutcome.FAILED]: null,
 };
+
+/** Status line after sharing or copying a link (share settings, team invites). */
+export const SHARE_LINK_OUTCOME_MESSAGES: Record<ShareOutcome, string | null> = {
+  [ShareOutcome.SHARED]: '링크를 공유했어요.',
+  [ShareOutcome.COPIED]: '링크를 복사했어요. 원하는 곳에 붙여 넣어 보내 주세요.',
+  [ShareOutcome.DOWNLOADED]: null,
+  [ShareOutcome.CANCELLED]: null,
+  [ShareOutcome.FAILED]: '자동으로 복사하지 못했어요. 위 링크를 길게 눌러 복사해 주세요.',
+};

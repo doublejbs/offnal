@@ -61,6 +61,7 @@ describe('PngLayout', () => {
       entries: [{ date: '2026-10-01', code: '연차', reviewReasons: [], confirmed: true }],
       generatedAt: '2026-09-29T09:30:00.000Z',
       updatedAt: '2026-09-29T09:30:00.000Z',
+      teamName: null,
     };
     const texts = collectPngTexts(ownerData, legend);
 

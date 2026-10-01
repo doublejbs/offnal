@@ -97,14 +97,14 @@ const throwRevisionConflict = async (db: DbExecutor, userId: string, draftId: st
 };
 
 /** Off codes carry no times; entries without a code can never be confirmed. */
-const normalizeDefinitions = (definitions: ShiftDefinition[]): ShiftDefinition[] =>
+export const normalizeDefinitions = (definitions: ShiftDefinition[]): ShiftDefinition[] =>
   definitions.map((definition) =>
     definition.isOff
       ? { ...definition, label: definition.label.trim(), startTime: null, endTime: null, endsNextDay: null }
       : { ...definition, label: definition.label.trim() },
   );
 
-const normalizeEntries = (entries: ShiftEntry[]): ShiftEntry[] =>
+export const normalizeEntries = (entries: ShiftEntry[]): ShiftEntry[] =>
   [...entries]
     .sort((left, right) => left.date.localeCompare(right.date))
     .map((entry) => ({

@@ -371,9 +371,18 @@ describe('Database schema', () => {
         'recognition_jobs',
         'payments',
         'rate_limit_counters',
+        // Team share (docs/TeamShareSpec.md §5)
+        'teams',
+        'team_members',
+        'team_invites',
+        'team_rosters',
+        'team_roster_rows',
+        'team_roster_changes',
+        'member_change_acks',
+        'member_shared_team_months',
       ]),
     );
-    expect(tables.length).toBeGreaterThanOrEqual(12);
+    expect(tables.length).toBeGreaterThanOrEqual(20);
     expect(tables.filter((table) => !table.rowSecurity)).toEqual([]);
   });
 

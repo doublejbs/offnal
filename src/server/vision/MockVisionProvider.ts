@@ -21,6 +21,25 @@ import { type VisionImage, type VisionProvider } from '@/server/vision/VisionPro
 /** Virtual people only (demo/test fixture). The last one exercises long-name wrapping. */
 export const MOCK_CANDIDATE_NAMES = ['김하루', '이여름', '박지우', '남궁하늘빛나래'];
 
+/**
+ * Whole-team fixture (team roster uploads, Team spec §6): returned for images at least
+ * MOCK_TEAM_TABLE_MIN_WIDTH wide. Virtual people; 김하루 appears twice (same-name rows r1 and r4).
+ */
+export const MOCK_TEAM_CANDIDATE_NAMES = [
+  '김하루',
+  '이여름',
+  '박지우',
+  '김하루',
+  '최가을',
+  '정겨울',
+  '한바다',
+  '오하늘',
+  '윤소리',
+  '남궁하늘빛나래',
+];
+
+export const MOCK_TEAM_TABLE_MIN_WIDTH = 1600;
+
 /** Virtual times — not a real hospital's schedule. */
 export const MOCK_DEFINITIONS: ShiftDefinition[] = [
   { code: 'D', label: '데이', startTime: '07:00', endTime: '16:00', endsNextDay: false, isOff: false },
@@ -49,7 +68,16 @@ const waitFor = async (delayMs: number, signal: AbortSignal): Promise<void> => {
   signal.throwIfAborted();
 };
 
+const ROW_ID_PATTERN = /^r(\d+)$/u;
+
 const buildRowId = (index: number): string => `r${index + 1}`;
+
+/** `r{n}` → n - 1 (deterministic pattern per row for any number of rows); unknown ids use row 0. */
+const parseRowIndex = (rowId: string): number => {
+  const match = ROW_ID_PATTERN.exec(rowId);
+
+  return match ? Math.max(0, Number(match[1]) - 1) : 0;
+};
 
 const buildDayHeaders = (yearMonth: string): DayHeader[] =>
   listDates(yearMonth).map((date, index) => ({
@@ -84,10 +112,7 @@ export const createMockVisionProvider = (options: MockVisionOptions): VisionProv
   const extractPerson: VisionProvider['extractPerson'] = async (_image, input, signal) => {
     await waitFor(options.delayMs, signal);
 
-    const rowIndex = Math.max(
-      0,
-      MOCK_CANDIDATE_NAMES.findIndex((_, index) => buildRowId(index) === input.rowId),
-    );
+    const rowIndex = parseRowIndex(input.rowId);
     const dayCount = daysInMonth(input.yearMonth);
 
     return {
@@ -116,12 +141,13 @@ export const createMockVisionProvider = (options: MockVisionOptions): VisionProv
       }
 
       const yearMonth = nextYearMonth(currentYearMonthInSeoul(now()));
+      const names = width >= MOCK_TEAM_TABLE_MIN_WIDTH ? MOCK_TEAM_CANDIDATE_NAMES : MOCK_CANDIDATE_NAMES;
 
       return {
         ok: true,
         value: {
           yearMonth,
-          candidates: MOCK_CANDIDATE_NAMES.map((name, index) => ({ rowId: buildRowId(index), name })),
+          candidates: names.map((name, index) => ({ rowId: buildRowId(index), name })),
           definitions: MOCK_DEFINITIONS.map((definition) => ({ ...definition })),
           dayHeaders: buildDayHeaders(yearMonth),
           // No corners: the pipeline keeps using the original image (Spec §15 fallback).

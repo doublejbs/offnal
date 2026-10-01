@@ -6,6 +6,7 @@ import {
   LANDING_RECIPIENT_POINTS,
   LANDING_SHARE_METHODS,
   LANDING_STEPS,
+  LANDING_TEAM_TEXT,
 } from '@/client/LandingCopy';
 import { ExportPanel } from '@/domain/enums/ExportPanel';
 
@@ -79,9 +80,15 @@ describe('landing copy', () => {
       ...LANDING_STEPS.flatMap((step) => [step.title, step.description]),
       ...LANDING_SHARE_METHODS.flatMap((item) => [item.title, item.description]),
       ...LANDING_RECIPIENT_POINTS,
+      LANDING_TEAM_TEXT,
       ...buildLandingFaqs(SOURCE).flatMap((faq) => [faq.question, faq.answer]),
     ].join(' ');
 
     expect(allText).not.toMatch(/완벽|정확도|%|자동 동기화/);
+  });
+
+  it('describes team sharing honestly as a free beta (no price promised)', () => {
+    expect(LANDING_TEAM_TEXT).toContain('베타 기간 무료');
+    expect(LANDING_TEAM_TEXT).not.toMatch(/\d[\d,]*원|영구|평생/);
   });
 });

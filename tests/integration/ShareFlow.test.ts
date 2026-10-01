@@ -118,6 +118,7 @@ describe('share settings', () => {
       displayName: '공유 없는 사용자',
       visibleMonths: [],
       availableMonths: [],
+      teamMonths: [],
     });
 
     const response = await updateShare(client, { displayName: '이름', visibleMonths: [] });
