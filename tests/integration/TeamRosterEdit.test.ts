@@ -12,6 +12,7 @@ import { teamRosterRows } from '@/server/db/Schema';
 import { setVisionProviderForTesting } from '@/server/vision/VisionFactory';
 import { type IntegrationEnvironment, readJson, setupIntegrationEnvironment } from '../helpers/ApiTestClient';
 import { resolveEntries } from '../helpers/OffnalFlows';
+import { requireValue } from '../helpers/TeamRosterAssertions';
 import {
   createRoster,
   extractAll,
@@ -49,7 +50,7 @@ describe('roster PATCH', () => {
     const current = await readRoster(team.admin, team.teamId, rosterId);
     const first = await patchRoster(team.admin, team.teamId, rosterId, {
       version: current.roster.version,
-      rows: [{ rowId: current.rows[0]?.id, displayName: '김하루 수정' }],
+      rows: [{ rowId: requireValue(current.rows[0]?.id, 'row 0 id'), displayName: '김하루 수정' }],
     });
 
     expect(first.status).toBe(200);
@@ -57,7 +58,7 @@ describe('roster PATCH', () => {
 
     const stale = await patchRoster(team.admin, team.teamId, rosterId, {
       version: current.roster.version,
-      rows: [{ rowId: current.rows[1]?.id, excluded: true }],
+      rows: [{ rowId: requireValue(current.rows[1]?.id, 'row 1 id'), excluded: true }],
     });
     const body = await readJson<ApiErrorBody>(stale);
     const details = body.error.details as TeamRosterConflictDetails;
@@ -86,7 +87,7 @@ describe('roster PATCH', () => {
       (
         await patchRoster(team.admin, team.teamId, rosterId, {
           version,
-          rows: [{ rowId: current.rows[0]?.id, entries: current.rows[0]?.entries.slice(1) }],
+          rows: [{ rowId: requireValue(current.rows[0]?.id, 'row 0 id'), entries: requireValue(current.rows[0]?.entries, 'row 0 entries').slice(1) }],
         })
       ).status,
     ).toBe(400);
@@ -177,7 +178,7 @@ describe('roster PATCH writes', () => {
 
     const response = await patchRoster(team.admin, team.teamId, rosterId, {
       version: current.roster.version,
-      rows: [{ rowId: target?.id, displayName: '김하루' }],
+      rows: [{ rowId: requireValue(target?.id, 'target id'), displayName: '김하루' }],
     });
 
     expect(response.status).toBe(200);

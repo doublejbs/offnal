@@ -28,9 +28,9 @@ import {
   requestJoin,
   updateTeam,
 } from '../helpers/TeamFlows';
+import { findRowKey } from '../helpers/TeamRosterAssertions';
 import {
   extractNext,
-  findRowKey,
   getMyMonths,
   getRoster,
   getRosterView,

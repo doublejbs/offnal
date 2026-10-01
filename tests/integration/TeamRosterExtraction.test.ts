@@ -23,6 +23,7 @@ import {
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
 import { requestCandidates } from '../helpers/AuthFlows';
+import { requireValue } from '../helpers/TeamRosterAssertions';
 import { createTeam, loggedInClient } from '../helpers/TeamFlows';
 import {
   createRoster,
@@ -31,7 +32,6 @@ import {
   listRosters,
   patchRoster,
   readRoster,
-  requireValue,
   TEAM_MONTH,
   uploadRoster,
 } from '../helpers/TeamRosterFlows';
@@ -329,7 +329,7 @@ describe('editing rows during extraction', () => {
     const pendingRow = roster.rows.find((row) => row.extractStatus === RosterRowExtractStatus.PENDING);
     const refused = await patchRoster(admin, teamId, rosterId, {
       version: roster.roster.version,
-      rows: [{ rowId: pendingRow?.id, displayName: '고친 이름' }],
+      rows: [{ rowId: requireValue(pendingRow?.id, 'pending row id'), displayName: '고친 이름' }],
     });
 
     expect(refused.status).toBe(409);
@@ -351,8 +351,8 @@ describe('editing rows during extraction', () => {
       version: roster.roster.version,
       rows: [
         {
-          rowId: failedRow?.id,
-          entries: failedRow?.entries.map((entry) => ({
+          rowId: requireValue(failedRow?.id, 'failed row id'),
+          entries: requireValue(failedRow?.entries, 'failed row entries').map((entry) => ({
             ...entry,
             code: 'D',
             reviewReasons: [],

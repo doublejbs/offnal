@@ -6,6 +6,8 @@ import { MAX_ROSTER_ROWS } from '@/domain/DomainLimits';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { RosterRowExtractStatus } from '@/domain/enums/RosterRowExtractStatus';
+import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
+import { TeamRole } from '@/domain/enums/TeamRole';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { assignRowKeys } from '@/domain/TeamRowKey';
 import { type CreateTeamRosterResponse } from '@/domain/types/api/CreateTeamRosterResponse';
@@ -50,7 +52,11 @@ export const uploadRoster = async (
   access: TeamAccess,
   input: RosterUploadInput,
 ): Promise<CreateTeamRosterResponse> => {
-  const { context: loggedIn, team } = access;
+  const { context: loggedIn, team, membership } = access;
+
+  if (membership.role !== TeamRole.ADMIN || membership.status !== TeamMemberStatus.ACTIVE) {
+    throw new ApiError(ApiErrorCode.NOT_FOUND);
+  }
 
   await assertTeamPlanActive(db, team.id);
 

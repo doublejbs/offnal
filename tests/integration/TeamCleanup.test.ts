@@ -15,12 +15,12 @@ import {
 import { runCleanup } from '@/server/services/CleanupService';
 import { type IntegrationEnvironment, setupIntegrationEnvironment } from '../helpers/ApiTestClient';
 import { createEnvSandbox } from '../helpers/EnvSandbox';
+import { findRowKey } from '../helpers/TeamRosterAssertions';
 import { findUserId } from '../helpers/PaymentFlows';
 import { deleteTeam, getTeam, lookupInvite } from '../helpers/TeamFlows';
 import {
   createRoster,
   extractNext,
-  findRowKey,
   getMyMonths,
   joinAndApprove,
   setupPublishedTeam,

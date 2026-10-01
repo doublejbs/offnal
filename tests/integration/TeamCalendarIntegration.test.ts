@@ -29,13 +29,13 @@ import {
   setupIntegrationEnvironment,
 } from '../helpers/ApiTestClient';
 import { getEvents, unfold } from '../helpers/IcsTestUtils';
+import { findRowKey } from '../helpers/TeamRosterAssertions';
 import { createLoggedInJob, createReadyDraft } from '../helpers/OffnalFlows';
 import { findUserId, publishReady } from '../helpers/PaymentFlows';
 import { approveMember, leaveTeam, removeMember, requestJoin } from '../helpers/TeamFlows';
 import {
   ackChanges,
   createRosterDraft,
-  findRowKey,
   getMyMonths,
   joinAndApprove,
   patchRoster,

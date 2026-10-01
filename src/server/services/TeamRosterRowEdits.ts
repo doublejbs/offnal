@@ -15,7 +15,10 @@ import { ApiError } from '@/server/errors/ApiError';
 import { normalizeEntries } from '@/server/services/DraftService';
 import { classifyRow, isRowBusy } from '@/server/services/TeamRosterProgressBuilder';
 
-/** Row-level pieces of roster PATCH (validation, per-row writes, change detection). */
+/**
+ * Row-level pieces of roster PATCH: validation, per-row writes, change detection.
+ */
+
 export const ROW_BUSY_MESSAGE = '아직 읽는 중인 사람이 있어요. 읽기가 끝난 뒤 고쳐 주세요.';
 
 export const validationError = (message: string, field: string): ApiError =>
@@ -149,7 +152,7 @@ export const validatePatch = (
   body: PatchTeamRosterRequest,
   monthChanges: boolean,
   now: Date,
-) => {
+): void => {
   const patches = body.rows ?? [];
   const ids = new Set(rows.map((row) => row.id));
 
@@ -169,8 +172,3 @@ export const validatePatch = (
     throw new ApiError(ApiErrorCode.ROSTER_NOT_EDITABLE, { message: ROW_BUSY_MESSAGE });
   }
 };
-
-/**
- * Builds every row's final state in memory (patches, month remap, new rows, legend resolution, same-name
- * ordinals) and writes only rows that actually changed.
- */

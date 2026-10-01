@@ -18,7 +18,6 @@ import { ApiError } from '@/server/errors/ApiError';
 import { type RequestContext } from '@/server/http/RequestContext';
 import { buildAppUrl } from '@/server/http/RouteHelpers';
 import { findMembership, requireTeamAdmin, toMembershipSummary } from '@/server/services/TeamAccess';
-
 import { requireUuid } from '@/server/validation/RequestGuards';
 
 /** 32 random bytes in base64url (256 bits), like share tokens. */

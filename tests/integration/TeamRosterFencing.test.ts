@@ -19,12 +19,12 @@ import {
 import { buildEmptyMonth } from '@/server/services/TeamRosterRows';
 import { uploadRoster } from '@/server/services/TeamRosterUploadService';
 import { type IntegrationEnvironment, setupIntegrationEnvironment } from '../helpers/ApiTestClient';
+import { requireValue } from '../helpers/TeamRosterAssertions';
 import {
   createRoster,
   createTeamTablePng,
   extractNext,
   type InvitedTeam,
-  requireValue,
   setupInvitedTeam,
   TEAM_MONTH,
 } from '../helpers/TeamRosterFlows';

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray } from 'drizzle-orm';
 
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
@@ -160,6 +160,9 @@ export const buildTeamMonthInfos = async (
   const ackByKey = new Map(
     acks.map((ack) => [buildTeamMonthKey(ack.teamId, ack.yearMonth), ack.ackedRevision]),
   );
+  const minAckedRevision = Math.min(
+    ...[...ackByKey.values(), 0],
+  );
   const changes = await db
     .select({
       teamId: teamRosters.teamId,
@@ -177,6 +180,7 @@ export const buildTeamMonthInfos = async (
         inArray(teamRosters.teamId, teamIds),
         inArray(teamRosters.yearMonth, yearMonths),
         inArray(teamRosterChanges.rowKey, [...new Set(records.map((record) => record.rowKey))]),
+        gt(teamRosters.revision ?? 0, minAckedRevision),
       ),
     );
 

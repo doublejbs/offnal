@@ -44,8 +44,8 @@ import {
   revokeInvite,
   updateMember,
 } from '../helpers/TeamFlows';
+import { findRowKey } from '../helpers/TeamRosterAssertions';
 import {
-  findRowKey,
   getMyMonths,
   joinAndApprove,
   type PublishedTeam,
@@ -374,7 +374,6 @@ describe('invite link abuse limits', () => {
   });
 
   it('hides the picker rows from removed people (404)', async () => {
-    // A fresh team: the shared one's first admin has left by now (see the last-admin test above).
     const fresh = await setupPublishedTeam('행 숨김 관리자', '행 숨김 병동');
     const removed = await joinAndApprove(env.db, fresh, '행 숨김 대상', findRowKey(fresh.roster, '정겨울'));
 

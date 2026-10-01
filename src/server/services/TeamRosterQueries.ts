@@ -148,17 +148,11 @@ export const buildRosterResponse = async (
   const missing = new Set(match.missing);
   const linked = await listLinkedMembers(db, roster.teamId);
   const labels = computeSameNameLabels(rows.map((row) => row.displayName));
-  // Blockers once per row, reused by the row DTOs and the roster-level list.
+  const blockers = listRowBlockers(rows, roster.definitions);
+  // Blockers once per row, reused by the row DTOs.
   const rowBlockers = rows.map((row) =>
     row.excluded ? [] : getPublishBlockers(row.entries, roster.definitions),
   );
-  const blockers = rows.flatMap((row, index): TeamRosterRowBlocker[] => {
-    const list = rowBlockers[index] ?? [];
-
-    return list.length > 0
-      ? [{ rowId: row.id, rowKey: row.rowKey, displayName: row.displayName, blockers: list }]
-      : [];
-  });
   const changes = compareWith ? diffRosterRows(toDiffRows(previousRows), toDiffRows(rows)) : [];
 
   return {

@@ -18,11 +18,11 @@ import { teamRosterChanges, teamRosters } from '@/server/db/Schema';
 import { createMockVisionProvider } from '@/server/vision/MockVisionProvider';
 import { setVisionProviderForTesting } from '@/server/vision/VisionFactory';
 import { type IntegrationEnvironment, readJson, setupIntegrationEnvironment } from '../helpers/ApiTestClient';
+import { findRowKey, requireValue } from '../helpers/TeamRosterAssertions';
 import {
   createRoster,
   createRosterDraft,
   extractAll,
-  findRowKey,
   getMyMonths,
   getRosterView,
   type InvitedTeam,
@@ -31,7 +31,6 @@ import {
   publishReadyRoster,
   publishRoster,
   readRoster,
-  requireValue,
   resolveRoster,
   revertRoster,
   setupInvitedTeam,
@@ -102,7 +101,7 @@ describe('publishing', () => {
     const excluded = await readJson<TeamRosterResponse>(
       await patchRoster(team.admin, team.teamId, rosterId, {
         version: resolved.roster.version,
-        rows: [{ rowId: yoon?.id, excluded: true }],
+        rows: [{ rowId: requireValue(yoon?.id, 'yoon id'), excluded: true }],
       }),
     );
 
@@ -146,7 +145,7 @@ describe('publishing', () => {
     const edited = await readJson<TeamRosterResponse>(
       await patchRoster(team.admin, team.teamId, draft.roster.id, {
         version: draft.roster.version,
-        rows: [{ rowId: yeoreum?.id, entries: changedEntries }],
+        rows: [{ rowId: requireValue(yeoreum?.id, 'yeoreum id'), entries: changedEntries }],
       }),
     );
 
@@ -289,7 +288,7 @@ describe('publishing', () => {
     const matched = await readJson<TeamRosterResponse>(
       await patchRoster(team.admin, team.teamId, rosterId, {
         version: unresolvedLink.roster.version,
-        rows: [{ rowId: newRow?.id, matchRowKey: '오하늘#1' }],
+        rows: [{ rowId: requireValue(newRow?.id, 'new row id'), matchRowKey: '오하늘#1' }],
       }),
     );
 
@@ -303,7 +302,7 @@ describe('publishing', () => {
       (
         await patchRoster(team.admin, team.teamId, rosterId, {
           version: matched.roster.version,
-          rows: [{ rowId: matched.rows[0]?.id, matchRowKey: '오하늘#1' }],
+          rows: [{ rowId: requireValue(matched.rows[0]?.id, 'matched row 0 id'), matchRowKey: '오하늘#1' }],
         })
       ).status,
     ).toBe(400);

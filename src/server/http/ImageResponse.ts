@@ -1,3 +1,5 @@
+import 'server-only';
+
 import { NO_STORE } from '@/server/http/RouteHelpers';
 
 /** An original photo for its authorized viewer only: never cached, never sniffed, shown inline. */
