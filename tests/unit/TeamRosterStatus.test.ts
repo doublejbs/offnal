@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { describeStatusMonth, pickStatusMonth } from '@/client/TeamRosterStatus';
+import { describeStatusMonth, pickStatusMonth, requiresTimeConfirmation } from '@/client/TeamRosterStatus';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 
 const roster = (yearMonth: string | null, status: TeamRosterStatus) => ({ yearMonth, status });
@@ -31,5 +31,12 @@ describe('pickStatusMonth', () => {
     expect(describeStatusMonth('2026-10', '2026-10')).toBe('이번 달 근무표');
     expect(describeStatusMonth('2026-11', '2026-10')).toBe('다가오는 근무표');
     expect(describeStatusMonth('2026-08', '2026-10')).toBe('최근 근무표');
+  });
+});
+
+describe('requiresTimeConfirmation', () => {
+  it('asks for every upload (even after its photo expired) and never for copies of a published revision', () => {
+    expect(requiresTimeConfirmation({ fromUpload: true })).toBe(true);
+    expect(requiresTimeConfirmation({ fromUpload: false })).toBe(false);
   });
 });

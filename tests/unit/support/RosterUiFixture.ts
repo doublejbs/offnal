@@ -79,6 +79,7 @@ export const buildRoster = (rows: TeamRosterRowDto[], version = 5): TeamRosterRe
     createdAt: '2026-10-01T00:00:00.000Z',
     publishedAt: null,
     authorityConfirmedAt: '2026-10-01T00:00:00.000Z',
+    fromUpload: true,
     sourceAvailable: true,
   },
   progress: buildProgress({ total: rows.length, done: rows.length }),

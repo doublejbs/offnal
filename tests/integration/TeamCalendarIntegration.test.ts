@@ -127,6 +127,38 @@ const tokenOf = (settings: ShareSettingsResponse): string =>
 const teamRowCodes = (roster: TeamRosterResponse, name: string): (string | null)[] =>
   roster.rows.find((row) => row.displayName === name)?.entries.map((entry) => entry.code) ?? [];
 
+/** New revision of a month with one changed cell of 이여름 (day index), via an edit draft; returns the change. */
+const publishOneChange = async (yearMonth: string, dayIndex: number) => {
+  const list = await readJson<TeamRosterListResponse>(await listRosters(team.admin, team.teamId));
+  const current = list.rosters.find(
+    (item) => item.yearMonth === yearMonth && item.status === TeamRosterStatus.PUBLISHED,
+  );
+  const { rosterId } = await readJson<CreateRosterDraftResponse>(
+    await createRosterDraft(team.admin, team.teamId, current?.id ?? ''),
+  );
+  const draft = await readRoster(team.admin, team.teamId, rosterId);
+  const row = draft.rows.find((item) => item.displayName === '이여름');
+  const fromCode = row?.entries[dayIndex]?.code ?? null;
+  const toCode = fromCode === 'N' ? 'D' : 'N';
+  const edited = await readJson<TeamRosterResponse>(
+    await patchRoster(team.admin, team.teamId, rosterId, {
+      version: draft.roster.version,
+      rows: [
+        {
+          rowId: row?.id,
+          entries: row?.entries.map((entry, index) =>
+            index === dayIndex ? { ...entry, code: toCode } : entry,
+          ),
+        },
+      ],
+    }),
+  );
+
+  await publishReadyRoster(team.admin, team.teamId, edited);
+
+  return { fromCode, toCode };
+};
+
 describe('team months in the member calendar', () => {
   it('shows the team month instead of the personal one, read-only', async () => {
     const summary = await readSummary(member);
@@ -260,36 +292,26 @@ describe('team months in the member calendar', () => {
     expect((await readMonth(member, TEAM_MONTH)).team?.changes).toEqual([]);
     expect((await ackChanges(member, team.teamId, { yearMonth: '2027-03', revision: 1 })).status).toBe(404);
 
-    // Revision 3 after acknowledging 2: only the change made after the ack shows (per-month ack filter).
-    const published = await readJson<TeamRosterListResponse>(await listRosters(team.admin, team.teamId));
-    const current = published.rosters.find(
-      (item) => item.yearMonth === TEAM_MONTH && item.status === TeamRosterStatus.PUBLISHED,
-    );
-    const { rosterId: nextDraftId } = await readJson<CreateRosterDraftResponse>(
-      await createRosterDraft(team.admin, team.teamId, current?.id ?? ''),
-    );
-    const nextDraft = await readRoster(team.admin, team.teamId, nextDraftId);
-    const nextRow = nextDraft.rows.find((item) => item.displayName === '이여름');
-    const laterFrom = nextRow?.entries[6]?.code ?? null;
-    const laterTo = laterFrom === 'N' ? 'D' : 'N';
-    const nextEdited = await readJson<TeamRosterResponse>(
-      await patchRoster(team.admin, team.teamId, nextDraftId, {
-        version: nextDraft.roster.version,
-        rows: [
-          {
-            rowId: nextRow?.id,
-            entries: nextRow?.entries.map((entry, index) =>
-              index === 6 ? { ...entry, code: laterTo } : entry,
-            ),
-          },
-        ],
-      }),
-    );
+    // Two months with different acknowledged revisions: TEAM_MONTH acked 2 then gets revision 3, TEAM_ONLY_MONTH
+    // (acked 1 at approval) gets revision 2. Each month shows exactly its own changes after its own ack.
+    const later = await publishOneChange(TEAM_MONTH, 6);
+    const other = await publishOneChange(TEAM_ONLY_MONTH, 2);
 
-    await publishReadyRoster(team.admin, team.teamId, nextEdited);
-    expect((await readMonth(member, TEAM_MONTH)).team?.changes).toEqual([
-      { date: `${TEAM_MONTH}-07`, fromCode: laterFrom, toCode: laterTo },
-    ]);
+    expect((await readMonth(member, TEAM_MONTH)).team).toMatchObject({
+      revision: 3,
+      acknowledgedRevision: 2,
+      changes: [{ date: `${TEAM_MONTH}-07`, ...later }],
+    });
+    expect((await readMonth(member, TEAM_ONLY_MONTH)).team).toMatchObject({
+      revision: 2,
+      acknowledgedRevision: 1,
+      changes: [{ date: `${TEAM_ONLY_MONTH}-03`, ...other }],
+    });
+
+    const summary = await readSummary(member);
+
+    expect(summary.months.find((item) => item.yearMonth === TEAM_MONTH)?.team?.changes).toHaveLength(1);
+    expect(summary.months.find((item) => item.yearMonth === TEAM_ONLY_MONTH)?.team?.changes).toHaveLength(1);
   });
 });
 

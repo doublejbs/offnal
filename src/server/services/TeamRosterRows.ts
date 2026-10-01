@@ -4,7 +4,7 @@ import { and, asc, desc, eq, inArray, max } from 'drizzle-orm';
 
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { normalizeExtraction, summarizeReview } from '@/domain/ScheduleValidator';
-import { computeSameNameLabels } from '@/domain/TeamRowKey';
+import { computeIncludedSameNameLabels } from '@/domain/TeamRowKey';
 import { type JoinableRowDto } from '@/domain/types/api/JoinableRowDto';
 import { type PreviousRowRef } from '@/domain/types/api/PreviousRowRef';
 import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
@@ -132,7 +132,7 @@ export const countReviewDates = (entries: ShiftEntry[]): number => summarizeRevi
 /** Picker rows (non-excluded, in order) with same-name labels and the first 3 codes. */
 export const toJoinableRows = (rows: TeamRosterRowRow[]): JoinableRowDto[] => {
   const included = rows.filter((row) => !row.excluded);
-  const labels = computeSameNameLabels(included.map((row) => row.displayName));
+  const labels = computeIncludedSameNameLabels(included);
 
   return included.map((row, index) => ({
     rowKey: row.rowKey,

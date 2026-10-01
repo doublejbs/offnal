@@ -3,7 +3,7 @@ import 'server-only';
 import { sql } from 'drizzle-orm';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
-import { computeSameNameLabels } from '@/domain/TeamRowKey';
+import { computeIncludedSameNameLabels } from '@/domain/TeamRowKey';
 import { type AckTeamChangesRequest } from '@/domain/types/api/AckTeamChangesRequest';
 import { type AckTeamChangesResponse } from '@/domain/types/api/AckTeamChangesResponse';
 import { type TeamMyMonthDto } from '@/domain/types/api/TeamMyMonthDto';
@@ -23,6 +23,7 @@ import {
 import {
   findPublishedRoster,
   listRosterRows,
+  listRowsByRoster,
   toCodeEntries,
   toJoinableRows,
 } from '@/server/services/TeamRosterRows';
@@ -36,11 +37,13 @@ export const getMyTeamMonths = async (
   const { context: loggedIn, team, membership } = await requireActiveMember(db, context, teamId);
   const records = await listTeamMonthsForUser(db, loggedIn.user.id, { teamId: team.id });
   const infos = await buildTeamMonthInfos(db, records, loggedIn.user.id);
-  // Same-name labels per month (few months per team: one row list each).
-  const labels = await Promise.all(
-    records.map(async (record) =>
-      toJoinableRows(await listRosterRows(db, record.rosterId)).find((row) => row.rowKey === record.rowKey),
-    ),
+  // Same-name labels per month: every month's rows in one query.
+  const rowsByRoster = await listRowsByRoster(
+    db,
+    records.map((record) => record.rosterId),
+  );
+  const labels = records.map((record) =>
+    toJoinableRows(rowsByRoster.get(record.rosterId) ?? []).find((row) => row.rowKey === record.rowKey),
   );
   const months = records.map((record, index): TeamMyMonthDto => ({
     yearMonth: record.yearMonth,
@@ -81,7 +84,7 @@ export const getTeamRosterView = async (
   }
 
   const rows = (await listRosterRows(db, roster.id)).filter((row) => !row.excluded);
-  const labels = computeSameNameLabels(rows.map((row) => row.displayName));
+  const labels = computeIncludedSameNameLabels(rows);
 
   return {
     teamId: team.id,

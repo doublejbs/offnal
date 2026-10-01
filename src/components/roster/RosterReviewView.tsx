@@ -97,7 +97,7 @@ const RosterReviewView = ({ teamId, state, view }: RosterReviewViewProps) => {
         disabled={state.isLocked || autosave.isDirty()}
         onRetry={() => void handleRetryFailed()}
       />
-      {retryError && (
+      {retryError && autosave.isDirty() && (
         <div className="warning" role="alert">
           {retryError}
         </div>

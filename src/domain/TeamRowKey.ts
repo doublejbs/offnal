@@ -77,3 +77,29 @@ export const matchRowKeys = (previousKeys: string[], nextKeys: string[]): RowKey
     missing: previousKeys.filter((key) => !next.has(key)),
   };
 };
+
+/**
+ * The one display rule for "김하루 (2)": included rows are numbered among included rows only (what members
+ * see, so excluding a duplicate never shifts their labels). Excluded rows (admin view only) are numbered among
+ * all rows, so an excluded duplicate stays distinguishable from the included one.
+ */
+export const computeIncludedSameNameLabels = (
+  rows: { displayName: string; excluded: boolean }[],
+): { sameNameOrdinal: number; sameNameCount: number }[] => {
+  const included = rows.filter((row) => !row.excluded);
+  const includedLabels = computeSameNameLabels(included.map((row) => row.displayName));
+  const allLabels = computeSameNameLabels(rows.map((row) => row.displayName));
+  let next = 0;
+
+  return rows.map((row, index) => {
+    if (row.excluded) {
+      return allLabels[index] ?? { sameNameOrdinal: 1, sameNameCount: 1 };
+    }
+
+    const label = includedLabels[next] ?? { sameNameOrdinal: 1, sameNameCount: 1 };
+
+    next += 1;
+
+    return label;
+  });
+};

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  computeIncludedSameNameLabels,
   assignRowKeys,
   buildNextRowKey,
   buildRowKey,
@@ -53,5 +54,23 @@ describe('TeamRowKey', () => {
     const next = assignRowKeys(['김하루']).map((item) => item.rowKey);
 
     expect(matchRowKeys(previous, next)).toEqual({ matched: ['김하루#1'], added: [], missing: ['김하루#2'] });
+  });
+});
+
+describe('computeIncludedSameNameLabels', () => {
+  it('numbers included rows among included rows, excluded rows among all rows', () => {
+    expect(
+      computeIncludedSameNameLabels([
+        { displayName: '김하루', excluded: false },
+        { displayName: '김하루', excluded: true },
+        { displayName: '김 하루', excluded: false },
+        { displayName: '이소망', excluded: false },
+      ]),
+    ).toEqual([
+      { sameNameOrdinal: 1, sameNameCount: 2 },
+      { sameNameOrdinal: 2, sameNameCount: 3 },
+      { sameNameOrdinal: 2, sameNameCount: 2 },
+      { sameNameOrdinal: 1, sameNameCount: 1 },
+    ]);
   });
 });

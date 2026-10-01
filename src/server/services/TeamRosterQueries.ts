@@ -8,7 +8,7 @@ import { TeamRosterPhase } from '@/domain/enums/TeamRosterPhase';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { getPublishBlockers } from '@/domain/ScheduleValidator';
 import { type DiffRow, diffRosterRows, type RosterCellChange } from '@/domain/TeamRosterDiff';
-import { computeSameNameLabels, matchRowKeys } from '@/domain/TeamRowKey';
+import { computeIncludedSameNameLabels, matchRowKeys } from '@/domain/TeamRowKey';
 import { type TeamRosterChangePreview } from '@/domain/types/api/TeamRosterChangePreview';
 import { type TeamRosterConflictDetails } from '@/domain/types/api/TeamRosterConflictDetails';
 import { type TeamRosterDto } from '@/domain/types/api/TeamRosterDto';
@@ -77,6 +77,8 @@ const toRosterDto = (roster: TeamRosterRow, job: RecognitionJobRow | null): Team
   createdAt: roster.createdAt.toISOString(),
   publishedAt: roster.publishedAt?.toISOString() ?? null,
   authorityConfirmedAt: roster.authorityConfirmedAt?.toISOString() ?? null,
+  // Only uploads record the consent; draft and revert copies never do (and the job may be gone after TTL).
+  fromUpload: roster.authorityConfirmedAt !== null,
   sourceAvailable: isSourceAvailable(job),
 });
 
@@ -156,7 +158,7 @@ export const buildRosterResponse = async (
   const added = new Set(match.added);
   const missing = new Set(match.missing);
   const linked = await listLinkedMembers(db, roster.teamId);
-  const labels = computeSameNameLabels(rows.map((row) => row.displayName));
+  const labels = computeIncludedSameNameLabels(rows);
   // Blockers computed once per row: the row DTOs and the roster-level list share them.
   const rowBlockers = computeRowBlockers(rows, roster.definitions);
   const blockers = toRowBlockers(rows, rowBlockers);

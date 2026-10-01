@@ -96,11 +96,9 @@ const getPersonButton = (page: Page, name: string): Locator =>
     .filter({ has: page.locator('strong', { hasText: new RegExp(`^${escapeRegExp(name)}$`) }) });
 
 const getGridCell = (page: Page, name: string, yearMonth: string, day: number): Locator =>
-  page
-    .getByRole('region', { name: '전체 근무표 확인 표' })
-    .getByRole('button', {
-      name: new RegExp(`^${escapeRegExp(name)} ${monthNumber(yearMonth)}월 ${day}일 `),
-    });
+  page.getByRole('region', { name: '전체 근무표 확인 표' }).getByRole('button', {
+    name: new RegExp(`^${escapeRegExp(name)} ${monthNumber(yearMonth)}월 ${day}일 `),
+  });
 
 /** Sets one person's day to a code with the review UI of the current layout (table ≥768px, else person editor). */
 const setRosterCell = async (
@@ -177,6 +175,23 @@ const openHistory = async (page: Page): Promise<Locator> => {
   }
 
   return history;
+};
+
+/**
+ * Extraction ends on the review screen. A cold dev server may fail the first extract-next call with something
+ * the loop does not retry (e.g. a 404 while the route compiles): then the screen offers "이어서 읽기" — use it.
+ */
+const waitForReview = async (page: Page): Promise<void> => {
+  const review = page.getByRole('heading', { name: /근무표를 확인해 주세요/ });
+  const resume = page.getByRole('button', { name: '이어서 읽기' });
+
+  await expect(async () => {
+    if (await resume.isVisible()) {
+      await resume.click();
+    }
+
+    await expect(review).toBeVisible({ timeout: 5_000 });
+  }).toPass({ timeout: 90_000 });
 };
 
 /** "수정하기" on the current revision (history list: the status card only covers the current month). */
@@ -286,9 +301,7 @@ for (const width of WIDTHS) {
         await page.getByRole('checkbox', { name: /이 근무표를 팀에 공유할 권한이 있어요/ }).check();
         await submit.click();
         await expect(page).toHaveURL(/\/teams\/[0-9a-f-]{36}\/rosters\/[0-9a-f-]{36}$/);
-        await expect(page.getByRole('heading', { name: /근무표를 확인해 주세요/ })).toBeVisible({
-          timeout: 60_000,
-        });
+        await waitForReview(page);
 
         // Real counts only: x/10 increasing to 10/10.
         expect(progressSnapshots.length).toBeGreaterThan(0);
@@ -534,7 +547,10 @@ for (const width of WIDTHS) {
         await saveTeamScreenshot(pageB, '4b-rejected-join');
 
         // REMOVED people get the picker again (TeamShareSpec §15.2) and re-request through the UI.
-        await pageB.getByRole('radio', { name: new RegExp(MEMBER_B_ROW) }).first().check();
+        await pageB
+          .getByRole('radio', { name: new RegExp(MEMBER_B_ROW) })
+          .first()
+          .check();
         await pageB.getByRole('button', { name: '참여 요청 보내기' }).click();
         await expect(pageB.getByRole('heading', { name: '관리자가 승인하면 달력에 나타나요' })).toBeVisible();
         await saveTeamScreenshot(pageB, '4b-rerequest');

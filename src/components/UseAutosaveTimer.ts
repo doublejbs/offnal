@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useState } from 'react';
+
+import { type AutosaveTimer, createAutosaveTimer, shouldSaveOnLeave } from '@/client/AutosaveTimer';
 
 /** What the timer needs from a save queue (DraftSaveQueue, TeamRosterSaveQueue). Must be a stable object. */
 export type AutosaveTarget = {
@@ -10,11 +12,9 @@ export type AutosaveTarget = {
   canSaveOnLeave?: () => boolean;
 };
 
-export type AutosaveTimer = {
-  /** (Re)starts the debounce: `flush` runs `delayMs` after the last call. */
-  schedule: () => void;
-  /** Stops a scheduled flush (before an explicit flush / immediate PATCH / reset). */
-  cancel: () => void;
+const BROWSER_CLOCK = {
+  setTimeout: (callback: () => void, ms: number) => window.setTimeout(callback, ms),
+  clearTimeout: (id: number | undefined) => window.clearTimeout(id),
 };
 
 /**
@@ -22,7 +22,7 @@ export type AutosaveTimer = {
  * best-effort save when leaving the screen inside the app.
  */
 export const useAutosaveTimer = (target: AutosaveTarget, delayMs: number): AutosaveTimer => {
-  const timerRef = useRef<number | undefined>(undefined);
+  const [timer] = useState(() => createAutosaveTimer(() => target.flush(), delayMs, BROWSER_CLOCK));
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -37,22 +37,13 @@ export const useAutosaveTimer = (target: AutosaveTarget, delayMs: number): Autos
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
-      window.clearTimeout(timerRef.current);
+      timer.cancel();
 
-      if (target.isDirty() && (target.canSaveOnLeave?.() ?? true)) {
+      if (shouldSaveOnLeave(target)) {
         void target.flush();
       }
     };
-  }, [target]);
+  }, [target, timer]);
 
-  return useMemo(
-    () => ({
-      schedule: () => {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = window.setTimeout(() => void target.flush(), delayMs);
-      },
-      cancel: () => window.clearTimeout(timerRef.current),
-    }),
-    [delayMs, target],
-  );
+  return timer;
 };

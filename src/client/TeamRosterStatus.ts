@@ -6,8 +6,8 @@ type RosterLike = {
 };
 
 /**
- * Month the admin status card is about: this month when it has a published or draft roster, otherwise the
- * nearest upcoming month that has one, otherwise the latest past one; this month when nothing exists. Pure.
+ * Month the admin status card shows. Rule: this month if it has a published or draft roster; else the nearest
+ * later month that has one; else the most recent earlier month; else this month (nothing uploaded yet). Pure.
  */
 export const pickStatusMonth = (rosters: RosterLike[], thisMonth: string): string => {
   const months = [
@@ -25,7 +25,7 @@ export const pickStatusMonth = (rosters: RosterLike[], thisMonth: string): strin
   return months.find((month) => month > thisMonth) ?? months.at(-1) ?? thisMonth;
 };
 
-/** "이번 달 근무표" / "다음 근무표" / "지난 근무표" for the card's eyebrow. */
+/** Card eyebrow: "이번 달 근무표", "다가오는 근무표" (later month) or "최근 근무표" (earlier month). */
 export const describeStatusMonth = (month: string, thisMonth: string): string => {
   if (month === thisMonth) {
     return '이번 달 근무표';
@@ -33,3 +33,9 @@ export const describeStatusMonth = (month: string, thisMonth: string): string =>
 
   return month > thisMonth ? '다가오는 근무표' : '최근 근무표';
 };
+
+/**
+ * Whether the admin must tick "근무 시간을 확인했어요" before publishing: only drafts created by a photo upload
+ * (times read by AI), even after the photo expired. Copies of a published revision reuse confirmed times.
+ */
+export const requiresTimeConfirmation = (roster: { fromUpload: boolean }): boolean => roster.fromUpload;

@@ -51,17 +51,20 @@ export const useRosterPublish = ({ teamId, rosterId, autosave, onStale }: Roster
       return;
     }
 
-    if (failure.kind === RosterPublishFailureKind.STALE_VERSION) {
-      onStale();
+    if (failure.kind === RosterPublishFailureKind.STALE_BASE) {
+      setError(STALE_BASE_MESSAGE);
+
+      return;
     }
 
-    setError(
-      failure.kind === RosterPublishFailureKind.STALE_BASE
-        ? STALE_BASE_MESSAGE
-        : failure.kind === RosterPublishFailureKind.STALE_VERSION
-          ? STALE_VERSION_MESSAGE
-          : getErrorMessage(caught),
-    );
+    if (failure.kind === RosterPublishFailureKind.STALE_VERSION) {
+      setError(STALE_VERSION_MESSAGE);
+      onStale();
+
+      return;
+    }
+
+    setError(getErrorMessage(caught));
   };
 
   const handlePublish = async (confirmUnlinked = false) => {

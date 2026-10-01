@@ -112,6 +112,7 @@ describe('roster upload', () => {
       sourceAvailable: true,
     });
     expect(roster.roster.authorityConfirmedAt).not.toBeNull();
+    expect(roster.roster.fromUpload).toBe(true);
     expect(roster.progress.phase).toBe(TeamRosterPhase.RECOGNIZING);
     expect(roster.rows).toEqual([]);
 

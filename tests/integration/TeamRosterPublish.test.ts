@@ -132,6 +132,9 @@ describe('publishing', () => {
     const team = await setupTeam('변경');
     const first = await uploadAndPublishRoster(team.admin, team.teamId);
     const draft = await createDraftOf(team, first.rosterId);
+
+    expect(draft.roster.fromUpload).toBe(false);
+
     const staleDraft = await createDraftOf(team, first.rosterId);
 
     // The open copy of the same revision is reused.
