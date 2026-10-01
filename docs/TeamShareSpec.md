@@ -201,3 +201,49 @@
 - 팀원: 희망 휴무·근무 신청(마감일 전), 교환 요청(상대 동의 → 관리자 승인).
 - 관리자: 신청 현황을 편집 화면에 겹쳐 보기, 승인 시 새 revision.
 - 알림: 우선 앱 내 표시, 카카오 알림톡은 비용·심사 확인 후.
+
+## 15. T1 서버 구현 결정 (2026-10-01)
+
+T1 서버(데이터 모델·API·인식·달력 연동)를 구현하며 확정한 세부 규칙. 요청·응답 타입은 모두 `src/domain/types/api/`에 있고(아래 표의 DTO 이름), zod 스키마는 `src/server/services/TeamRequestSchemas.ts`.
+
+### 15.1 API·DTO
+
+| API | 요청 | 응답 |
+|---|---|---|
+| `GET /api/teams` · `POST /api/teams` | `CreateTeamRequest` | `TeamListResponse` · 201 `TeamDetailResponse` |
+| `GET` · `PATCH` · `DELETE /api/teams/:id` | `UpdateTeamRequest` | `TeamDetailResponse` · `OkResponse` |
+| `GET` · `POST /api/teams/:id/invites` · `DELETE .../invites/:inviteId` | `CreateTeamInviteRequest`(생략 가능) | `TeamInviteListResponse` · 201 `CreateTeamInviteResponse` · `OkResponse` |
+| `GET /api/invites/:token` | — | `InviteLookupResponse`(로그인 전 `{ teamName }`만) |
+| `GET /api/invites/:token/rows` | — | `InviteRowsResponse` |
+| `POST /api/invites/:token/join` | `JoinTeamRequest` | `TeamMembershipSummary`(PENDING) |
+| `GET /api/teams/:id/members` | — | `TeamMemberListResponse` |
+| `POST .../members/:userId/approve` · `.../reject` | `ApproveTeamMemberRequest`(생략 가능) | `TeamMemberDto` · `OkResponse` |
+| `PATCH` · `DELETE .../members/:userId` | `UpdateTeamMemberRequest` | `TeamMemberDto` · `OkResponse` |
+| `DELETE /api/teams/:id/membership` | — | `OkResponse` |
+| `GET` · `POST /api/teams/:id/rosters` | multipart `file`, `authorityConfirmed=true`, `yearMonth?` | `TeamRosterListResponse` · 201 `CreateTeamRosterResponse` |
+| `GET` · `PATCH .../rosters/:rid` | `PatchTeamRosterRequest` | `TeamRosterResponse` (409 `TeamRosterConflictDetails`) |
+| `POST .../rosters/:rid/extract-next` | `ExtractNextRequest`(생략 가능) | `ExtractNextResponse` |
+| `POST .../rosters/:rid/publish` | `PublishTeamRosterRequest` | `PublishTeamRosterResponse` (422 `details.blockers: TeamRosterRowBlocker[]`) |
+| `POST .../rosters/:rid/draft` | — | `CreateRosterDraftResponse` (배포본 → 수정용 초안) |
+| `POST .../rosters/:rid/revert` | — | `PublishTeamRosterResponse` (ARCHIVED 버전을 새 revision으로 재배포) |
+| `GET .../rosters/:rid/source` | — | 원본 이미지(관리자, 삭제·만료 후 410) |
+| `GET /api/teams/:id/my-months` | — | `TeamMyMonthsResponse` |
+| `GET /api/teams/:id/roster/:yearMonth` | — | `TeamRosterViewResponse` |
+| `POST /api/teams/:id/acks` | `AckTeamChangesRequest` | `AckTeamChangesResponse` |
+
+- 권한 없음(비팀원·PENDING·REMOVED·다른 팀 관리자·팀원이 관리자 API 호출)은 모두 404, 로그인 전 401. 상태 변경은 모두 Origin 검사.
+- 새 오류 코드: `TEAM_MEMBERSHIP_CONFLICT`(409, `details.reason: TeamMembershipConflictReason` — ALREADY_MEMBER·ALREADY_REQUESTED·ROW_TAKEN·LAST_ADMIN·INVALID_STATE), `TEAM_MONTH_READ_ONLY`(409, 팀원이 팀 달 수정·삭제), `ROSTER_NOT_EDITABLE`(409, 배포본 수정·읽는 중인 행 수정 등).
+
+### 15.2 규칙
+
+- **상태**: 거절·내보내기·나가기는 모두 `REMOVED`(접근 즉시 종료, 공유 표시·변경 확인 기록 삭제). REMOVED 사용자는 초대 링크로 다시 요청할 수 있다.
+- **row_key**: `정규화 이름(NFC·공백 제거)#동명이인 순번`(예 `김하루#2`). 이름 수정은 키를 바꾸지 않는다. 새 사진 업로드의 행은 같은 키로 이전 배포본과 자동 매칭되고, 매칭 안 된 이전 행은 `unmatchedPreviousRows`로 보여 관리자가 `matchRowKey`로 “이름 바뀜”을 연결한다. 알려진 한계: 동명이인 중 한 명이 빠지면 순번이 당겨져 다른 사람과 매칭될 수 있다(관리자가 `matchRowKey`로 바로잡는다).
+- **전원 추출**: 업로드는 관리자 소유 인식 작업 + DRAFT(연월 미정 가능)만 만든다. 첫 `extract-next`가 1차 인식을 돌리고 후보마다 행(전 날짜 빈칸)을 만든다. 이후 호출마다 트랜잭션 안에서 `SELECT … FOR UPDATE SKIP LOCKED LIMIT 4` → 조건 재확인 `UPDATE`로 lease(제공자 제한 시간 + 30초)를 잡고, 같은 사진을 한 번만 준비해 4명을 병렬로 읽는다. 결과는 status·attempt로 fencing해 저장. 실패 행은 `retryFailed: true`일 때만 다시 대기열로, 최대 3회. lease가 만료된 행은 다음 호출이 이어 받는다.
+- **범례**: 팀 근무표 단위 하나. 행 읽기에서 처음 보는 코드는 범례에 자리표시로 추가되고, 정의하면 모든 행에 `resolveDefinedCodes` 적용.
+- **배포**: 팀 단위 잠금, `version` 일치, 초안의 `baseRevision`보다 새 배포가 있으면 409 `STALE_BASE`, 읽는 중인 행이 있거나 제외 안 된 행에 차단 사유가 있으면 422. revision = 그 달 최대 + 1, 이전 배포본은 ARCHIVED, 행 키 기준 변경 칸을 `team_roster_changes`에 기록(새로 생긴·빠진 사람은 변경으로 세지 않음). 배포 후 원본 사진 삭제(실패 시 cleanup 재시도). 업로드 시 동의 시각은 `team_rosters.authority_confirmed_at`.
+- **팀원 달력**: 최신 배포본의 연결 행을 실시간 조회. 같은 달 개인 저장본보다 팀 달이 우선(`source: TEAM`, `hasPersonalBackup`), 개인본은 그대로 두어 나가면 다시 보인다. 여러 팀이 같은 달을 배포하면 가장 최근 배포가 우선. 팀 달은 개인 이용권과 무관하게 ICS·PNG 내보내기 가능(ACTIVE인 동안).
+- **변경 표시**: 승인 시점의 배포본은 확인한 것으로 기록. 이후 revision의 변경을 날짜별로 합쳐(처음 코드 → 마지막 코드, 원래대로 돌아오면 제외) `team.changes`로 준다. `acks`는 현재 revision을 넘지 않고 뒤로 가지 않는다.
+- **공유 링크**: 팀 달도 공유 달 목록(`availableMonths`, `teamMonths`)에 나오며 기본 비공개(“새 달은 자동 공개 안 됨”과 같은 규칙). 공개 여부는 `member_shared_team_months`(팀·사용자·월). 팀 달에 가려진 개인 달의 공개 여부는 건드리지 않는다. 팀 전용 팀원은 처음 공유할 때 `calendars` 행이 만들어진다.
+- **정리**: 팀 업로드 원본·1차 표는 개인과 같은 원본 TTL. 손대지 않은 DRAFT 근무표는 `DRAFT_TTL_DAYS` 후 삭제. 팀 삭제는 근무표·행·변경·초대·멤버십을 지우고(사용자 유지) 미배포 업로드의 1차 표·원본을 즉시 만료·삭제.
+- **보호 장치**: 연결된 팀원의 행이 새 버전에 없으면(제외 포함) 배포는 422 `details.unlinkedRows`, `confirmUnlinked: true`로 다시 보내야 배포된다. 읽는 중인 행이 있으면 연월 변경 409. 늦게 끝난 추출 결과는 lease 만료·배포 후에는 저장되지 않는다. 팀 업로드 인식 작업은 개인 인식 API(`/api/recognitions/:id/*`)에서 404. 팀 근무 달은 개인으로 발행할 수 없다(409 `TEAM_MONTH_READ_ONLY`, 무료 달 소모 방지) — 팀 가입 전에 저장한 개인 달은 보관.
+- **요금**: `assertTeamPlanActive`(업로드·추출·수정·배포·되돌리기)는 베타 동안 항상 허용.
