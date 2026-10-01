@@ -3,8 +3,10 @@
 import { useRef, useState } from 'react';
 
 import { downloadIcs, getErrorMessage } from '@/client/ApiClient';
-import { ICS_DOWNLOADED_MESSAGE, ICS_NAVIGATE_HINT } from '@/client/IcsCopy';
+import { getIcsNavigateHint, ICS_DOWNLOADED_MESSAGE } from '@/client/IcsCopy';
+import { assignLocation, runIcsOpen } from '@/client/IcsOpenFlow';
 import { buildIcsUrl } from '@/client/IcsUrls';
+import { readBrowserPlatformInfo } from '@/client/PlatformDetect';
 import { downloadBlob } from '@/client/ShareOrDownload';
 import IcsExportFormView from '@/components/share/IcsExportFormView';
 import { useIcsOpenSupport } from '@/components/share/UseIcsOpenSupport';
@@ -43,35 +45,45 @@ const IcsExportPanel = ({ yearMonth, definitions, entries }: IcsExportPanelProps
       return;
     }
 
+    inFlightRef.current = true;
+    setIsBusy(true);
     setError(null);
     setMessage(null);
     openSupport.resetNotice();
 
-    const method = openSupport.resolveMethod();
-
-    if (method === IcsOpenMethod.IN_APP_NOTICE) {
-      return;
-    }
-
-    inFlightRef.current = true;
-    setIsBusy(true);
-
-    if (method === IcsOpenMethod.NAVIGATE) {
-      setMessage(ICS_NAVIGATE_HINT);
-      openSupport.navigateToIcs(buildIcsUrl(yearMonth, includeOff, true), finish);
-
-      return;
-    }
+    const info = readBrowserPlatformInfo();
+    let isNavigating = false;
 
     try {
-      const blob = await downloadIcs(yearMonth, includeOff);
+      // iOS preflights with the same fetch so failures show here instead of a raw JSON page.
+      const method = await runIcsOpen({
+        info,
+        navigateUrl: buildIcsUrl(yearMonth, includeOff, true),
+        preflight: true,
+        fetchIcs: () => downloadIcs(yearMonth, includeOff),
+        saveBlob: (blob) => downloadBlob(blob, buildIcsFileName(yearMonth)),
+        navigate: assignLocation,
+      });
 
-      downloadBlob(blob, buildIcsFileName(yearMonth));
-      setMessage(ICS_DOWNLOADED_MESSAGE);
+      if (method === IcsOpenMethod.IN_APP_NOTICE && info) {
+        openSupport.showInAppNotice(info.inAppBrowser);
+      }
+
+      if (method === IcsOpenMethod.NAVIGATE) {
+        isNavigating = true;
+        setMessage(getIcsNavigateHint(info));
+        openSupport.holdNavigationGuard(finish);
+      }
+
+      if (method === IcsOpenMethod.DOWNLOAD) {
+        setMessage(ICS_DOWNLOADED_MESSAGE);
+      }
     } catch (caught: unknown) {
       setError(`일정 파일을 받지 못했어요. ${getErrorMessage(caught)}`);
     } finally {
-      finish();
+      if (!isNavigating) {
+        finish();
+      }
     }
   };
 

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectAndroid, detectInAppBrowser, detectIos, detectPlatformInfo } from '@/client/PlatformDetect';
+import {
+  detectAndroid,
+  detectInAppBrowser,
+  detectIos,
+  detectIosThirdPartyBrowser,
+  detectPlatformInfo,
+} from '@/client/PlatformDetect';
 import { ClientPlatform } from '@/domain/enums/ClientPlatform';
 import { InAppBrowser } from '@/domain/enums/InAppBrowser';
 
@@ -126,6 +132,24 @@ const SAMPLES: UaSample[] = [
     inApp: InAppBrowser.OTHER_WEBVIEW,
   },
   {
+    name: 'Unknown iPadOS WKWebView (desktop UA + touch, no Safari token)',
+    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+    maxTouchPoints: 5,
+    platform: 'MacIntel',
+    ios: true,
+    android: false,
+    inApp: InAppBrowser.OTHER_WEBVIEW,
+  },
+  {
+    name: 'macOS app WKWebView (no touch, no Safari token)',
+    ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)',
+    maxTouchPoints: 0,
+    platform: 'MacIntel',
+    ios: false,
+    android: false,
+    inApp: InAppBrowser.NONE,
+  },
+  {
     name: 'Unknown Android WebView (wv)',
     ua: 'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP1A.240505.005; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/125.0.6422.165 Mobile Safari/537.36',
     ios: false,
@@ -188,7 +212,7 @@ describe('PlatformDetect', () => {
   it.each(SAMPLES)('detects $name', (sample) => {
     expect(detectIos(sample.ua, sample.maxTouchPoints, sample.platform)).toBe(sample.ios);
     expect(detectAndroid(sample.ua)).toBe(sample.android);
-    expect(detectInAppBrowser(sample.ua)).toBe(sample.inApp);
+    expect(detectInAppBrowser(sample.ua, sample.maxTouchPoints, sample.platform)).toBe(sample.inApp);
   });
 
   it('does not treat a Mac without touch support as iPadOS', () => {
@@ -205,20 +229,37 @@ describe('PlatformDetect', () => {
     expect(detectIos('Mozilla/5.0', 0, 'MacIntel')).toBe(false);
   });
 
+  it('tells third-party iOS browsers apart from Safari', () => {
+    const uaOf = (name: string): string => SAMPLES.find((sample) => sample.name === name)?.ua ?? '';
+
+    expect(detectIosThirdPartyBrowser(uaOf('Chrome iOS (CriOS)'))).toBe(true);
+    expect(detectIosThirdPartyBrowser(uaOf('Firefox iOS (FxiOS)'))).toBe(true);
+    expect(
+      detectIosThirdPartyBrowser(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/126.2592.56 Mobile/15E148 Safari/605.1.15',
+      ),
+    ).toBe(true);
+    expect(detectIosThirdPartyBrowser(uaOf('Safari iOS 18 (iPhone)'))).toBe(false);
+    expect(detectIosThirdPartyBrowser(uaOf('iPadOS Safari (desktop UA + touch)'))).toBe(false);
+  });
+
   it('summarises the platform and in-app browser', () => {
     expect(detectPlatformInfo(SAMPLES[0]?.ua ?? '', 5, 'iPhone')).toEqual({
       platform: ClientPlatform.IOS,
       inAppBrowser: InAppBrowser.NONE,
+      isIosThirdPartyBrowser: false,
     });
     expect(detectPlatformInfo(SAMPLES[8]?.ua ?? '')).toEqual({
       platform: ClientPlatform.ANDROID,
       inAppBrowser: InAppBrowser.KAKAOTALK,
+      isIosThirdPartyBrowser: false,
     });
     expect(
       detectPlatformInfo('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/126.0.0.0 Safari/537.36'),
     ).toEqual({
       platform: ClientPlatform.DESKTOP,
       inAppBrowser: InAppBrowser.NONE,
+      isIosThirdPartyBrowser: false,
     });
   });
 });

@@ -5,6 +5,8 @@ import { InAppBrowser } from '@/domain/enums/InAppBrowser';
 export type PlatformInfo = {
   platform: ClientPlatform;
   inAppBrowser: InAppBrowser;
+  /** Chrome/Firefox/Edge on iOS: Safari may handle the calendar import more reliably. */
+  isIosThirdPartyBrowser: boolean;
 };
 
 const IOS_DEVICE_PATTERN = /iPhone|iPad|iPod/;
@@ -13,6 +15,7 @@ const MAC_PLATFORM = 'MacIntel';
 const ANDROID_PATTERN = /Android/i;
 const ANDROID_WEBVIEW_PATTERN = /; wv\)/;
 const SAFARI_TOKEN_PATTERN = /Safari\//;
+const IOS_THIRD_PARTY_BROWSER_PATTERN = /CriOS\/|FxiOS\/|EdgiOS\//;
 
 /** Checked in order: the first matching pattern names the in-app browser. */
 const IN_APP_PATTERNS: [InAppBrowser, RegExp][] = [
@@ -39,11 +42,14 @@ export const detectIos = (userAgent: string, maxTouchPoints = 0, platform = ''):
 
 export const detectAndroid = (userAgent: string): boolean => ANDROID_PATTERN.test(userAgent);
 
+export const detectIosThirdPartyBrowser = (userAgent: string): boolean =>
+  IOS_THIRD_PARTY_BROWSER_PATTERN.test(userAgent);
+
 /**
- * Known in-app browsers by their UA token; otherwise an Android WebView (`; wv)`) or an iOS
+ * Known in-app browsers by their UA token; otherwise an Android WebView (`; wv)`) or an iOS/iPadOS
  * WKWebView (no `Safari/` token, which every regular iOS browser sends) is OTHER_WEBVIEW.
  */
-export const detectInAppBrowser = (userAgent: string): InAppBrowser => {
+export const detectInAppBrowser = (userAgent: string, maxTouchPoints = 0, platform = ''): InAppBrowser => {
   const known = IN_APP_PATTERNS.find(([, pattern]) => pattern.test(userAgent));
 
   if (known) {
@@ -54,7 +60,7 @@ export const detectInAppBrowser = (userAgent: string): InAppBrowser => {
     return InAppBrowser.OTHER_WEBVIEW;
   }
 
-  if (IOS_DEVICE_PATTERN.test(userAgent) && !SAFARI_TOKEN_PATTERN.test(userAgent)) {
+  if (detectIos(userAgent, maxTouchPoints, platform) && !SAFARI_TOKEN_PATTERN.test(userAgent)) {
     return InAppBrowser.OTHER_WEBVIEW;
   }
 
@@ -62,17 +68,19 @@ export const detectInAppBrowser = (userAgent: string): InAppBrowser => {
 };
 
 export const detectPlatformInfo = (userAgent: string, maxTouchPoints = 0, platform = ''): PlatformInfo => {
-  const inAppBrowser = detectInAppBrowser(userAgent);
+  const inAppBrowser = detectInAppBrowser(userAgent, maxTouchPoints, platform);
 
   if (detectIos(userAgent, maxTouchPoints, platform)) {
-    return { platform: ClientPlatform.IOS, inAppBrowser };
+    return {
+      platform: ClientPlatform.IOS,
+      inAppBrowser,
+      isIosThirdPartyBrowser: detectIosThirdPartyBrowser(userAgent),
+    };
   }
 
-  if (detectAndroid(userAgent)) {
-    return { platform: ClientPlatform.ANDROID, inAppBrowser };
-  }
+  const otherPlatform = detectAndroid(userAgent) ? ClientPlatform.ANDROID : ClientPlatform.DESKTOP;
 
-  return { platform: ClientPlatform.DESKTOP, inAppBrowser };
+  return { platform: otherPlatform, inAppBrowser, isIosThirdPartyBrowser: false };
 };
 
 /** Reads the current browser; null during SSR (callers fall back to the generic behaviour). */

@@ -178,7 +178,27 @@ describe('shared ICS export', () => {
     const plain = await exportShared(token, '?month=2026-10&open=0');
 
     expect(plain.headers.get('content-disposition')).toBe('attachment; filename="offnal-shared-2026-10.ics"');
-    await expectExpired(await exportShared(token, '?month=2026-11&open=1'));
+  });
+
+  it('redirects a failed open=1 request back to the shared page with an expired notice', async () => {
+    const { token } = await setupShared('받은 사람 인라인 실패 사용자');
+    const expectRedirect = async (query: string, expected: string, requestToken = token): Promise<void> => {
+      const response = await exportShared(requestToken, query);
+      const location = new URL(response.headers.get('location') ?? '', 'http://invalid.test');
+
+      expect(response.status).toBe(303);
+      expect(`${location.pathname}${location.search}`).toBe(expected);
+      expect(response.headers.get('content-disposition')).toBeNull();
+      expectPublicHeaders(response);
+    };
+
+    await expectRedirect('?month=2026-11&open=1', `/s/${token}?month=2026-11&ics=expired`);
+    await expectRedirect('?month=bad&open=1', `/s/${token}?ics=expired`);
+    await expectRedirect('?open=1', `/s/${'A'.repeat(43)}?ics=expired`, 'A'.repeat(43));
+    await expectRedirect('?month=2026-10&disposition=inline', `/s/short?month=2026-10&ics=expired`, 'short');
+
+    // Without open=1 failures stay JSON errors.
+    await expectExpired(await exportShared(token, '?month=2026-11'));
   });
 
   it('defaults to the latest visible month and hides the rest with the same 404', async () => {
@@ -231,5 +251,16 @@ describe('shared ICS export', () => {
 
     expect(limited.status).toBe(429);
     expectPublicHeaders(limited);
+
+    const limitedOpen = await viewer.send(
+      sharedIcsRoute,
+      `/api/shared/${token}/export.ics?month=2026-10&includeOff=1&open=1`,
+      { params: { token }, origin: null },
+    );
+    const location = new URL(limitedOpen.headers.get('location') ?? '', 'http://invalid.test');
+
+    expect(limitedOpen.status).toBe(303);
+    expect(`${location.pathname}${location.search}`).toBe(`/s/${token}?month=2026-10&ics=rate_limited`);
+    expectPublicHeaders(limitedOpen);
   });
 });

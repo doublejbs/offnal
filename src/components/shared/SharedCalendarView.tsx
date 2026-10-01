@@ -5,6 +5,7 @@ import { useState } from 'react';
 
 import { getSharedCalendar } from '@/client/ApiClient';
 import { formatDateTime } from '@/client/DisplayText';
+import { getSharedIcsNoticeMessage } from '@/client/IcsCopy';
 import DayDetail from '@/components/calendar/DayDetail';
 import MonthGrid from '@/components/calendar/MonthGrid';
 import MonthHeading from '@/components/calendar/MonthHeading';
@@ -22,6 +23,8 @@ import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 type SharedCalendarViewProps = {
   token: string;
   month: string | null;
+  /** `?ics=` set by the server after a failed iOS calendar open (Spec §19). */
+  icsNotice: string | null;
 };
 
 /** Shared entries carry codes only; they are shown as confirmed read-only days. */
@@ -34,12 +37,18 @@ const toEntries = (data: SharedCalendarResponse): ShiftEntry[] =>
   }));
 
 /** Public read-only calendar: display name, visible months only, no edit UI, no source, no other people. */
-const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
+const SharedCalendarView = ({ token, month, icsNotice }: SharedCalendarViewProps) => {
   const router = useRouter();
   const pathname = usePathname();
   const shared = useLoad(`${token}:${month ?? ''}`, (signal) => getSharedCalendar(token, month, signal));
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const { data } = shared;
+  const icsNoticeMessage = getSharedIcsNoticeMessage(icsNotice);
+  const icsNoticeView = icsNoticeMessage && (
+    <div className="warning" role="alert">
+      {icsNoticeMessage}
+    </div>
+  );
 
   if (shared.state === ScreenLoadState.LOADING) {
     return <LoadingState text="달력을 불러오는 중이에요…" />;
@@ -58,21 +67,27 @@ const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
 
   if (shared.state !== ScreenLoadState.READY || !data) {
     return (
-      <RecoverableError
-        title="달력을 불러오지 못했어요"
-        message={shared.errorMessage ?? '잠시 후 다시 시도해 주세요.'}
-        onRetry={shared.reload}
-      />
+      <>
+        {icsNoticeView}
+        <RecoverableError
+          title="달력을 불러오지 못했어요"
+          message={shared.errorMessage ?? '잠시 후 다시 시도해 주세요.'}
+          onRetry={shared.reload}
+        />
+      </>
     );
   }
 
   if (!data.month) {
     return (
-      <EmptyState
-        label="함께 보는 근무표"
-        title="아직 공개된 달이 없어요"
-        description={`${data.displayName}님이 공개한 달이 생기면 여기에서 볼 수 있어요.`}
-      />
+      <>
+        {icsNoticeView}
+        <EmptyState
+          label="함께 보는 근무표"
+          title="아직 공개된 달이 없어요"
+          description={`${data.displayName}님이 공개한 달이 생기면 여기에서 볼 수 있어요.`}
+        />
+      </>
     );
   }
 
@@ -86,6 +101,7 @@ const SharedCalendarView = ({ token, month }: SharedCalendarViewProps) => {
 
   return (
     <>
+      {icsNoticeView}
       <div className="label">함께 보는 근무표</div>
       <MonthHeading
         displayName={data.displayName}

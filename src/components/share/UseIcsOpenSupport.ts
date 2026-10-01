@@ -8,11 +8,10 @@ import {
   PAGE_URL_COPIED_MESSAGE,
   PAGE_URL_COPY_FAILED_MESSAGE,
 } from '@/client/IcsCopy';
-import { resolveIcsOpenMethod } from '@/client/IcsOpenMethodResolver';
 import { readBrowserPlatformInfo } from '@/client/PlatformDetect';
 import { getBrowserShareEnvironment } from '@/client/ShareOrDownload';
 import { type ClientPlatform } from '@/domain/enums/ClientPlatform';
-import { IcsOpenMethod } from '@/domain/enums/IcsOpenMethod';
+import { type InAppBrowser } from '@/domain/enums/InAppBrowser';
 
 /** A navigation cannot report completion: keep the double-tap guard for this long instead. */
 const NAVIGATION_GUARD_MS = 2000;
@@ -43,21 +42,12 @@ export const useIcsOpenSupport = () => {
     [],
   );
 
-  /** Decides how to deliver the file now; an in-app browser shows its notice instead. */
-  const resolveMethod = (): IcsOpenMethod => {
-    const info = readBrowserPlatformInfo();
-    const method = resolveIcsOpenMethod(info);
-
-    if (method === IcsOpenMethod.IN_APP_NOTICE && info) {
-      setInAppNotice(getInAppBrowserNotice(info.inAppBrowser));
-    }
-
-    return method;
+  const showInAppNotice = (browser: InAppBrowser) => {
+    setInAppNotice(getInAppBrowserNotice(browser));
   };
 
-  /** Top-level same-origin navigation (cookies apply); `onSettled` runs once the guard expires. */
-  const navigateToIcs = (url: string, onSettled: () => void) => {
-    window.location.assign(url);
+  /** A navigation cannot report completion: `onSettled` releases the double-tap guard later. */
+  const holdNavigationGuard = (onSettled: () => void) => {
     timerRef.current = window.setTimeout(() => {
       timerRef.current = null;
       onSettled();
@@ -95,8 +85,8 @@ export const useIcsOpenSupport = () => {
     inAppNotice,
     copyMessage,
     fallbackUrl,
-    resolveMethod,
-    navigateToIcs,
+    showInAppNotice,
+    holdNavigationGuard,
     handleCopyPageUrl,
     resetNotice,
   };
