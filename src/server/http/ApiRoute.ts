@@ -16,6 +16,21 @@ export type YearMonthParams = { yearMonth: string };
 /** `[token]` segment params (public share link). */
 export type TokenParams = { token: string };
 
+/** `/api/teams/[id]`. */
+export type TeamParams = { id: string };
+
+/** `/api/teams/[id]/rosters/[rosterId]`. */
+export type TeamRosterParams = { id: string; rosterId: string };
+
+/** `/api/teams/[id]/members/[userId]`. */
+export type TeamMemberParams = { id: string; userId: string };
+
+/** `/api/teams/[id]/invites/[inviteId]`. */
+export type TeamInviteParams = { id: string; inviteId: string };
+
+/** `/api/teams/[id]/roster/[yearMonth]`. */
+export type TeamMonthParams = { id: string; yearMonth: string };
+
 /** Routes without dynamic segments. */
 export type NoParams = Record<string, never>;
 

@@ -121,6 +121,28 @@ export const parseJsonBody = async <T extends z.ZodType>(
   return schema.parse(body);
 };
 
+/** Like parseJsonBody, but an empty body counts as `{}` (endpoints whose body is all optional). */
+export const parseOptionalJsonBody = async <T extends z.ZodType>(
+  request: NextRequest,
+  schema: T,
+): Promise<z.infer<T>> => {
+  const text = await request.text();
+
+  if (text.trim() === '') {
+    return schema.parse({});
+  }
+
+  let body: unknown;
+
+  try {
+    body = JSON.parse(text);
+  } catch {
+    throw new ApiError(ApiErrorCode.VALIDATION_ERROR);
+  }
+
+  return schema.parse(body);
+};
+
 /**
  * Builds an absolute app URL from a path. The origin always comes from APP_URL: only pathname,
  * search and hash are taken from the input, so protocol-relative input cannot change the host.
