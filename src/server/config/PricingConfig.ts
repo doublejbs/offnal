@@ -1,5 +1,5 @@
 /** Initial proposal values (README). The only place that fixes pricing defaults. */
-export const DEFAULT_PRICE_KRW = 1900;
+export const DEFAULT_PRICE_KRW = 990;
 export const DEFAULT_FREE_MONTH_LIMIT = 2;
 export const PRICE_CURRENCY = 'KRW';
 

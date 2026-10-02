@@ -32,6 +32,7 @@ const NIGHT: ShiftDefinition = {
 describe('DisplayText', () => {
   it('formats prices with the Korean locale and never assumes a fixed price', () => {
     expect(formatPrice(1900)).toBe('1,900원');
+    expect(formatPrice(990)).toBe('990원');
     expect(formatPrice(12000)).toBe('12,000원');
     expect(formatPrice(0)).toBe('0원');
   });

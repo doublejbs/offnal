@@ -2,6 +2,9 @@
 
 작성일: 2026-09-29 · 기준 문서: [`docs/Handoff.md`](./Handoff.md) (제품 기획·디자인 원본)
 
+**변경 사항**
+- 2026-10-02: 기본 가격 1,900원 → 990원으로 변경
+
 이 문서는 `docs/Handoff.md`의 확정 요구사항을 실제 코드 구조로 옮긴 설계서다. 제품 동작의 기준은 Handoff 문서이며, 이 문서는 구현 경계·파일 위치·API 계약·테스트 목록을 확정한다. 모든 구현 서브에이전트는 이 문서와 Handoff 문서를 먼저 읽는다.
 
 ---
@@ -310,10 +313,10 @@ interface PaymentProvider {
 | `/upload` (및 위 조건의 `/`) | `UploadPanel` | “처음 두 달은 무료” 라벨, 파일 선택(`accept="image/jpeg,image/png,image/webp"`), 크기·형식 오류 안내, AI 처리·원본 삭제 고지, 가격 블록(가격은 서버 설정값). 업로드 후 `/recognitions/:id`. 하단 보조 영역: 비로그인이면 “이미 이용 중이신가요?” + `LoginOptions`(returnTo `/`), 로그인 상태면 “내 달력 보기”(`/calendar`) 링크. 주 버튼은 ‘사진 선택’ 하나로 유지 |
 | `/recognitions/:id` | `RecognitionProgress`, `BlurredPreviewGate`, `RecoverableError` | 진입 시 `process` 호출 + 2초 폴링. 단계 문구(“사진 확인 중 → 표 읽는 중”), 지연 시(15초+) 안내, 허위 진행률 금지. 실패 → 원인·재시도·다른 사진. 성공+익명 → 블러 게이트(“근무표를 읽었어요. 내 달력을 확인해 보세요.”, 고정 플레이스홀더, `aria-hidden`, 로그인 버튼, 두 달 무료 안내, 사진 재업로드 불필요 안내). `?login=failed` → 재시도 안내. 성공+로그인 → claim 후 `/select`로 이동. 만료 → 재업로드 안내 |
 | `/recognitions/:id/select` | `PersonMonthSelector` | 월 입력(`type=month`, 제한 없음, 인식값 기본), 이름 라디오(긴 이름 줄바꿈), “이름이 없어요” → 직접 입력 + 원본 보기(`SourcePreview` 확대) → 수동 draft |
-| `/drafts/:id` | `SourcePreview`, `MonthGrid`, `ShiftEditor`, `ShiftTimeEditor` | 원본 비교(선택 행 날짜 머리글+rawText 표, 원본 이미지 확대 보기), “확인 필요 N일” 경고(날짜 나열), 달력에서 날짜 선택 → 하단 편집(코드 버튼 + 사용자 정의 코드 추가 + 미확인), 근무 시간 편집(시작·종료·다음 날·휴무 여부, 코드 추가/삭제), 이름·월 수정, 저장 버튼(차단 사유 표시, 권한 문구: “첫 번째 무료 월로 저장돼요” / “이미 등록한 달이라 추가 비용 없이 저장돼요” / “1,900원 구매 후 저장”). 402 → `/checkout/:ym?draftId=`. 409 → 최신 내용 불러오기 안내 |
+| `/drafts/:id` | `SourcePreview`, `MonthGrid`, `ShiftEditor`, `ShiftTimeEditor` | 원본 비교(선택 행 날짜 머리글+rawText 표, 원본 이미지 확대 보기), “확인 필요 N일” 경고(날짜 나열), 달력에서 날짜 선택 → 하단 편집(코드 버튼 + 사용자 정의 코드 추가 + 미확인), 근무 시간 편집(시작·종료·다음 날·휴무 여부, 코드 추가/삭제), 이름·월 수정, 저장 버튼(차단 사유 표시, 권한 문구: “첫 번째 무료 월로 저장돼요” / “이미 등록한 달이라 추가 비용 없이 저장돼요” / “990원 구매 후 저장”). 402 → `/checkout/:ym?draftId=`. 409 → 최신 내용 불러오기 안내 |
 | `/calendar/:ym` | `MonthGrid`(읽기), 날짜 상세, `EmptyState` | 월 전환(공개 월 목록), 근무·휴무 수, 공유·내보내기 버튼, 근무 수정(`edit`), 다음 달 등록, 무료 잔여 안내, 달력 삭제(확인). 공유 활성인데 이 달이 비공개면 “공유 링크에 이 달 공개” 확인 배너 |
 | `/calendar/:ym/share` | `ExportSheet`, `ShareSettings` | 세 행동(링크 공유 / 캘린더 추가 / 이미지 저장)을 같은 위치. 링크: 표시 이름·공개 월 체크, 만들기 → Web Share 또는 복사, 재발급·중지. ICS: 시간 목록, “휴무도 종일 일정으로 추가”(기본 해제), 일회성 가져오기·중복 가능 안내, 다운로드. PNG: 미리보기 후 생성(`PngRenderer`), Web Share files 또는 다운로드, 공유 취소(AbortError)는 오류로 표시 안 함 |
-| `/checkout/:ym` | `MonthCheckout` | 대상 연월, 1,900원, 포함 항목, 단건·자동결제 없음, (토스) 결제위젯 / (mock) 테스트 성공·실패 버튼. 결과 페이지에서 confirm → 발행 → 달력 이동. 실패 시 draft 유지 안내 |
+| `/checkout/:ym` | `MonthCheckout` | 대상 연월, 990원, 포함 항목, 단건·자동결제 없음, (토스) 결제위젯 / (mock) 테스트 성공·실패 버튼. 결과 페이지에서 confirm → 발행 → 달력 이동. 실패 시 draft 유지 안내 |
 | `/s/:token` | `SharedCalendarView`, `SharedExportActions` | 표시 이름·월 전환(공개 월만)·일정 상세·최종 수정 시각·읽기 전용 안내. 원본·동료 이름·수정 UI 없음. 무효 토큰은 “링크가 만료되었거나 공유가 중지되었어요”. **받은 사람 내보내기**: 보고 있는 달을 “달력 이미지 저장”(공유 응답 데이터로 `PngRenderer` 사용, 소유자 PNG와 같은 구성, Web Share files 또는 다운로드 `offnal-shared-YYYY-MM.png`, 공유 취소는 오류 아님)과 “내 캘린더에 추가”(휴무 포함 체크 기본 해제, 일회성 가져오기·자동 반영 안 됨·중복 가능 안내) — 로그인 불필요 |
 
 `PngRenderer`: 폭 1080px 캔버스(2x), 항상 밝은 배경, 제목(이름·연월), 요일 머리글, 날짜 칸(숫자+코드 배지 색), 범례(코드·표시명·시간), 생성 시각, 워드마크. `await document.fonts.ready` 후 그림. `canvas.toBlob('image/png')`.
@@ -355,7 +358,7 @@ interface PaymentProvider {
 
 ## 12. 환경 변수 (`.env.example`)
 
-`OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, DATABASE_MIGRATION_URL(db:migrate 전용, 세션 풀러/직접 연결), DATABASE_SSL_ROOT_CERT(선택, 기본은 저장소의 Supabase Root 2021 CA로 검증), AUTH_PROVIDERS(kakao,dev), NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY(또는 레거시 NEXT_PUBLIC_SUPABASE_ANON_KEY, 공개 가능; JWT 검증은 getClaims가 프로젝트 JWKS로 하므로 별도 issuer 값 불필요), VISION_PROVIDER(anthropic|gemini|mock), ANTHROPIC_API_KEY, GEMINI_API_KEY, GEMINI_TIER(free|paid, production의 gemini는 paid 필수), VISION_MODEL(기본 claude-opus-5-5, gemini는 gemini-3.7-flash), VISION_EFFORT, VISION_TIMEOUT_MS, VISION_PIPELINE(baseline|warp|warp-strip, 기본 warp-strip), MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(1900), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
+`OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, DATABASE_MIGRATION_URL(db:migrate 전용, 세션 풀러/직접 연결), DATABASE_SSL_ROOT_CERT(선택, 기본은 저장소의 Supabase Root 2021 CA로 검증), AUTH_PROVIDERS(kakao,dev), NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY(또는 레거시 NEXT_PUBLIC_SUPABASE_ANON_KEY, 공개 가능; JWT 검증은 getClaims가 프로젝트 JWKS로 하므로 별도 issuer 값 불필요), VISION_PROVIDER(anthropic|gemini|mock), ANTHROPIC_API_KEY, GEMINI_API_KEY, GEMINI_TIER(free|paid, production의 gemini는 paid 필수), VISION_MODEL(기본 claude-opus-5-5, gemini는 gemini-3.7-flash), VISION_EFFORT, VISION_TIMEOUT_MS, VISION_PIPELINE(baseline|warp|warp-strip, 기본 warp-strip), MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(990), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
 
 한도·TTL 숫자는 모두 **초기 제안값**이며 README에 그렇게 명시한다.
 
@@ -375,7 +378,7 @@ interface PaymentProvider {
 
 ## 14. 공유 미리보기(OG)·아이콘 (2026-09-30 추가)
 
-- 전역 메타데이터(`src/app/layout.tsx`의 `generateMetadata`): `metadataBase = APP_URL`, title 템플릿 `%s · 오프날`, 기본 title `오프날 — 근무표 한 장으로 내 근무 달력`, description `근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. 처음 두 달 무료, 이후 한 달분 1,900원.`(끝 문장의 무료 개월 수·가격은 설정값 `FREE_MONTH_LIMIT`·`PRICE_KRW`로 만든다), `openGraph`(type website, siteName 오프날, locale ko_KR, images 1200×630 `/og-image.png` + alt). **og:url은 `/`와 `/upload`에서만** 각 페이지 주소로 설정한다(`buildEntryPageMetadata`) — 하위 세그먼트의 openGraph는 부모를 통째로 대체하므로, 전역에 url을 두면 다른 화면 미리보기가 잘못된 주소를 가리킨다, `twitter`(summary_large_image). 카카오톡 미리보기는 같은 og 태그를 읽는다: 이미지 800×400 이상, 핵심 요소는 가운데 안전 영역(가로 중앙 630px 정사각형 안)에 둔다(카카오가 1:1로 잘라 보여줄 수 있음).
+- 전역 메타데이터(`src/app/layout.tsx`의 `generateMetadata`): `metadataBase = APP_URL`, title 템플릿 `%s · 오프날`, 기본 title `오프날 — 근무표 한 장으로 내 근무 달력`, description `근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. 처음 두 달 무료, 이후 한 달분 990원.`(끝 문장의 무료 개월 수·가격은 설정값 `FREE_MONTH_LIMIT`·`PRICE_KRW`로 만든다), `openGraph`(type website, siteName 오프날, locale ko_KR, images 1200×630 `/og-image.png` + alt). **og:url은 `/`와 `/upload`에서만** 각 페이지 주소로 설정한다(`buildEntryPageMetadata`) — 하위 세그먼트의 openGraph는 부모를 통째로 대체하므로, 전역에 url을 두면 다른 화면 미리보기가 잘못된 주소를 가리킨다, `twitter`(summary_large_image). 카카오톡 미리보기는 같은 og 태그를 읽는다: 이미지 800×400 이상, 핵심 요소는 가운데 안전 영역(가로 중앙 630px 정사각형 안)에 둔다(카카오가 1:1로 잘라 보여줄 수 있음).
 - `public/og-image.png`(1200×630, 밝은 배경 #ffffff/#f4f6fb, 파란 강조 #3155e7, 워드마크 “오프날”, 헤드라인 “근무표 한 장이면 이번 달 준비 끝.”, 미니 달력 일러스트(가상 코드 배지 D/E/N/OFF 색상), 한국어 글꼴 렌더링 확인)와 아이콘(`src/app/icon.png` 512, `src/app/apple-icon.png` 180) — 스크립트로 생성해 커밋.
 - `/s/:token`: **개인정보 없는 고정 미리보기** — title `공유받은 근무표`, description `오프날로 공유된 근무 달력이에요. 로그인 없이 볼 수 있어요.` 표시 이름·월·근무를 og에 넣지 않는다(카카오 등 미리보기 캐시가 링크 중지 후에도 남기 때문). noindex 유지.
 - 로그인 사용자 전용·개인 화면(`/recognitions/*`, `/drafts/*`, `/calendar/*`, `/checkout/*`)은 `robots: { index: false, follow: false }`. `/`·`/upload`만 색인 허용.
