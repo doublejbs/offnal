@@ -5,7 +5,13 @@ import { OcrCodeSource } from '@/domain/enums/OcrCodeSource';
 import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { collapseRepeats, resolveByConsensus } from '@/server/vision/ocr/GlyphConsensus';
 import { type GlyphDescriptor } from '@/server/vision/ocr/GlyphDescriptor';
-import { buildOcrExtraction, countUnresolved, findOcrRow } from '@/server/vision/ocr/OcrPersonExtraction';
+import {
+  buildOcrExtraction,
+  countBlankCells,
+  countReviewCells,
+  countUnresolved,
+  findOcrRow,
+} from '@/server/vision/ocr/OcrPersonExtraction';
 import { type OcrCell, type OcrTable } from '@/server/vision/ocr/OcrTableTypes';
 
 /** Descriptor whose densities are `value` everywhere (distinct values = distinct shapes). */
@@ -81,7 +87,8 @@ describe('OCR person extraction', () => {
           cell(1, OcrCellInk.TEXT, 'D', ''),
           cell(2, OcrCellInk.DASH, null, null),
           cell(3, OcrCellInk.TEXT, null, 'OF'),
-          ...Array.from({ length: 25 }, (_value, index) => cell(index + 4, OcrCellInk.BLANK, null, null)),
+          cell(4, OcrCellInk.AMBIGUOUS, null, null),
+          ...Array.from({ length: 24 }, (_value, index) => cell(index + 5, OcrCellInk.BLANK, null, null)),
         ],
       },
       {
@@ -101,13 +108,19 @@ describe('OCR person extraction', () => {
     ],
   };
 
-  it('maps decided, dash and unresolved cells for normalizeExtraction', () => {
+  it('maps decided, dash, unresolved and faint cells for normalizeExtraction', () => {
     const row = findOcrRow(table, '가상 하나')!;
-    const schedule = normalizeExtraction(buildOcrExtraction(table, row, '2026-02'), '2026-02');
+    const extraction = buildOcrExtraction({ ...table, yearMonth: '2026-04' }, row, '2026-02');
+    const schedule = normalizeExtraction(extraction, '2026-02');
 
-    expect(schedule.entries.slice(0, 3).map((entry) => entry.code)).toEqual(['D', null, null]);
-    expect(countUnresolved(row, '2026-02')).toBe(1);
-    expect(countUnresolved(row, '2026-03')).toBe(1 + 3);
+    expect(extraction.yearMonth).toBe('2026-02');
+    expect(schedule.entries.slice(0, 4).map((entry) => entry.code)).toEqual(['D', null, null, null]);
+    // Fallback count: unread text + faint ink (+ days the grid misses); blank and dash are not counted.
+    expect(countUnresolved(row, '2026-02')).toBe(2);
+    expect(countUnresolved(row, '2026-03')).toBe(2 + 3);
+    // AI-free count: every day left to confirm, blank and dash included (same rule as for AI results).
+    expect(countBlankCells(row, '2026-02')).toBe(25);
+    expect(countReviewCells(schedule)).toBe(27);
     expect(findOcrRow(table, '가상둘')).toBeNull();
   });
 });

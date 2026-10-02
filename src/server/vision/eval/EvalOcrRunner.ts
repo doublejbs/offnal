@@ -1,34 +1,26 @@
 import { OcrEvalPipeline } from '@/domain/enums/OcrEvalPipeline';
-import { OcrFallbackReason } from '@/domain/enums/OcrFallbackReason';
 import { VisionEvalFailureKind } from '@/domain/enums/VisionEvalFailureKind';
 import { VisionEvalPersonOutcome } from '@/domain/enums/VisionEvalPersonOutcome';
 import { VisionEvalStatus } from '@/domain/enums/VisionEvalStatus';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
-import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
 import { callWithRetry } from '@/server/vision/eval/EvalCallRetry';
 import { renderOcrGrid, renderOcrQuad, renderOcrRow } from '@/server/vision/eval/EvalOcrDebug';
+import { scoreOcrPerson } from '@/server/vision/eval/EvalOcrPersonScore';
 import { buildFailedPersonRun, runPerson } from '@/server/vision/eval/EvalPersonRunner';
-import { detectNeighbourRead, scorePerson, scoreTable } from '@/server/vision/eval/EvalScoring';
+import { scoreTable } from '@/server/vision/eval/EvalScoring';
 import { type EvalSample } from '@/server/vision/eval/EvalTruth';
 import {
   type CallRecord,
   type EvalCallContext,
   type EvalDebugSink,
   type EvalRun,
-  type OcrPersonRecord,
   type PersonRun,
 } from '@/server/vision/eval/EvalTypes';
-import {
-  buildOcrExtraction,
-  countUnresolved,
-  findOcrRow,
-  toOcrRowId,
-  UNRESOLVED_FALLBACK_THRESHOLD,
-} from '@/server/vision/ocr/OcrPersonExtraction';
+import { toOcrRowId } from '@/server/vision/ocr/OcrPersonExtraction';
 import { type OcrProvider } from '@/server/vision/ocr/OcrProvider';
 import { readOcrTable } from '@/server/vision/ocr/OcrTableReader';
-import { type OcrRow, type OcrTable, type OcrTableResult } from '@/server/vision/ocr/OcrTableTypes';
+import { type OcrTable, type OcrTableResult } from '@/server/vision/ocr/OcrTableTypes';
 import { type RawImage } from '@/server/vision/VisionGeometry';
 import { preparePipelineImage, type PreparedPipelineImage } from '@/server/vision/VisionPipeline';
 import { type VisionImage, type VisionProvider } from '@/server/vision/VisionProvider';
@@ -65,94 +57,13 @@ export const readSampleWithOcr = async (
   return result;
 };
 
-type OcrPerson = { run: PersonRun; row: OcrRow | null; fallback: OcrFallbackReason | null };
-
-/** Scores one truth person from the OCR table alone (null schedule = all days wrong, like a missed name). */
-const scoreOcrPerson = (sample: EvalSample, name: string, result: OcrTableResult): OcrPerson => {
-  const { truth } = sample;
-  const base = { ocrLatencyMs: result.latencyMs, aiPass1: null };
-
-  if (!result.ok) {
-    const ocr: OcrPersonRecord = {
-      ...base,
-      nameFound: false,
-      unresolvedCells: null,
-      finishedByOcr: false,
-      fallback: OcrFallbackReason.TABLE_FAILED,
-      tapRowCorrectDays: null,
-      tapRowUnresolved: null,
-    };
-
-    return {
-      run: { ...buildFailedPersonRun(truth, name, VisionEvalPersonOutcome.SCORED), ocr },
-      row: null,
-      fallback: OcrFallbackReason.TABLE_FAILED,
-    };
-  }
-
-  const { table } = result;
-  const toSchedule = (target: OcrRow) =>
-    normalizeExtraction(buildOcrExtraction(table, target, truth.yearMonth), truth.yearMonth);
-  // "Tap my row" (metric only): truth names are listed top to bottom, so the index is the row.
-  const tapRow =
-    table.rows.length === truth.allNames.length ? table.rows[truth.allNames.indexOf(name)] : undefined;
-  const tap = tapRow
-    ? {
-        correct: scorePerson(truth, name, toOcrRowId(tapRow), toSchedule(tapRow)).correctDays,
-        unresolved: countUnresolved(tapRow, truth.yearMonth),
-      }
-    : null;
-  const row = findOcrRow(table, name);
-  const unresolvedCells = row ? countUnresolved(row, truth.yearMonth) : null;
-  const fallback =
-    row === null
-      ? OcrFallbackReason.NAME_NOT_FOUND
-      : unresolvedCells! >= UNRESOLVED_FALLBACK_THRESHOLD
-        ? OcrFallbackReason.UNRESOLVED_CELLS
-        : null;
-  const ocr: OcrPersonRecord = {
-    ...base,
-    nameFound: row !== null,
-    unresolvedCells,
-    finishedByOcr: row !== null && unresolvedCells === 0,
-    fallback: null,
-    tapRowCorrectDays: tap?.correct ?? null,
-    tapRowUnresolved: tap?.unresolved ?? null,
-  };
-
-  if (!row) {
-    return {
-      run: { ...buildFailedPersonRun(truth, name, VisionEvalPersonOutcome.SCORED), ocr },
-      row,
-      fallback,
-    };
-  }
-
-  const schedule = toSchedule(row);
-  const neighbours = [table.rows[row.index - 1]?.name ?? null, table.rows[row.index + 1]?.name ?? null];
-
-  return {
-    run: {
-      score: scorePerson(truth, name, toOcrRowId(row), schedule),
-      outcome: VisionEvalPersonOutcome.SCORED,
-      call: null,
-      calls: [],
-      route: null,
-      fallback: null,
-      identityVerified: true,
-      neighbourRead: detectNeighbourRead(truth, name, neighbours, schedule),
-      ocr,
-    },
-    row,
-    fallback,
-  };
-};
-
 type OcrRunInput = {
   sample: EvalSample;
   people: string[];
   repeat: number;
   result: OcrTableResult;
+  /** Unresolved cells that hand a person to AI in `ocr-then-ai`. */
+  fallbackThreshold: number;
   debug?: EvalDebugSink;
 };
 
@@ -202,7 +113,7 @@ export const runOcrPipeline = async (input: OcrRunInput): Promise<EvalRun> => {
   const people: PersonRun[] = [];
 
   for (const [index, name] of input.people.entries()) {
-    const person = scoreOcrPerson(input.sample, name, input.result);
+    const person = scoreOcrPerson(input.sample, name, input.result, input.fallbackThreshold);
     const image = person.row && input.debug ? await renderOcrRow(input.result.geometry, person.row) : null;
 
     if (image && input.debug) {
@@ -226,8 +137,7 @@ type AiSetup = { pass1: CallRecord; table: TableRecognition | null; prepared: Pr
 
 /**
  * `--pipeline ocr-then-ai`: OCR first; a person goes to the existing warp-strip AI pipeline only when the
- * table could not be read, the name was not found, or ≥ UNRESOLVED_FALLBACK_THRESHOLD cells are
- * unresolved. Pass 1 runs lazily, once per photo, only when someone needs AI.
+ * table could not be read, the name was not found, or ≥ `fallbackThreshold` cells are unresolved. Pass 1 runs lazily, once per photo, only when someone needs AI.
  */
 export const runOcrThenAiPipeline = async (input: OcrThenAiInput): Promise<EvalRun> => {
   const { context, provider, sample, repeat, debug } = input;
@@ -253,7 +163,7 @@ export const runOcrThenAiPipeline = async (input: OcrThenAiInput): Promise<EvalR
   const people: PersonRun[] = [];
 
   for (const [index, name] of input.people.entries()) {
-    const person = scoreOcrPerson(sample, name, input.result);
+    const person = scoreOcrPerson(sample, name, input.result, input.fallbackThreshold);
 
     if (person.fallback === null) {
       people.push(person.run);

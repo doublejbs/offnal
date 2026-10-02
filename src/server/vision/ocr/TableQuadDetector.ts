@@ -1,5 +1,5 @@
 import { isValidQuad } from '@/server/vision/PerspectiveWarp';
-import { type EdgeLine, type EdgeSample, fitEdgeLine, intersectEdges } from '@/server/vision/ocr/EdgeLineFit';
+import { type EdgeSample, fitEdgeLine, intersectEdges } from '@/server/vision/ocr/EdgeLineFit';
 import { type Component, labelComponents } from '@/server/vision/ocr/ConnectedComponents';
 import { buildInkMask, createGray, type GrayImage, toGrayChroma } from '@/server/vision/ocr/GrayRaster';
 import { type Quad, type RawImage } from '@/server/vision/VisionGeometry';
@@ -21,8 +21,6 @@ const EDGE_TOLERANCE_PX = 2.5;
 export type TableQuadDetection = {
   /** Outer border of the table in source pixels (TL, TR, BR, BL). */
   quad: Quad;
-  /** Share of border samples on the fitted lines, per edge (top, right, bottom, left). */
-  edgeSupport: number[];
 };
 
 /** 3×3 binary dilation: bridges one-pixel breaks so the printed grid becomes one component. */
@@ -144,10 +142,5 @@ export const detectTableQuad = (image: RawImage): TableQuadDetection | null => {
     return null;
   }
 
-  return {
-    quad,
-    edgeSupport: lines.map((line: EdgeLine | null, index) =>
-      line ? line.inliers / Math.max(1, borders[index]!.length) : 0,
-    ),
-  };
+  return { quad };
 };

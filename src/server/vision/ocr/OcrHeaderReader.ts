@@ -20,6 +20,8 @@ export type HeaderLayout = {
   /** Grid column of day 1. */
   dayOneColumn: number;
   header: DayHeader;
+  /** Raw digit reading of every column from day 1 on (index = day − 1; '' when nothing was read). */
+  dayTexts: string[];
 };
 
 /** The day-number row is searched among the first rows (a stray line above the table may come first). */
@@ -42,7 +44,7 @@ const readDigitsRow = async (ocr: OcrProvider, gray: GrayImage, grid: TableGrid,
         pageSegMode: OcrPageSegMode.SINGLE_LINE,
       });
 
-      return text ? parseDayNumber(text.text) : null;
+      return text?.text ?? '';
     }),
   );
 
@@ -75,7 +77,7 @@ const readWeekdays = async (
 
 /**
  * Finds the day-number row (digit-whitelisted OCR of every column, contiguity 1…N validated) among the
- * first rows, then whether a weekday row follows (Spec §20). The first column is the name column.
+ * first rows, then whether a weekday row follows (Spec §20). Columns before day 1 hold the name.
  */
 export const readHeaderLayout = async (
   ocr: OcrProvider,
@@ -83,13 +85,14 @@ export const readHeaderLayout = async (
   grid: TableGrid,
 ): Promise<HeaderLayout | null> => {
   const rowCount = grid.rowLines.length - 1;
-  let best: { row: number; header: DayHeader } | null = null;
+  let best: { row: number; header: DayHeader; texts: string[] } | null = null;
 
   for (let row = 0; row < Math.min(HEADER_SEARCH_ROWS, rowCount); row += 1) {
-    const header = validateDayHeader(await readDigitsRow(ocr, gray, grid, row));
+    const texts = await readDigitsRow(ocr, gray, grid, row);
+    const header = validateDayHeader(texts.map(parseDayNumber));
 
     if (header && (!best || header.matchedDays > best.header.matchedDays)) {
-      best = { row, header };
+      best = { row, header, texts };
     }
   }
 
@@ -107,5 +110,7 @@ export const readHeaderLayout = async (
     firstPersonRow: hasWeekdays ? weekdayRow + 1 : weekdayRow,
     dayOneColumn,
     header: best.header,
+    // Header texts start at grid column 1 (column 0 is never a day).
+    dayTexts: best.texts.slice(dayOneColumn - 1),
   };
 };

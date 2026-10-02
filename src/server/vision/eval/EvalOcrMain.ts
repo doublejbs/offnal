@@ -66,6 +66,8 @@ export const runOcrEval = async (
     }
   }
 
+  let loopFailed = false;
+
   try {
     for (let repeat = 1; repeat <= args.repeat; repeat += 1) {
       for (const { sample, image, people } of samples) {
@@ -76,7 +78,7 @@ export const runOcrEval = async (
         );
         const debug = createDebugSink(debugRoot, OCR_MODEL_LABEL, sample.id, repeat);
         const result = await readSampleWithOcr(ocr, source, debug);
-        const input = { sample, people, repeat, result, debug };
+        const input = { sample, people, repeat, result, fallbackThreshold: args.ocrFallbackThreshold, debug };
 
         log(
           `[ocr] ${sample.id} #${repeat} ${result.ok ? `rows ${result.table.rows.length}, days ${result.table.dayCount}` : `FAILED ${result.failure}`} ${(result.latencyMs / 1000).toFixed(1)}s`,
@@ -111,8 +113,19 @@ export const runOcrEval = async (
         }
       }
     }
+  } catch (error: unknown) {
+    loopFailed = true;
+
+    throw error;
   } finally {
-    await ocr.terminate();
+    // A terminate error must not mask the loop's own error (it is only logged then).
+    await ocr.terminate().catch((error: unknown) => {
+      if (!loopFailed) {
+        throw error;
+      }
+
+      log(`[ocr] terminate failed: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   const combos = [

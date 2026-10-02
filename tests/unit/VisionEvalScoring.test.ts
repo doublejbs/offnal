@@ -239,6 +239,7 @@ describe('vision eval scoring', () => {
       repeat: 2,
       pipelines: [VisionPipelineMode.WARP_STRIP],
       ocrPipelines: [],
+      ocrFallbackThreshold: 3,
     });
     expect(() => parseEvalArgs(['--models', 'a', '--repeat', '0'])).toThrow(/--repeat/);
     expect(() => parseEvalArgs([])).toThrow(/--models/);

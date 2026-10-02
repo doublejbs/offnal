@@ -6,4 +6,6 @@ export enum OcrCellInk {
   DASH = 'dash',
   /** Glyphs to read with OCR. */
   TEXT = 'text',
+  /** Faint ink, neither clearly blank nor clearly text: not read, left null for the user to confirm. */
+  AMBIGUOUS = 'ambiguous',
 }

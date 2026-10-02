@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { OcrEvalPipeline } from '@/domain/enums/OcrEvalPipeline';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
+import { UNRESOLVED_FALLBACK_THRESHOLD } from '@/server/vision/ocr/OcrPersonExtraction';
 
 export type EvalModelTarget = {
   /** As given on the command line, e.g. `gemini-3.7-flash` or `anthropic:claude-opus-5-5`. */
@@ -22,6 +23,8 @@ export type EvalArgs = {
   pipelines: VisionPipelineMode[];
   /** AI-free pipelines (Spec §20); `ocr-then-ai` runs per model, `ocr` once. */
   ocrPipelines: OcrEvalPipeline[];
+  /** `ocr-then-ai` hands a person to AI at this many unresolved cells (Spec §20-8; default 3). */
+  ocrFallbackThreshold: number;
 };
 
 const ANTHROPIC_PREFIX = 'anthropic:';
@@ -67,7 +70,7 @@ const parsePipelines = (value: string | undefined) => {
 };
 
 /**
- * Parses `--dir --models --people --repeat --pipeline`. A bare `--` (from `pnpm x -- …`) is ignored. `--models`
+ * Parses `--dir --models --people --repeat --pipeline --ocr-fallback-threshold`. A bare `--` (from `pnpm x -- …`) is ignored. `--models`
  * may be omitted when only `--pipeline ocr` runs (no AI call).
  */
 export const parseEvalArgs = (argv: string[]): EvalArgs => {
@@ -79,12 +82,14 @@ export const parseEvalArgs = (argv: string[]): EvalArgs => {
       people: { type: 'string' },
       repeat: { type: 'string', default: '1' },
       pipeline: { type: 'string' },
+      'ocr-fallback-threshold': { type: 'string', default: String(UNRESOLVED_FALLBACK_THRESHOLD) },
     },
     strict: true,
   });
   const models = splitList(values.models).map(parseModelTarget);
   const people = splitList(values.people);
   const repeat = Number(values.repeat);
+  const ocrFallbackThreshold = Number(values['ocr-fallback-threshold']);
   const { pipelines, ocrPipelines } = parsePipelines(values.pipeline);
   const needsModel = pipelines.length > 0 || ocrPipelines.includes(OcrEvalPipeline.OCR_THEN_AI);
 
@@ -96,6 +101,10 @@ export const parseEvalArgs = (argv: string[]): EvalArgs => {
     throw new Error('--repeat must be a positive integer');
   }
 
+  if (!Number.isInteger(ocrFallbackThreshold) || ocrFallbackThreshold < 1) {
+    throw new Error('--ocr-fallback-threshold must be a positive integer');
+  }
+
   return {
     dir: values.dir,
     models,
@@ -103,6 +112,7 @@ export const parseEvalArgs = (argv: string[]): EvalArgs => {
     repeat,
     pipelines,
     ocrPipelines,
+    ocrFallbackThreshold,
   };
 };
 

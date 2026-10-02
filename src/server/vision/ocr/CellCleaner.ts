@@ -28,12 +28,18 @@ export type CleanCell = {
   glyphs: GrayImage | null;
   /** Anti-aliased gray (0 = ink, 255 = paper) of the kept glyphs only, contrast stretched (for OCR). */
   shades: GrayImage | null;
-  /** Kept ink pixels / cell area (0 for blank). */
-  inkShare: number;
 };
 
-/** Ink must differ from the background by this many gray levels, or the cell is blank. */
-const MIN_CONTRAST = 45;
+/** Ink must differ from the background by this many gray levels to be read as text or a dash. */
+export const MIN_CONTRAST = 45;
+/**
+ * Below MIN_CONTRAST, a cell is faint rather than blank when its contrast is at least this and a kept
+ * component is glyph-tall (paper grain and line dust stay under ~0.15 of the cell height; the eval
+ * samples' blank cells reach contrast ≤ 30 with such specks only, their text cells ≥ 45).
+ */
+export const FAINT_MIN_CONTRAST = 20;
+export const FAINT_GLYPH_HEIGHT_SHARE = 0.25;
+
 /** Local window radius (share of the cell height) and how much darker than it ink must be. */
 const LOCAL_RADIUS_SHARE = 0.35;
 const LOCAL_DARK_SHARE = 0.9;
@@ -45,7 +51,8 @@ const LINE_REMNANT_SHARE = 0.6;
 const DASH_MAX_HEIGHT_SHARE = 0.18;
 const DASH_MIN_ASPECT = 1.8;
 
-const BLANK_CELL: CleanCell = { ink: OcrCellInk.BLANK, glyphs: null, shades: null, inkShare: 0 };
+const BLANK_CELL: CleanCell = { ink: OcrCellInk.BLANK, glyphs: null, shades: null };
+const AMBIGUOUS_CELL: CleanCell = { ink: OcrCellInk.AMBIGUOUS, glyphs: null, shades: null };
 
 const touchesBorder = (component: Component, width: number, height: number): boolean =>
   component.left === 0 ||
@@ -169,7 +176,7 @@ const buildShades = (
 /**
  * Isolates the glyphs of one table cell (Spec §20): trims the borders, binarizes with Otsu (works on
  * colored weekend backgrounds and highlighter), drops specks, grid-line remnants and circles, and
- * classifies the result as blank, dash or text.
+ * classifies the result as blank, dash, text or ambiguous (faint ink: 확인 필요, never guessed).
  */
 export const cleanCell = (gray: GrayImage, rect: PixelRect, options: CleanCellOptions): CleanCell => {
   const insetX = (rect.right - rect.left) * options.inset;
@@ -189,8 +196,9 @@ export const cleanCell = (gray: GrayImage, rect: PixelRect, options: CleanCellOp
   const threshold = computeOtsuThreshold(crop, { left: 0, top: 0, right: width, bottom: height });
 
   const levels = measureLevels(crop, threshold);
+  const contrast = levels.paper - levels.ink;
 
-  if (levels.paper - levels.ink < MIN_CONTRAST) {
+  if (contrast < FAINT_MIN_CONTRAST) {
     return BLANK_CELL;
   }
 
@@ -210,6 +218,13 @@ export const cleanCell = (gray: GrayImage, rect: PixelRect, options: CleanCellOp
     return BLANK_CELL;
   }
 
+  if (contrast < MIN_CONTRAST) {
+    // Faint ink (pale pencil, washed-out photo): neither clearly blank nor clearly text, so never read.
+    const glyphTall = kept.some((component) => boxHeight(component) >= height * FAINT_GLYPH_HEIGHT_SHARE);
+
+    return glyphTall ? AMBIGUOUS_CELL : BLANK_CELL;
+  }
+
   const box = {
     left: Math.min(...kept.map((component) => component.left)),
     top: Math.min(...kept.map((component) => component.top)),
@@ -218,13 +233,11 @@ export const cleanCell = (gray: GrayImage, rect: PixelRect, options: CleanCellOp
   };
   const keptLabels = new Set(kept.map((component) => component.label));
   const glyphs = createGray(box.right - box.left, box.bottom - box.top);
-  let inkCount = 0;
 
   for (let y = box.top; y < box.bottom; y += 1) {
     for (let x = box.left; x < box.right; x += 1) {
       if (keptLabels.has(labels[y * width + x]!)) {
         glyphs.data[(y - box.top) * glyphs.width + (x - box.left)] = 1;
-        inkCount += 1;
       }
     }
   }
@@ -238,6 +251,5 @@ export const cleanCell = (gray: GrayImage, rect: PixelRect, options: CleanCellOp
     ink: isDash ? OcrCellInk.DASH : OcrCellInk.TEXT,
     glyphs,
     shades: buildShades(crop, labels, keptLabels, box, levels),
-    inkShare: inkCount / (width * height),
   };
 };

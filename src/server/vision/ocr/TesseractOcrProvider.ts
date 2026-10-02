@@ -36,6 +36,25 @@ export const createTesseractOcrProvider = (options: TesseractOptions = {}): OcrP
   const poolSize = options.poolSize ?? DEFAULT_POOL_SIZE;
   const pools = new Map<string, Promise<PooledWorker[]>>();
 
+  /** Starts `poolSize` workers; if any fails, the ones that started are terminated before rethrowing. */
+  const startPool = async (languages: string[]): Promise<PooledWorker[]> => {
+    await mkdir(cacheDir, { recursive: true });
+
+    const settled = await Promise.allSettled(
+      Array.from({ length: poolSize }, () => createWorker(languages, OEM.LSTM_ONLY, { cachePath: cacheDir })),
+    );
+    const workers = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []));
+    const failure = settled.find((result) => result.status === 'rejected');
+
+    if (failure) {
+      await Promise.allSettled(workers.map((worker) => worker.terminate()));
+
+      throw failure.reason;
+    }
+
+    return workers.map((worker) => ({ worker, params: '', queue: Promise.resolve(), pending: 0 }));
+  };
+
   const getPool = (languages: string[]): Promise<PooledWorker[]> => {
     const key = languages.join('+');
     const existing = pools.get(key);
@@ -44,17 +63,14 @@ export const createTesseractOcrProvider = (options: TesseractOptions = {}): OcrP
       return existing;
     }
 
-    const created = (async () => {
-      await mkdir(cacheDir, { recursive: true });
+    // A failed start is forgotten so a later call can retry (and terminate() does not see it).
+    const created = startPool(languages).catch((error: unknown) => {
+      if (pools.get(key) === created) {
+        pools.delete(key);
+      }
 
-      const workers = await Promise.all(
-        Array.from({ length: poolSize }, () =>
-          createWorker(languages, OEM.LSTM_ONLY, { cachePath: cacheDir }),
-        ),
-      );
-
-      return workers.map((worker) => ({ worker, params: '', queue: Promise.resolve(), pending: 0 }));
-    })();
+      throw error;
+    });
 
     pools.set(key, created);
 
@@ -94,11 +110,22 @@ export const createTesseractOcrProvider = (options: TesseractOptions = {}): OcrP
     }
   };
 
+  /** Terminates every pool that started; a pool that failed to start already released its workers. */
   const terminate = async (): Promise<void> => {
-    const all = await Promise.all(pools.values());
+    const settled = await Promise.allSettled(pools.values());
 
     pools.clear();
-    await Promise.all(all.flat().map((item) => item.worker.terminate()));
+
+    const results = await Promise.allSettled(
+      settled.flatMap((result) =>
+        result.status === 'fulfilled' ? result.value.map((item) => item.worker.terminate()) : [],
+      ),
+    );
+    const failure = results.find((result) => result.status === 'rejected');
+
+    if (failure) {
+      throw failure.reason;
+    }
   };
 
   return { recognize, terminate };

@@ -33,9 +33,16 @@ export type EvalPipeline = VisionPipelineMode | OcrEvalPipeline;
 export type OcrPersonRecord = {
   /** The target name was read exactly in exactly one row. */
   nameFound: boolean;
-  /** Text cells OCR left unresolved in the person's row (null when the row was not found). */
+  /**
+   * Cells OCR could not settle (unread text, faint ink) plus days the grid misses — the `ocr-then-ai`
+   * fallback count (null when the row was not found).
+   */
   unresolvedCells: number | null;
-  /** OCR alone finished the person: name found and 0 unresolved cells (the "AI 없이 처리 가능" share). */
+  /** Days left to confirm after `normalizeExtraction` (code null or AMBIGUOUS; blank/dash included). */
+  reviewCells: number | null;
+  /** Of those, cells OCR read as clearly blank or dash (AI would return null there too). */
+  blankCells: number | null;
+  /** OCR alone finished the person: name found and 0 review cells (the "AI 없이 처리" share, Spec §20-8). */
   finishedByOcr: boolean;
   /** Set when `ocr-then-ai` handed the person to AI. */
   fallback: OcrFallbackReason | null;

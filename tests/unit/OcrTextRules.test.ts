@@ -7,7 +7,13 @@ import {
   normalizeToken,
   selectFrequentTokens,
 } from '@/server/vision/ocr/CodeDictionary';
-import { isWeekdayRow, parseDayNumber, validateDayHeader } from '@/server/vision/ocr/HeaderValidator';
+import {
+  extendDayCount,
+  isPartialDayMatch,
+  isWeekdayRow,
+  parseDayNumber,
+  validateDayHeader,
+} from '@/server/vision/ocr/HeaderValidator';
 import { parseLegendDefinitions, parseTitleYearMonth } from '@/server/vision/ocr/TextPatterns';
 
 const days = (count: number) => Array.from({ length: count }, (_value, index) => index + 1);
@@ -31,6 +37,19 @@ describe('day header contiguity', () => {
     expect(parseDayNumber('3l')).toBeNull();
     expect(isWeekdayRow(['수', '목', '금', '토', '', '월', '화'])).toBe(true);
     expect(isWeekdayRow(['D', 'E', 'OFF', '수'])).toBe(false);
+  });
+});
+
+describe('day count past the validated header', () => {
+  it('extends only over columns that partially read their day number', () => {
+    const texts = [...days(30).map(String), '3'];
+
+    expect(isPartialDayMatch('37', 31)).toBe(true);
+    expect(isPartialDayMatch('', 31)).toBe(false);
+    expect(isPartialDayMatch('8', 31)).toBe(false);
+    expect(extendDayCount(30, texts, 31)).toBe(31);
+    expect(extendDayCount(29, [...days(29).map(String), '', '31'], 31)).toBe(29);
+    expect(extendDayCount(30, texts, 30)).toBe(30);
   });
 });
 

@@ -15,8 +15,13 @@ export type OcrSummary = {
   guessedCells: number;
   /** Truth has a code, result null (확인 필요). */
   nullCells: number;
-  /** Persons OCR finished alone: name read exactly and 0 unresolved cells ("AI 없이 처리 가능"). */
+  /**
+   * Persons OCR finished alone: name read exactly and 0 days to confirm after `normalizeExtraction`
+   * ("AI 없이 처리", Spec §20-8). Never counts a person with a 확인 필요 cell.
+   */
   finishedByOcr: number;
+  /** Same, but blank/dash cells (null for AI too, correct when the truth cell is blank) do not count. */
+  finishedExceptBlanks: number;
   /** Persons handed to AI (`ocr-then-ai`). */
   aiFallbacks: number;
   /** Target names OCR read exactly (one row). */
@@ -78,6 +83,12 @@ export const summarizeOcr = (
     guessedCells: base.guessedCells,
     nullCells: base.nullCells,
     finishedByOcr: people.filter((person) => person.ocr?.finishedByOcr).length,
+    finishedExceptBlanks: people.filter(
+      (person) =>
+        person.ocr?.reviewCells !== null &&
+        person.ocr?.reviewCells !== undefined &&
+        person.ocr.reviewCells - (person.ocr.blankCells ?? 0) === 0,
+    ).length,
     aiFallbacks: people.filter((person) => person.ocr?.fallback).length,
     namesFound: people.filter((person) => person.ocr?.nameFound).length,
     tapRowAccuracy:
@@ -112,6 +123,7 @@ export const formatOcrTable = (summaries: OcrSummary[]): string =>
       '추측',
       '확인 필요',
       'AI 없이 처리',
+      'AI 없이(빈칸 제외)',
       'AI fallback',
       'names exact',
       'tap-row acc',
@@ -129,6 +141,7 @@ export const formatOcrTable = (summaries: OcrSummary[]): string =>
       String(summary.guessedCells),
       String(summary.nullCells),
       percent(summary.finishedByOcr, summary.persons),
+      percent(summary.finishedExceptBlanks, summary.persons),
       percent(summary.aiFallbacks, summary.persons),
       percent(summary.namesFound, summary.persons),
       formatRatio(summary.tapRowAccuracy),

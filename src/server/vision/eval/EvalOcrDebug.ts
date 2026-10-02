@@ -14,7 +14,7 @@ const DEBUG_JPEG_QUALITY = 85;
 const TILE_HEIGHT = 56;
 const TILE_WIDTH = 96;
 const TILE_GAP = 4;
-/** Tile border colors: decided by OCR, by glyph consensus, unresolved, blank/dash. */
+/** Tile border colors: decided by OCR, by glyph consensus, unresolved (or faint), blank/dash. */
 const COLORS = { ocr: '#00b050', glyph: '#ff9900', unresolved: '#ff0033', blank: '#bbbbbb' } as const;
 
 const toJpeg = async (bytes: Buffer): Promise<VisionImage> => ({
@@ -73,6 +73,10 @@ export const renderOcrGrid = async (geometry: OcrGeometry): Promise<VisionImage 
 };
 
 const tileColor = (cell: OcrRow['cells'][number]): string => {
+  if (cell.ink === OcrCellInk.AMBIGUOUS) {
+    return COLORS.unresolved;
+  }
+
   if (cell.ink !== OcrCellInk.TEXT) {
     return COLORS.blank;
   }

@@ -61,6 +61,40 @@ export const validateDayHeader = (values: (number | null)[]): DayHeader | null =
   return best;
 };
 
+/**
+ * A day past the validated header still counts when its column read part of its number (`"3"` or `"37"`
+ * for 31): OCR saw a day number there, just not exactly. An empty or unrelated reading does not.
+ */
+export const isPartialDayMatch = (text: string, day: number): boolean => {
+  const digits = text.replace(/\D/gu, '');
+  const target = String(day);
+
+  if (digits.length === 0) {
+    return false;
+  }
+
+  return (
+    target.includes(digits) ||
+    (digits.length === target.length && [...digits].some((digit, index) => digit === target[index]))
+  );
+};
+
+/**
+ * Days N of the table: the validated header count, extended toward the title month's length (capped by
+ * the columns there) only while each further column partially reads its day number. Days not reached stay
+ * unread (MISSING_DATE, 확인 필요) instead of trusting columns the header never confirmed.
+ * `dayTexts[i]` is the header reading of day i + 1's column.
+ */
+export const extendDayCount = (headerDays: number, dayTexts: string[], targetDays: number): number => {
+  let days = headerDays;
+
+  while (days < targetDays && isPartialDayMatch(dayTexts[days] ?? '', days + 1)) {
+    days += 1;
+  }
+
+  return days;
+};
+
 /** Weekday syllables of a Korean roster's second header row. */
 export const KOREAN_WEEKDAYS = '일월화수목금토';
 

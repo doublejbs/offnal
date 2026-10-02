@@ -8,6 +8,7 @@ import { renderGrayPng } from '@/server/vision/ocr/GlyphImage';
 import { cropGray, type GrayImage } from '@/server/vision/ocr/GrayRaster';
 import { detectGrid, type TableGrid } from '@/server/vision/ocr/GridDetector';
 import { eraseGridLines } from '@/server/vision/ocr/LineEraser';
+import { extendDayCount } from '@/server/vision/ocr/HeaderValidator';
 import { median } from '@/server/vision/ocr/LineProfile';
 import { readPersonCells } from '@/server/vision/ocr/OcrCellReader';
 import { getCellRect, prepareCell, readPreparedCell } from '@/server/vision/ocr/OcrCellText';
@@ -36,6 +37,8 @@ const ERASE_HORIZONTAL_SHARE = 0.6;
 const ERASE_VERTICAL_SHARE = 0.75;
 const ERASE_SEARCH_SHARE = 0.1;
 const HANGUL_ONLY = /[^가-힣]/gu;
+/** A Korean name has at least two syllables (a lone syllable is a stray mark or a team letter). */
+const MIN_NAME_LENGTH = 2;
 
 type TextBlockPass = { languages: OcrLanguage[]; pageSegMode: OcrPageSegMode };
 
@@ -77,15 +80,18 @@ const readTextBlock = async <T>(
   return null;
 };
 
-const readNames = async (
+type NameReading = { name: string | null; confidence: number | null };
+
+const readNameColumn = async (
   ocr: OcrProvider,
   gray: GrayImage,
   grid: TableGrid,
   personRows: number[],
-): Promise<{ name: string | null; confidence: number | null }[]> =>
+  column: number,
+): Promise<NameReading[]> =>
   Promise.all(
     personRows.map(async (row) => {
-      const cell = await prepareCell(gray, getCellRect(grid.rowLines, grid.columnLines, row, 0), {
+      const cell = await prepareCell(gray, getCellRect(grid.rowLines, grid.columnLines, row, column), {
         inset: NAME_INSET,
         dropEnclosing: false,
       });
@@ -100,6 +106,30 @@ const readNames = async (
     }),
   );
 
+const countNames = (readings: NameReading[]): number =>
+  readings.filter((reading) => (reading.name?.length ?? 0) >= MIN_NAME_LENGTH).length;
+
+/**
+ * Names from the column before day 1 that reads the most Hangul names (a roster may put a number or a
+ * team column next to the names); the first such column wins a tie. Only column 0 is read when day 1 is
+ * in column 1, the usual layout.
+ */
+const readNames = async (
+  ocr: OcrProvider,
+  gray: GrayImage,
+  grid: TableGrid,
+  personRows: number[],
+  dayOneColumn: number,
+): Promise<NameReading[]> => {
+  const columns = await Promise.all(
+    Array.from({ length: Math.max(1, dayOneColumn) }, (_value, column) =>
+      readNameColumn(ocr, gray, grid, personRows, column),
+    ),
+  );
+
+  return columns.reduce((best, readings) => (countNames(readings) > countNames(best) ? readings : best));
+};
+
 /** Grid lines are erased for every cell read (title and legend are read from the untouched image). */
 const eraseLinesOf = (gray: GrayImage, grid: TableGrid): GrayImage => {
   const spacing = (lines: number[]) => median(lines.slice(1).map((line, index) => line - lines[index]!)) ?? 0;
@@ -113,7 +143,10 @@ const eraseLinesOf = (gray: GrayImage, grid: TableGrid): GrayImage => {
   });
 };
 
-/** Days N: the header's count, extended to the title month's length when the columns are there. */
+/**
+ * Days N: the header's validated count, extended toward the title month's length only over columns whose
+ * header partially reads the day number (Spec §20-8); unconfirmed days are left unread.
+ */
 const resolveDayCount = (layout: HeaderLayout, grid: TableGrid, yearMonth: string | null): number => {
   const columnsAvailable = grid.columnLines.length - 1 - layout.dayOneColumn;
 
@@ -121,7 +154,11 @@ const resolveDayCount = (layout: HeaderLayout, grid: TableGrid, yearMonth: strin
     return layout.header.dayCount;
   }
 
-  return Math.min(columnsAvailable, Math.max(layout.header.dayCount, daysInMonth(yearMonth)));
+  return extendDayCount(
+    layout.header.dayCount,
+    layout.dayTexts,
+    Math.min(columnsAvailable, daysInMonth(yearMonth)),
+  );
 };
 
 /**
@@ -202,7 +239,7 @@ export const readOcrTable = async (source: RawImage, ocr: OcrProvider): Promise<
   const legend = legendDefinitions ?? [];
   const dayCount = resolveDayCount(layout, grid, yearMonth);
   const [names, cellResult] = await Promise.all([
-    readNames(ocr, cellGray, grid, personRows),
+    readNames(ocr, cellGray, grid, personRows, layout.dayOneColumn),
     readPersonCells(
       ocr,
       cellGray,
