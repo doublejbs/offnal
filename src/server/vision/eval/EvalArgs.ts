@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 
+import { OcrEvalPipeline } from '@/domain/enums/OcrEvalPipeline';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 
@@ -19,6 +20,8 @@ export type EvalArgs = {
   repeat: number;
   /** Second-pass pipelines to compare on the same pass-1 result. */
   pipelines: VisionPipelineMode[];
+  /** AI-free pipelines (Spec §20); `ocr-then-ai` runs per model, `ocr` once. */
+  ocrPipelines: OcrEvalPipeline[];
 };
 
 const ANTHROPIC_PREFIX = 'anthropic:';
@@ -43,23 +46,30 @@ export const parseModelTarget = (label: string): EvalModelTarget => {
   return { label, provider: VisionProviderType.GEMINI, model: label };
 };
 
-const parsePipelines = (value: string | undefined): VisionPipelineMode[] => {
-  const pipelines = splitList(value).map((item) => {
-    const mode = Object.values(VisionPipelineMode).find((candidate) => candidate === item);
+const ALL_PIPELINES: string[] = [...Object.values(VisionPipelineMode), ...Object.values(OcrEvalPipeline)];
 
-    if (!mode) {
-      throw new Error(
-        `--pipeline must be a comma-separated list of ${Object.values(VisionPipelineMode).join(', ')}`,
-      );
-    }
+/** AI and OCR pipelines from `--pipeline`; no value = warp-strip (AI) only. */
+const parsePipelines = (value: string | undefined) => {
+  const items = splitList(value);
+  const unknown = items.find((item) => !ALL_PIPELINES.includes(item));
 
-    return mode;
-  });
+  if (unknown !== undefined) {
+    throw new Error(`--pipeline must be a comma-separated list of ${ALL_PIPELINES.join(', ')}`);
+  }
 
-  return pipelines.length > 0 ? [...new Set(pipelines)] : [VisionPipelineMode.WARP_STRIP];
+  const pipelines = Object.values(VisionPipelineMode).filter((mode) => items.includes(mode));
+  const ocrPipelines = Object.values(OcrEvalPipeline).filter((mode) => items.includes(mode));
+
+  return {
+    pipelines: items.length > 0 ? pipelines : [VisionPipelineMode.WARP_STRIP],
+    ocrPipelines,
+  };
 };
 
-/** Parses `--dir --models --people --repeat --pipeline`. A bare `--` (from `pnpm x -- …`) is ignored. */
+/**
+ * Parses `--dir --models --people --repeat --pipeline`. A bare `--` (from `pnpm x -- …`) is ignored. `--models`
+ * may be omitted when only `--pipeline ocr` runs (no AI call).
+ */
 export const parseEvalArgs = (argv: string[]): EvalArgs => {
   const { values } = parseArgs({
     args: argv.filter((arg) => arg !== '--'),
@@ -75,8 +85,10 @@ export const parseEvalArgs = (argv: string[]): EvalArgs => {
   const models = splitList(values.models).map(parseModelTarget);
   const people = splitList(values.people);
   const repeat = Number(values.repeat);
+  const { pipelines, ocrPipelines } = parsePipelines(values.pipeline);
+  const needsModel = pipelines.length > 0 || ocrPipelines.includes(OcrEvalPipeline.OCR_THEN_AI);
 
-  if (models.length === 0) {
+  if (models.length === 0 && needsModel) {
     throw new Error('--models is required (comma-separated model ids, anthropic:<model> for Claude)');
   }
 
@@ -89,7 +101,8 @@ export const parseEvalArgs = (argv: string[]): EvalArgs => {
     models,
     people: people.length > 0 ? people : null,
     repeat,
-    pipelines: parsePipelines(values.pipeline),
+    pipelines,
+    ocrPipelines,
   };
 };
 

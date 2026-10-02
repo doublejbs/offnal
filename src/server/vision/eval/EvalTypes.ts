@@ -1,3 +1,5 @@
+import { type OcrEvalPipeline } from '@/domain/enums/OcrEvalPipeline';
+import { type OcrFallbackReason } from '@/domain/enums/OcrFallbackReason';
 import { type VisionEvalFailureKind } from '@/domain/enums/VisionEvalFailureKind';
 import { type VisionEvalPersonOutcome } from '@/domain/enums/VisionEvalPersonOutcome';
 import { type VisionEvalStatus } from '@/domain/enums/VisionEvalStatus';
@@ -24,6 +26,28 @@ export type CallRecord = {
   failureKind: VisionEvalFailureKind | null;
 };
 
+/** Any compared pipeline: AI second-pass modes (Spec §15) or the AI-free ones (Spec §20). */
+export type EvalPipeline = VisionPipelineMode | OcrEvalPipeline;
+
+/** What OCR did for one person (Spec §20 pipelines only). */
+export type OcrPersonRecord = {
+  /** The target name was read exactly in exactly one row. */
+  nameFound: boolean;
+  /** Text cells OCR left unresolved in the person's row (null when the row was not found). */
+  unresolvedCells: number | null;
+  /** OCR alone finished the person: name found and 0 unresolved cells (the "AI 없이 처리 가능" share). */
+  finishedByOcr: boolean;
+  /** Set when `ocr-then-ai` handed the person to AI. */
+  fallback: OcrFallbackReason | null;
+  /** Whole-table OCR time of the photo (shared by its persons). */
+  ocrLatencyMs: number;
+  /** Pass 1 an AI fallback needed (shared by the photo's fallbacks; cost counted per fallback upload). */
+  aiPass1: CallRecord | null;
+  /** "Tap my row" alternative (metric only, Spec §20-4): correct days if the user picked their row. */
+  tapRowCorrectDays: number | null;
+  tapRowUnresolved: number | null;
+};
+
 export type PersonRun = {
   score: PersonScore;
   outcome: VisionEvalPersonOutcome;
@@ -37,11 +61,13 @@ export type PersonRun = {
   identityVerified: boolean | null;
   /** The cells match a neighbouring truth row clearly better than the target (null = not checkable). */
   neighbourRead: boolean | null;
+  /** OCR details (AI-free pipelines only). */
+  ocr?: OcrPersonRecord;
 };
 
 export type EvalRun = {
   model: string;
-  pipeline: VisionPipelineMode;
+  pipeline: EvalPipeline;
   sampleId: string;
   repeat: number;
   status: VisionEvalStatus;
