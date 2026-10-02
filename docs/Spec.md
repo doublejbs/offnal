@@ -481,3 +481,19 @@ interface PaymentProvider {
    - **“AI 없이 처리”** = 이름 정확 일치 + 확인 필요 칸 0. 따라서 이 지표에 든 사람은 평가표의 ‘확인 필요’(정답 코드가 있는데 null) 칸이 항상 0이다. 정답상 빈칸·대시가 있는 사람은(정답에서 null이 올바른 값이어도) 서비스에서 확인 필요로 보이므로 들어가지 않는다. 참고용으로 빈칸·대시 판정 칸을 뺀 “AI 없이(빈칸 제외)”도 함께 출력한다.
    - `ocr-then-ai` 대체 기준: 표 읽기 실패, 이름 정확 일치 행 없음(또는 동명 2행), 미해결 칸 ≥ 3(`--ocr-fallback-threshold`로 바꿔 측정 가능, 기본 3). 대체 시에만 1차 AI를 사진당 한 번 호출하고 그 사람은 기존 warp-strip 경로.
    - `tesseract.js`는 평가 전용이라 devDependencies에 둔다(서비스 빌드에 포함하지 않음).
+
+## 21. OCR 혼합 인식 서비스 적용 — 1단계 그림자 모드 (2026-10-02 추가)
+
+목표: §20 시제품을 실제 서비스(Vercel icn1 서버리스)에서 돌려 ① 실행 가능성(메모리·콜드 스타트·처리 시간)과 ② 실제 사진에서의 정확도를 확인한다. **사용자에게 보이는 결과는 바꾸지 않는다** — 화면·API 응답·저장되는 근무는 기존 AI 경로(warp-strip) 결과 그대로다. 결과가 좋으면 2단계에서 “OCR 먼저, 확인 필요 1칸 이상이면 AI” 경로로 전환한다(별도 결정).
+
+1. **설정**: `OCR_MODE` = `off`(기본) | `shadow`. 문자열 enum `OcrMode`(`src/domain/enums/`). `OCR_SHADOW_SAMPLE_RATE`(0~1, 기본 1)로 표본 비율 조절. 데모 모드·테스트에서는 `off`.
+2. **실행 시점**: 2차 인식(`/api/recognitions/[id]/extract`, 개인 경로)에서 AI 추출이 성공해 응답이 정해진 뒤, `next/server`의 `after()`로 응답 이후에 OCR을 실행한다. 응답 시간·성공 여부에 영향 없음. OCR 오류·시간 초과(기본 60초, `OCR_TIMEOUT_MS`)는 잡아서 결과 행에 오류 코드로만 기록하고 절대 던지지 않는다. 팀 근무표 추출(extract-next)은 이번 범위 밖.
+3. **입력**: 원본 사진(Storage에서 읽은 바이트, 2차 인식이 이미 읽은 것을 재사용할 수 있으면 재사용). 사람 매칭은 사용자가 고른 이름으로 `findOcrRow`. 대상 월은 사용자가 확정한 월.
+4. **비교 기록**: 새 테이블 `ocr_shadow_runs`(RLS 활성화, 정책 없음 = 서버 전용). **개인정보 금지** — 이름·근무 코드·사진 키를 저장하지 않고 수치만 저장한다.
+   - 컬럼: `id`, `job_id`(FK 없이 uuid — 원본·작업 삭제와 무관하게 통계 유지), `created_at`, `status`(enum `OcrShadowStatus`: `ok` | `table_failed` | `row_not_found` | `timeout` | `error`), `error_name`(오류 클래스 이름만), `day_count`, `agree_cells`(AI와 OCR 코드 일치), `disagree_cells`(둘 다 값이 있는데 다름 — OCR이 틀린 값을 낸 후보), `ocr_null_cells`(AI는 값, OCR은 null), `ai_null_cells`(OCR은 값, AI는 null), `unresolved_cells`(`countUnresolved`), `review_cells`(`countReviewCells`), `would_fallback`(기준 1칸 이상 또는 표/행 실패 시 true), `ocr_ms`, `cold_start`(이번 인스턴스 첫 OCR 여부), `rss_mb`(실행 후 `process.memoryUsage().rss`).
+   - 비교 기준은 AI 결과(정답 아님). `disagree_cells`가 0이 아닌 행은 수동 점검 대상(사진은 원래 보관 정책대로 만료).
+   - 보관: 정리 cron이 90일 지난 행 삭제.
+5. **엔진 배포**: `tesseract.js`를 다시 `dependencies`로 옮기고 `serverExternalPackages`·`outputFileTracingIncludes`로 워커 스크립트·`tesseract.js-core` WASM을 함수 번들에 포함한다. 학습 데이터(kor, eng)는 저장소에 커밋하지 않고 첫 실행 시 내려받아 쓰기 가능한 캐시 디렉터리(서버리스: `os.tmpdir()/offnal-ocr`, 로컬: `.data/ocr`)에 둔다. 서버리스에서는 언어별 워커 1개로 제한하고 인스턴스 안에서 재사용한다(종료하지 않음).
+6. **확인 도구**: `pnpm ocr:shadow-report` — DB의 최근 N일 `ocr_shadow_runs`를 집계해 상태별 건수, AI 없이 처리 가능 비율(`status=ok`·`would_fallback=false`·`review_cells=0`), 기준 1칸 시 AI 대체 비율, 불일치 칸 합계, `ocr_ms`·`rss_mb` p50/p95, 콜드 스타트 비율을 출력한다.
+7. **테스트**: 그림자 실행기는 `OcrProvider`를 주입받아 가짜 엔진으로 단위·통합 테스트(PGlite) — 비교 수치 계산, 오류·시간 초과 시 행 기록 및 비전파, `off`·표본 제외 시 미실행, 저장 행에 이름·코드가 없음, RLS 검사 통과.
+8. 원칙 유지: 로그에도 이름·코드·사진 내용을 남기지 않는다(오류 이름·수치만).
