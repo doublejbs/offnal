@@ -17,6 +17,7 @@ import { type LoggedInContext, type RequestContext } from '@/server/http/Request
 import { buildDraftInsert } from '@/server/services/DraftFactory';
 import { assertExtractAllowed, chargeExtract } from '@/server/services/RateLimitService';
 import { isSourceAvailable, requireLoggedInOwnedJob } from '@/server/services/RecognitionOwnership';
+import { scheduleOcrShadow } from '@/server/services/OcrShadowScheduler';
 import { extractPersonSchedule } from '@/server/services/RecognitionPersonExtractor';
 import { readSourceBytes } from '@/server/services/RecognitionProcessService';
 
@@ -95,16 +96,22 @@ const runRowExtract = async (
   // Refuse before the (slow, paid) provider call; the actual charge happens once, with the insert.
   await assertExtractAllowed(db, context.user.id);
 
-  const schedule = await extractPersonSchedule(job, table, candidate.rowId, candidate.name, yearMonth);
+  const { schedule, sourceBytes } = await extractPersonSchedule(
+    job,
+    table,
+    candidate.rowId,
+    candidate.name,
+    yearMonth,
+  );
 
-  return db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, context.user.id)).for('update');
 
     const existing = await findRowDraft(tx, job.id, candidate.rowId, yearMonth);
 
     if (existing && existing.status !== DraftStatus.DISCARDED) {
       // A concurrent request won: drop our duplicate result without charging.
-      return { draftId: existing.id };
+      return { draftId: existing.id, created: false };
     }
 
     if (existing) {
@@ -133,8 +140,21 @@ const runRowExtract = async (
       throw new Error('Draft insert returned no row');
     }
 
-    return { draftId: inserted.id };
+    return { draftId: inserted.id, created: true };
   });
+
+  if (outcome.created) {
+    // Spec §21 shadow mode: OCR runs after the response and only records statistics.
+    scheduleOcrShadow(db, {
+      jobId: job.id,
+      sourceBytes,
+      name: candidate.name,
+      yearMonth,
+      aiSchedule: schedule,
+    });
+  }
+
+  return { draftId: outcome.draftId };
 };
 
 const extractRowDraft = async (

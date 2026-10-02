@@ -37,6 +37,8 @@ const toProviderApiError = (code: RecognitionErrorCode): ApiError => {
 export type PreparedJobImage = {
   table: TableRecognition;
   prepared: PreparedPipelineImage;
+  /** Original upload bytes (memory only, same lifetime as `prepared`). */
+  sourceBytes: Buffer;
 };
 
 export type PreparedJobImageResult =
@@ -63,6 +65,7 @@ export const tryPrepareJobImage = async (
     image: {
       table,
       prepared: await preparePipelineImage(getAppConfig().visionPipeline, source.image, table.grid),
+      sourceBytes: source.bytes,
     },
   };
 };
@@ -124,6 +127,12 @@ export class RowExtractionError extends Error {
   }
 }
 
+export type PersonScheduleResult = {
+  schedule: NormalizedSchedule;
+  /** The original photo the pass read (memory only), for the shadow OCR run. */
+  sourceBytes: Buffer;
+};
+
 /**
  * Second pass for one row through the configured pipeline (Spec §15). Provider call only; normalization
  * runs outside the try so bugs surface as 500, not 502.
@@ -134,11 +143,14 @@ export const extractPersonSchedule = async (
   rowId: string,
   name: string,
   yearMonth: string,
-): Promise<NormalizedSchedule> => {
+): Promise<PersonScheduleResult> => {
   const image = await prepareJobImage(job, table);
 
   try {
-    return await extractRowWithPreparedImage(image, rowId, name, yearMonth);
+    return {
+      schedule: await extractRowWithPreparedImage(image, rowId, name, yearMonth),
+      sourceBytes: image.sourceBytes,
+    };
   } catch (error: unknown) {
     if (error instanceof RowExtractionError) {
       throw toProviderApiError(error.errorCode);

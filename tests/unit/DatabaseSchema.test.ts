@@ -380,6 +380,8 @@ describe('Database schema', () => {
         'team_roster_changes',
         'member_change_acks',
         'member_shared_team_months',
+        // OCR shadow statistics (Spec §21)
+        'ocr_shadow_runs',
       ]),
     );
     expect(tables.length).toBeGreaterThanOrEqual(20);

@@ -497,3 +497,10 @@ interface PaymentProvider {
 6. **확인 도구**: `pnpm ocr:shadow-report` — DB의 최근 N일 `ocr_shadow_runs`를 집계해 상태별 건수, AI 없이 처리 가능 비율(`status=ok`·`would_fallback=false`·`review_cells=0`), 기준 1칸 시 AI 대체 비율, 불일치 칸 합계, `ocr_ms`·`rss_mb` p50/p95, 콜드 스타트 비율을 출력한다.
 7. **테스트**: 그림자 실행기는 `OcrProvider`를 주입받아 가짜 엔진으로 단위·통합 테스트(PGlite) — 비교 수치 계산, 오류·시간 초과 시 행 기록 및 비전파, `off`·표본 제외 시 미실행, 저장 행에 이름·코드가 없음, RLS 검사 통과.
 8. 원칙 유지: 로그에도 이름·코드·사진 내용을 남기지 않는다(오류 이름·수치만).
+9. **구현 메모(1단계)**
+   - 코드: 비교 `src/server/vision/ocr/OcrShadowComparison.ts`(순수 함수), 실행기 `src/server/services/OcrShadowRunner.ts`(`OcrProvider`·시계·RSS·표 읽기 주입), 예약 `src/server/services/OcrShadowScheduler.ts`(`after()`, 표본 추출), 엔진 `src/server/vision/ocr/OcrServiceEngine.ts`(인스턴스당 하나, 종료하지 않음), 집계 `OcrShadowStats.ts`·`OcrShadowReport.ts`.
+   - 실행 조건: 2차 인식이 **새 초안을 만든 경우에만**(이미 있는 초안을 돌려주거나 동시 요청에 진 경우는 제외 — 같은 사진·사람 중복 통계 방지). 엔진 모듈은 실행 때 동적 import라 `off`에서는 tesseract.js를 불러오지 않는다.
+   - 입력: 2차 인식이 Storage에서 읽은 원본 바이트를 그대로 재사용(추가 읽기 없음), EXIF 회전 후 RGB로 디코드(평가와 같음).
+   - 비교: 두 결과 모두 `normalizeExtraction` 뒤 날짜별로 비교. 양쪽 모두 null인 날은 네 칸 수 어디에도 넣지 않는다(`day_count` − 합계). `would_fallback`은 미해결 1칸 이상(2단계 기준) 또는 표·행 실패·시간 초과·오류.
+   - 시간 초과 시 그 엔진을 종료·폐기한다(tesseract.js는 작업 취소가 없어 밀린 작업이 다음 요청을 막지 않게). 다음 실행은 새 엔진(`cold_start=true`).
+   - 번들: tesseract.js 7의 Node 워커는 `getCore`에 OEM 대신 boolean을 넘겨 LSTM 전용 워커도 전체(legacy 포함) 코어를 읽는다. 그래서 두 계열 WASM 코어를 모두 포함한다. 로컬 OCR 캐시(`.data/ocr`)는 `outputFileTracingExcludes`로 번들에서 뺀다.

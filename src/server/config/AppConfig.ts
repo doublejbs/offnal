@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { GeminiTier } from '@/domain/enums/GeminiTier';
+import { OcrMode } from '@/domain/enums/OcrMode';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
@@ -44,6 +45,11 @@ export type AppConfig = {
   /** Second-pass input pipeline (Spec §15). */
   visionPipeline: VisionPipelineMode;
   mockVisionDelayMs: number;
+  /** AI-free OCR in the service (Spec §21). Always `off` in demo mode and automated tests. */
+  ocrMode: OcrMode;
+  /** Share (0–1) of eligible extracts that get a shadow OCR run. */
+  ocrShadowSampleRate: number;
+  ocrTimeoutMs: number;
   paymentProvider: PaymentProviderType;
   tossClientKey: string | null;
   tossSecretKey: string | null;
@@ -120,6 +126,9 @@ const envSchema = z.object({
   VISION_TIMEOUT_MS: positiveInt(240_000),
   VISION_PIPELINE: z.enum(VisionPipelineMode).default(VisionPipelineMode.WARP_STRIP),
   MOCK_VISION_DELAY_MS: nonNegativeInt(1200),
+  OCR_MODE: z.enum(OcrMode).default(OcrMode.OFF),
+  OCR_SHADOW_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(1),
+  OCR_TIMEOUT_MS: positiveInt(60_000),
   PAYMENT_PROVIDER: z.enum(PaymentProviderType).optional(),
   TOSS_CLIENT_KEY: optionalText,
   TOSS_SECRET_KEY: optionalText,
@@ -311,6 +320,10 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     visionTimeoutMs: parsed.VISION_TIMEOUT_MS,
     visionPipeline: parsed.VISION_PIPELINE,
     mockVisionDelayMs: parsed.MOCK_VISION_DELAY_MS,
+    // Demo data and test runs never start the OCR engine (no downloads, no worker threads).
+    ocrMode: isDemo || offnalEnv === OffnalEnv.TEST ? OcrMode.OFF : parsed.OCR_MODE,
+    ocrShadowSampleRate: parsed.OCR_SHADOW_SAMPLE_RATE,
+    ocrTimeoutMs: parsed.OCR_TIMEOUT_MS,
     paymentProvider:
       parsed.PAYMENT_PROVIDER ?? (isDemo ? PaymentProviderType.MOCK : PaymentProviderType.TOSS),
     tossClientKey: parsed.TOSS_CLIENT_KEY ?? null,

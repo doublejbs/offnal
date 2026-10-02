@@ -18,6 +18,7 @@ import {
 import { AuthIdentityProvider } from '@/domain/enums/AuthIdentityProvider';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
+import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { type ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { PaymentStatus } from '@/domain/enums/PaymentStatus';
@@ -470,6 +471,37 @@ export const memberSharedTeamMonths = pgTable(
   ],
 );
 
+/**
+ * Shadow OCR runs (Spec §21): numbers only — no names, codes or object keys. `job_id` has no foreign key so
+ * the statistics outlive the job and its photo; the cleanup cron deletes rows after 90 days.
+ */
+export const ocrShadowRuns = pgTable(
+  'ocr_shadow_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    jobId: uuid('job_id').notNull(),
+    createdAt: buildCreatedAtColumn(),
+    status: text('status').$type<OcrShadowStatus>().notNull(),
+    /** Error class name only (never the message). */
+    errorName: text('error_name'),
+    dayCount: integer('day_count'),
+    agreeCells: integer('agree_cells'),
+    disagreeCells: integer('disagree_cells'),
+    ocrNullCells: integer('ocr_null_cells'),
+    aiNullCells: integer('ai_null_cells'),
+    unresolvedCells: integer('unresolved_cells'),
+    reviewCells: integer('review_cells'),
+    wouldFallback: boolean('would_fallback').notNull(),
+    ocrMs: integer('ocr_ms').notNull(),
+    coldStart: boolean('cold_start').notNull(),
+    rssMb: integer('rss_mb').notNull(),
+  },
+  (table) => [
+    index('ocr_shadow_runs_created_at_idx').on(table.createdAt),
+    buildEnumCheck('ocr_shadow_runs_status_check', table.status, OcrShadowStatus),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type AuthIdentityRow = typeof authIdentities.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
@@ -487,3 +519,4 @@ export type TeamInviteRow = typeof teamInvites.$inferSelect;
 export type TeamRosterRow = typeof teamRosters.$inferSelect;
 export type TeamRosterRowRow = typeof teamRosterRows.$inferSelect;
 export type TeamRosterChangeRow = typeof teamRosterChanges.$inferSelect;
+export type OcrShadowRunRow = typeof ocrShadowRuns.$inferSelect;
