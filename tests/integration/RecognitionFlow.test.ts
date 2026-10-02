@@ -166,7 +166,7 @@ describe('anonymous upload → login → extract → publish', () => {
     expect(draft.review.count).toBe(4);
     expect(draft.access.monthAccess).toBe(MonthAccess.TRIAL_AVAILABLE);
     expect(draft.access.freeRemaining).toBe(2);
-    expect(draft.access.priceKrw).toBe(1900);
+    expect(draft.access.priceKrw).toBe(990);
     expect(draft.blockers.length).toBeGreaterThan(0);
     expect(draft.sourceCells.find((cell) => cell.date.endsWith('-14'))?.rawText).toBe('E?');
 

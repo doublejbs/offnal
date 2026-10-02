@@ -34,7 +34,7 @@ test('무료 두 달 → 같은 달 재등록 무료 → 세 번째 달 결제 �
   await expect(page.getByText('두 번째 무료 월로 저장돼요')).toBeVisible();
   await page.getByRole('button', { name: '확인하고 무료로 저장' }).click();
   await expect(page).toHaveURL(new RegExp(`/calendar/${monthB}$`));
-  await expect(page.getByText('새 달은 한 달분 1,900원 · 자동 결제 없음')).toBeVisible();
+  await expect(page.getByText('새 달은 한 달분 990원 · 자동 결제 없음')).toBeVisible();
   expect((await readSummary()).freeRemaining).toBe(0);
 
   // Re-publishing month A through 근무 수정 costs nothing.
@@ -56,7 +56,7 @@ test('무료 두 달 → 같은 달 재등록 무료 → 세 번째 달 결제 �
   await page.goto(`/drafts/${draftC.draftId}`);
   await fixReviewDaysInUi(page, monthC);
 
-  const buyButton = page.getByRole('button', { name: '1,900원 구매 후 저장' });
+  const buyButton = page.getByRole('button', { name: '990원 구매 후 저장' });
 
   await expect(buyButton).toBeEnabled();
   await expect(page.getByText('무료 두 달을 모두 이용했어요 · 단건 구매, 자동 결제 없음')).toBeVisible();

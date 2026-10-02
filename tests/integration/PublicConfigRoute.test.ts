@@ -38,7 +38,7 @@ describe('public config', () => {
 
     expect(body).toMatchObject({
       appMode: AppMode.DEMO,
-      priceKrw: 1900,
+      priceKrw: 990,
       freeMonthLimit: 2,
       authProviders: [AuthProviderType.DEV],
       isMockVision: true,

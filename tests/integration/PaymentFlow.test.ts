@@ -86,7 +86,7 @@ describe('create payment', () => {
     const order = await createPayment(client, { yearMonth: '2026-12', draftId: paidDraft.draft.id });
 
     expect(order).toMatchObject({
-      amount: 1900,
+      amount: 990,
       currency: 'KRW',
       orderName: '오프날 2026년 12월 이용권',
       yearMonth: '2026-12',
@@ -110,7 +110,7 @@ describe('create payment', () => {
 
     const stored = await findPayment(order.orderId);
 
-    expect(stored).toMatchObject({ status: PaymentStatus.PENDING, amount: 1900, currency: 'KRW' });
+    expect(stored).toMatchObject({ status: PaymentStatus.PENDING, amount: 990, currency: 'KRW' });
   });
 
   it('reuses the pending order of the same month and updates its draft', async () => {
@@ -177,7 +177,7 @@ describe('confirm payment', () => {
     expect(blocked.status).toBe(402);
     expect((await readJson<ApiErrorBody>(blocked)).error.details).toEqual({
       yearMonth: '2026-12',
-      priceKrw: 1900,
+      priceKrw: 990,
     });
 
     const order = await createPayment(client, { yearMonth: '2026-12', draftId: paidDraft.draft.id });
@@ -719,7 +719,7 @@ describe('webhook guards', () => {
       .values({
         userId,
         yearMonth: '2026-12',
-        amount: 1900,
+        amount: 990,
         provider: PaymentProviderType.TOSS,
         status: PaymentStatus.PENDING,
       })

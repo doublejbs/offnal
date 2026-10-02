@@ -10,7 +10,7 @@ import {
 } from '@/client/LandingCopy';
 import { ExportPanel } from '@/domain/enums/ExportPanel';
 
-const SOURCE = { freeMonthLimit: 2, priceKrw: 1900, sourceTtlHours: 24 };
+const SOURCE = { freeMonthLimit: 2, priceKrw: 990, sourceTtlHours: 24 };
 
 const findAnswer = (source: typeof SOURCE, question: string): string => {
   const faq = buildLandingFaqs(source).find((item) => item.question.includes(question));
@@ -29,7 +29,7 @@ describe('landing copy', () => {
 
   it('interpolates free months and a formatted price', () => {
     expect(findAnswer(SOURCE, '무료로 몇 달')).toBe(
-      '근무를 저장한 달을 기준으로 두 달까지 무료예요. 이미 저장한 달을 고쳐 다시 저장해도 무료 달이 줄거나 비용이 생기지 않고, 무료 달을 다 쓴 뒤 새 달을 저장할 때만 한 달분 1,900원을 결제해요.',
+      '근무를 저장한 달을 기준으로 두 달까지 무료예요. 이미 저장한 달을 고쳐 다시 저장해도 무료 달이 줄거나 비용이 생기지 않고, 무료 달을 다 쓴 뒤 새 달을 저장할 때만 한 달분 990원을 결제해요.',
     );
 
     const custom = findAnswer({ ...SOURCE, freeMonthLimit: 3, priceKrw: 12500 }, '무료로 몇 달');
@@ -42,7 +42,7 @@ describe('landing copy', () => {
     const answer = findAnswer({ ...SOURCE, freeMonthLimit: 0 }, '무료로 몇 달');
 
     expect(answer).toBe(
-      '새로 저장하는 달마다 한 달분 1,900원이에요. 이미 저장한 달을 고쳐 다시 저장할 때는 추가 비용이 없어요.',
+      '새로 저장하는 달마다 한 달분 990원이에요. 이미 저장한 달을 고쳐 다시 저장할 때는 추가 비용이 없어요.',
     );
   });
 

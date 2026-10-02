@@ -10,7 +10,7 @@ import {
   SHARED_PAGE_TITLE,
 } from '@/server/metadata/SiteMetadata';
 
-const SOURCE = { appUrl: 'https://offnal.example', priceKrw: 1900, freeMonthLimit: 2 };
+const SOURCE = { appUrl: 'https://offnal.example', priceKrw: 990, freeMonthLimit: 2 };
 
 describe('buildSiteMetadata', () => {
   it('uses APP_URL as metadataBase and the title template', () => {
@@ -25,7 +25,7 @@ describe('buildSiteMetadata', () => {
 
   it('builds the description from pricing config', () => {
     expect(buildSiteMetadata(SOURCE).description).toBe(
-      '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. 처음 두 달 무료, 이후 한 달분 1,900원.',
+      '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. 처음 두 달 무료, 이후 한 달분 990원.',
     );
     expect(buildSiteMetadata({ ...SOURCE, priceKrw: 2500, freeMonthLimit: 1 }).description).toContain(
       '처음 한 달 무료, 이후 한 달분 2,500원.',

@@ -170,7 +170,7 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 
 - 토스 개발자센터 → 웹훅: `https://<도메인>/api/payments/webhook`, 이벤트 `PAYMENT_STATUS_CHANGED`(가상계좌를 쓰면 `DEPOSIT_CALLBACK`도)
 - 결제 성공 리다이렉트만으로 권한을 주지 않습니다. 서버가 승인 API 결과의 주문·금액·통화를 주문 행과 대조한 뒤에만 해당 월 이용권을 발급하고, 웹훅은 본문을 믿지 않고 토스 API로 재조회합니다.
-- 가격은 `PRICE_KRW` 한 곳에서 관리합니다(기본 1,900원).
+- 가격은 `PRICE_KRW` 한 곳에서 관리합니다(기본 990원).
 
 ### 함수 지역
 
