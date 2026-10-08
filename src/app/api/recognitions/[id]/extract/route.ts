@@ -5,13 +5,14 @@ import { extractRecognitionRequestSchema } from '@/server/services/RequestSchema
 
 export const runtime = 'nodejs';
 /**
- * The second recognition pass runs synchronously; the shadow OCR run queued with `after()` shares this
- * budget. Must stay a literal (read statically) equal to EXTRACT_MAX_DURATION_SECONDS (unit-tested).
+ * The second recognition pass runs synchronously; the call to the internal shadow OCR route queued with
+ * `after()` waits at most for what is left of this budget. Must stay a literal (read statically) equal to
+ * EXTRACT_MAX_DURATION_SECONDS (unit-tested).
  */
 export const maxDuration = 300;
 
 export const POST = apiRoute<IdParams>({ mutating: true }, async ({ request, db, context, params }) => {
-  // Session lookup before this point takes milliseconds; the OCR budget keeps a 10s safety margin.
+  // Session lookup before this point takes milliseconds; the OCR call wait keeps a safety margin.
   const requestStartedAt = Date.now();
 
   return extractDraft(

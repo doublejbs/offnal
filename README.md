@@ -173,11 +173,14 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 |---|---|
 | `OCR_MODE` | `off`(기본) \| `shadow` — 데모 모드·테스트에서는 항상 `off` |
 | `OCR_SHADOW_SAMPLE_RATE` | `0`~`1`, 기본 `0.3` — 2차 인식 중 그림자 실행할 비율. 빈 값은 기본값(0이 아님) |
-| `OCR_TIMEOUT_MS` | 기본 `60000`, 최대 `120000` — 넘으면 `timeout`으로 기록. 실행 때 2차 인식 함수의 남은 시간(maxDuration 300초 − 경과 − 10초)으로 다시 줄이고, 15초 미만이면 실행하지 않고 `skipped_budget`으로 기록 |
+| `OCR_TIMEOUT_MS` | 기본 `60000`, 최대 `120000` — 넘으면 `timeout`으로 기록. 실행 때 내부 OCR 라우트의 남은 시간(maxDuration 300초 − 경과 − 10초)으로 다시 줄이고, 15초 미만이면 실행하지 않고 `skipped_budget`으로 기록 |
+| `OCR_INTERNAL_SECRET` | 내부 OCR 라우트(`POST /api/internal/ocr-shadow`)의 Bearer 비밀, 32자 이상. production에서 `OCR_MODE=shadow`면 필수. 없으면 라우트는 404이고 2차 인식은 호출하지 않음 |
 
-- `shadow`면 개인 2차 인식(`/api/recognitions/[id]/extract`)이 새 초안을 만든 뒤 `after()`로 **응답 이후에** AI 없는 OCR(`tesseract.js`)을 돌려 AI 결과와 날짜별로 비교하고 `ocr_shadow_runs`에 **수치만** 저장합니다(이름·코드·사진 키 없음). 화면·API 응답·저장되는 근무는 바뀌지 않고, OCR 오류·시간 초과는 상태 값으로만 남습니다.
-- 학습 데이터(kor, eng, `4.0.0_best_int`)는 npm 패키지 `@tesseract.js-data/kor`·`@tesseract.js-data/eng`에서 읽습니다(내려받기·캐시 쓰기 없음, 평가도 같음). 워커 스크립트·WASM 코어·학습 데이터는 `next.config.ts`의 `outputFileTracingIncludes`로 2차 인식 함수에만 포함됩니다(함수 번들 약 96MB, 압축 전). Vercel에서는 언어별 워커 1개를 인스턴스 안에서 재사용하고, 인스턴스당 그림자 실행은 한 번에 1개만 돕니다(겹치면 `skipped_busy`).
-- 로컬 측정(샘플 1장, 언어별 워커 1개)에서 OCR 한 번에 약 2~3초, 프로세스 RSS 약 1.1GB였습니다. 함수 메모리 한도를 확인한 뒤 켭니다.
+- `shadow`면 개인 2차 인식(`/api/recognitions/[id]/extract`)이 새 초안을 만든 뒤(표본에 들 때) `after()`로 **응답 이후에** 내부 라우트 `POST /api/internal/ocr-shadow`를 부르고 사진 바이트를 보냅니다. OCR(`tesseract.js`)은 그 라우트의 **별도 함수**에서 돌아, 메모리 초과로 죽어도 2차 인식에는 영향이 없습니다. 내부 라우트는 초안의 `initial_entries`(AI 결과 원본)와 날짜별로 비교해 `ocr_shadow_runs`에 **수치만** 저장합니다(이름·코드·사진 키 없음). 화면·API 응답·저장되는 근무는 바뀌지 않고, 호출 실패·OCR 오류·시간 초과는 삼키거나 상태 값으로만 남습니다.
+- 호출 주소: Vercel에서는 각 배포가 자기 배포 주소(`VERCEL_URL`)를 부릅니다(Preview는 Preview, 운영은 같은 빌드). 배포 보호가 켜져 있으면 Protection Bypass for Automation을 켜 두세요(`VERCEL_AUTOMATION_BYPASS_SECRET`을 헤더로 보냄). 그 값이 없으면 운영은 `APP_URL`을 씁니다. 로컬은 `APP_URL`.
+- 측정 요청: `curl -X POST -H "Authorization: Bearer $OCR_INTERNAL_SECRET" -H 'content-type: application/octet-stream' --data-binary @photo.jpg "$URL/api/internal/ocr-shadow?probe=1"` — 표 읽기만 하고 DB에 쓰지 않으며 처리 시간·콜드 스타트·RSS(전·후·최대 근사)·표 검출·행 수만 JSON으로 돌려줍니다(글자 없음). 켜기 전 콜드·웜 각 3회 이상 확인합니다(RSS 1.6GB 미만, 60초 미만).
+- 엔진 배포: `.npmrc`의 `node-linker=hoisted`로 `node_modules`를 링크 없는 일반 폴더로 설치합니다(pnpm 기본 링크 폴더 아래 파일은 Vercel이 함수 패키지로 받지 않음). 워커 스크립트·WASM 코어·학습 데이터(kor, eng, `4.0.0_best_int`, npm 패키지 `@tesseract.js-data/*`)는 `next.config.ts`의 `outputFileTracingIncludes`로 **내부 OCR 라우트 함수에만** 포함됩니다(약 95MB, 압축 전 — 2차 인식 함수는 약 45MB로 엔진 없음). 내려받기·캐시 쓰기는 없습니다. Vercel에서는 언어별 워커 1개를 인스턴스 안에서 재사용하고, 인스턴스당 실행은 한 번에 1개만 돕니다(겹치면 `skipped_busy`).
+- 로컬 측정(샘플 1장, `next start`)에서 OCR 한 번에 콜드 약 1.9초·웜 약 1.5초, 프로세스 RSS 약 1.1GB였습니다(Vercel Hobby 함수 메모리 2GB).
 - 결과 확인: `pnpm ocr:shadow-report -- --days 7`(상태별 건수, AI 없이 처리 가능 비율, AI 대체 비율, 불일치 칸 합계, 처리 시간·메모리 p50/p95, 콜드 스타트 비율). 행은 정리 cron이 90일 뒤 삭제합니다.
 
 ### 지표 수집 (docs/Spec.md §23)

@@ -52,6 +52,11 @@ export type AppConfig = {
   /** Share (0–1) of eligible extracts that get a shadow OCR run. */
   ocrShadowSampleRate: number;
   ocrTimeoutMs: number;
+  /**
+   * Bearer secret of the internal shadow OCR route (Spec §22-11). Null disables the route (404) and the
+   * extract never calls it. Required in production when `OCR_MODE=shadow`.
+   */
+  ocrInternalSecret: string | null;
   paymentProvider: PaymentProviderType;
   tossClientKey: string | null;
   tossSecretKey: string | null;
@@ -80,6 +85,7 @@ type RawEnv = Record<string, string | undefined>;
 
 export const MIN_APP_SECRET_LENGTH = 32;
 export const MIN_CRON_SECRET_LENGTH = 32;
+export const MIN_OCR_INTERNAL_SECRET_LENGTH = 32;
 /** The `.env.example` value; must never reach production. */
 export const CRON_SECRET_PLACEHOLDER = 'change-me-cron-secret';
 
@@ -139,6 +145,7 @@ const envSchema = z.object({
   OCR_SHADOW_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(DEFAULT_OCR_SHADOW_SAMPLE_RATE),
   // Also capped by the extract route's remaining maxDuration at run time (Spec §22-9).
   OCR_TIMEOUT_MS: z.coerce.number().int().positive().max(MAX_OCR_TIMEOUT_MS).default(60_000),
+  OCR_INTERNAL_SECRET: optionalText,
   PAYMENT_PROVIDER: z.enum(PaymentProviderType).optional(),
   TOSS_CLIENT_KEY: optionalText,
   TOSS_SECRET_KEY: optionalText,
@@ -272,6 +279,16 @@ const collectProductionViolations = (
     );
   }
 
+  // The extract calls the internal OCR route with this secret; a set one must be strong even while off.
+  if (parsed.OCR_MODE === OcrMode.SHADOW && !parsed.OCR_INTERNAL_SECRET) {
+    violations.push('OCR_MODE=shadow requires OCR_INTERNAL_SECRET');
+  } else if (
+    parsed.OCR_INTERNAL_SECRET &&
+    parsed.OCR_INTERNAL_SECRET.length < MIN_OCR_INTERNAL_SECRET_LENGTH
+  ) {
+    violations.push(`OCR_INTERNAL_SECRET must be at least ${MIN_OCR_INTERNAL_SECRET_LENGTH} characters`);
+  }
+
   if (!parsed.APP_URL) {
     violations.push('APP_URL is required');
   } else if (new URL(parsed.APP_URL).protocol !== 'https:') {
@@ -370,6 +387,7 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     ocrMode: isDemo || offnalEnv === OffnalEnv.TEST ? OcrMode.OFF : parsed.OCR_MODE,
     ocrShadowSampleRate: parsed.OCR_SHADOW_SAMPLE_RATE,
     ocrTimeoutMs: parsed.OCR_TIMEOUT_MS,
+    ocrInternalSecret: parsed.OCR_INTERNAL_SECRET ?? null,
     paymentProvider:
       parsed.PAYMENT_PROVIDER ?? (isDemo ? PaymentProviderType.MOCK : PaymentProviderType.TOSS),
     tossClientKey: parsed.TOSS_CLIENT_KEY ?? null,
