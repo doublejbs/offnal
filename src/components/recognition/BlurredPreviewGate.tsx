@@ -8,7 +8,7 @@ import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { WEEKDAY_LABELS } from '@/client/MonthLayout';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import LoginOptions from '@/components/LoginOptions';
-import { isBetaFree } from '@/server/config/PricingConfig';
+import { isBetaFree } from '@/domain/BillingPolicy';
 
 const PLACEHOLDER_CELL_COUNT = 35;
 const PLACEHOLDER_CELLS = Array.from({ length: PLACEHOLDER_CELL_COUNT }, (_, index) => index);

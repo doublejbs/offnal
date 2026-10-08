@@ -1,9 +1,10 @@
 import { type Metadata } from 'next';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { type BillingMode } from '@/domain/enums/BillingMode';
 import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
-import { getPricing, isBetaFree } from '@/server/config/PricingConfig';
+import { getPricing } from '@/server/config/PricingConfig';
 
 export const SITE_NAME = '오프날';
 export const DEFAULT_TITLE = '오프날 — 근무표 한 장으로 내 근무 달력';

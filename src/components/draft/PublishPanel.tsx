@@ -5,10 +5,10 @@ import { useId } from 'react';
 import { describeBlocker, describeMonthAccess, formatMonthCount } from '@/client/DisplayText';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import { type DraftPublish } from '@/components/draft/UseDraftPublish';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
 import { type MonthAccessInfo } from '@/domain/types/api/MonthAccessInfo';
 import { type PublishBlocker } from '@/domain/types/PublishBlocker';
-import { isBetaFree } from '@/server/config/PricingConfig';
 
 type PublishPanelProps = {
   access: MonthAccessInfo;

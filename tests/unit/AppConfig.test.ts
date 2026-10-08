@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { BillingMode } from '@/domain/enums/BillingMode';
@@ -11,7 +12,7 @@ import { VisionEffort } from '@/domain/enums/VisionEffort';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { parseAppConfig } from '@/server/config/AppConfig';
-import { DEFAULT_FREE_MONTH_LIMIT, DEFAULT_PRICE_KRW, isBetaFree } from '@/server/config/PricingConfig';
+import { DEFAULT_FREE_MONTH_LIMIT, DEFAULT_PRICE_KRW } from '@/server/config/PricingConfig';
 
 const VALID_PRODUCTION_ENV: Record<string, string> = {
   OFFNAL_ENV: 'production',

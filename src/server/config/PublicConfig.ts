@@ -1,10 +1,11 @@
 import 'server-only';
 
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
 import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
-import { getPricing, isBetaFree } from '@/server/config/PricingConfig';
+import { getPricing } from '@/server/config/PricingConfig';
 
 /** Non-secret settings for the UI: GET /api/config/public and the root layout share this. */
 export const buildPublicConfig = (config: AppConfig = getAppConfig()): PublicConfigResponse => {

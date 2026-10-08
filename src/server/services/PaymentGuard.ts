@@ -1,8 +1,8 @@
 import 'server-only';
 
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
-import { isBetaFree } from '@/server/config/PricingConfig';
 import { ApiError } from '@/server/errors/ApiError';
 
 /**

@@ -2,8 +2,8 @@ import { type Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { type ReactNode } from 'react';
 
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { isBetaFree } from '@/server/config/PricingConfig';
 import { PRIVATE_ROBOTS } from '@/server/metadata/SiteMetadata';
 
 /** Checkout screens are per-user: keep them out of search indexes. */

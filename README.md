@@ -225,9 +225,9 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 1. 베타 무료 모드 변경을 `main`에 머지
 2. `DATABASE_MIGRATION_URL`을 넣은 `.env.local`로 `pnpm db:migrate` (0007 `entitlements_source_check`에 `beta` 추가)
 3. `pnpm db:check` — 마이그레이션 `적용 8 / 저장소 8` 확인 (mock 경고는 이 단계에서는 남아 있어도 됩니다)
-4. Supabase SQL Editor에서 [`docs/sql/ConvertMockToBeta.sql`](docs/sql/ConvertMockToBeta.sql) 전체를 실행 — 한 트랜잭션으로 mock 결제 이용권·`trial` 이용권을 `beta`로 바꾸고(정식 결제 때 무료 두 달 보존), 이용권 없는 공개 월을 `beta`로 채우고, mock 결제 이벤트·결제를 삭제합니다. 여러 번 실행해도 결과가 같습니다. 마지막 확인 쿼리에서 trial·mock·이용권 없는 공개 월이 모두 0인지 보고, `pnpm db:check`에 mock 경고가 없는지 다시 확인합니다.
-5. Vercel Production 환경 변수를 위 표대로 바꿈 (`PAYMENT_PROVIDER` 삭제)
-6. 재배포 (환경 변수는 새 배포부터 적용)
+4. Vercel Production 환경 변수를 위 표대로 바꿈 (`PAYMENT_PROVIDER` 삭제)
+5. 재배포 (환경 변수는 새 배포부터 적용). Preview 배포가 같은 Supabase DB를 쓰면 Preview 환경 변수도 `BILLING_MODE=beta_free`로 설정하거나 별도 DB를 쓰세요.
+6. Supabase SQL Editor에서 [`docs/sql/ConvertMockToBeta.sql`](docs/sql/ConvertMockToBeta.sql) 전체를 실행 — 한 트랜잭션으로 mock 결제 이용권·`trial` 이용권을 `beta`로 바꾸고(정식 결제 때 무료 두 달 보존), 이용권 없는 공개 월을 `beta`로 채우고, mock 결제 이벤트·결제를 삭제합니다. 여러 번 실행해도 결과가 같습니다. 마지막 확인 쿼리에서 trial·mock·이용권 없는 공개 월이 모두 0인지 보고, `pnpm db:check`에 mock 경고가 없는지 다시 확인합니다.
 7. `/api/config/public`에서 `billingMode: "beta_free"`, `isMockPayment: false` 확인
 
 **나중에 결제를 켤 때**: `BILLING_MODE=paid`와 `PAYMENT_PROVIDER=toss`(또는 삭제 유지) + `TOSS_CLIENT_KEY`·`TOSS_SECRET_KEY`를 넣고 재배포합니다(위 “결제 (토스페이먼츠)”). 베타 동안 등록한 달은 `beta` 이용권이 남아 `EXISTING`으로 계속 열리고(그 달을 결제하려 하면 409 `ALREADY_ENTITLED`), 무료 두 달은 `trial` 행만 세므로 그때부터 새로 적용됩니다. 데이터 변환은 필요 없습니다.

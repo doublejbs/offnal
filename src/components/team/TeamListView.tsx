@@ -12,11 +12,11 @@ import RecoverableError from '@/components/RecoverableError';
 import TeamCreateForm from '@/components/team/TeamCreateForm';
 import TeamIntroView from '@/components/team/TeamIntroView';
 import { useLoad } from '@/components/UseLoad';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRole } from '@/domain/enums/TeamRole';
 import { type TeamMembershipSummary } from '@/domain/types/api/TeamMembershipSummary';
-import { isBetaFree } from '@/server/config/PricingConfig';
 
 const TeamItem = ({ team }: { team: TeamMembershipSummary }) => {
   const badge = describeMembershipBadge(team.role, team.status);

@@ -1,6 +1,6 @@
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { AppMode } from '@/domain/enums/AppMode';
 import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
-import { isBetaFree } from '@/server/config/PricingConfig';
 
 export const DEMO_BANNER_TEXT = '개발 데모 모드 · 예시 인식·테스트 결제이며 실제 처리가 아니에요';
 /** Beta free mode has no checkout, so the demo notice drops the test payment part (Spec §20.4). */

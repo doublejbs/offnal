@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, eq, isNull, max, sql } from 'drizzle-orm';
 
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
@@ -13,7 +14,7 @@ import { type PublishDraftResponse } from '@/domain/types/api/PublishDraftRespon
 import { type RevisionConflictDetails } from '@/domain/types/api/RevisionConflictDetails';
 import { track } from '@/server/analytics/Analytics';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { getPricing, isBetaFree } from '@/server/config/PricingConfig';
+import { getPricing } from '@/server/config/PricingConfig';
 import { type Db, type DbTransaction } from '@/server/db/Database';
 import { calendars, drafts, publishedMonths, recognitionJobs, users } from '@/server/db/Schema';
 import { ApiError, DRAFT_EXPIRED_MESSAGE } from '@/server/errors/ApiError';

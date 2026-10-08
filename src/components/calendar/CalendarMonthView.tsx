@@ -14,9 +14,9 @@ import { usePublicConfig } from '@/components/ConfigProvider';
 import EmptyState from '@/components/EmptyState';
 import LoadingState from '@/components/LoadingState';
 import RecoverableError from '@/components/RecoverableError';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { CalendarMonthSource } from '@/domain/enums/CalendarMonthSource';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
-import { isBetaFree } from '@/server/config/PricingConfig';
 
 type CalendarMonthViewProps = {
   yearMonth: string;

@@ -7,7 +7,7 @@ import { type ReactNode } from 'react';
 import { getEnvironmentBannerText } from '@/client/EnvironmentBanner';
 import AppShell from '@/components/AppShell';
 import ConfigProvider from '@/components/ConfigProvider';
-import { isBetaFree } from '@/server/config/PricingConfig';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { buildPublicConfig } from '@/server/config/PublicConfig';
 import { getServerComponentContext } from '@/server/http/RequestContext';
 import { buildSiteMetadata, readSiteMetadataSource } from '@/server/metadata/SiteMetadata';

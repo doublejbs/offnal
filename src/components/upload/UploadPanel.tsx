@@ -10,8 +10,8 @@ import { usePublicConfig } from '@/components/ConfigProvider';
 import LandingGuideView from '@/components/upload/LandingGuideView';
 import { useUploadState } from '@/components/upload/UseUploadState';
 import LoginOptions from '@/components/LoginOptions';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { LoginEmphasis } from '@/domain/enums/LoginEmphasis';
-import { isBetaFree } from '@/server/config/PricingConfig';
 
 type UploadPanelProps = {
   isLoggedIn: boolean;
