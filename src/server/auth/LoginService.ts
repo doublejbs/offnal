@@ -1,15 +1,29 @@
 import { and, eq } from 'drizzle-orm';
 
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { track } from '@/server/analytics/Analytics';
 import { type AuthProfile } from '@/server/auth/AuthProvider';
 import { createUserSession, destroySessionToken, type IssuedToken } from '@/server/auth/SessionService';
 import { type Db, type DbTransaction } from '@/server/db/Database';
 import { authIdentities, type UserRow, users } from '@/server/db/Schema';
 import { type RequestContext } from '@/server/http/RequestContext';
-import { claimAnonymousJobs } from '@/server/services/RecognitionOwnership';
+import { claimAnonymousJobs, trackJobClaimed } from '@/server/services/RecognitionOwnership';
 
 export type IdentityLoginResult = {
   user: UserRow;
   claimedJobCount: number;
+};
+
+/** Linking outcome inside the transaction; analytics are recorded only after commit. */
+type LinkedIdentity = IdentityLoginResult & {
+  firstLogin: boolean;
+  claimedJobIds: string[];
+};
+
+type UpsertedUser = {
+  user: UserRow;
+  /** This login created the user (first login with this identity). */
+  created: boolean;
 };
 
 /** Demo login: also issues the app's own `offnal_session`. */
@@ -31,11 +45,14 @@ const findUserByIdentity = async (tx: DbTransaction, profile: AuthProfile): Prom
 };
 
 /** Finds the user linked to the provider identity, or creates both (race-safe via the unique identity key). */
-export const upsertUserForProfile = async (tx: DbTransaction, profile: AuthProfile): Promise<UserRow> => {
+export const upsertUserForProfile = async (
+  tx: DbTransaction,
+  profile: AuthProfile,
+): Promise<UpsertedUser> => {
   const existing = await findUserByIdentity(tx, profile);
 
   if (existing) {
-    return existing;
+    return { user: existing, created: false };
   }
 
   const [created] = await tx.insert(users).values({ displayName: profile.displayName }).returning();
@@ -56,7 +73,7 @@ export const upsertUserForProfile = async (tx: DbTransaction, profile: AuthProfi
     .returning({ id: authIdentities.id });
 
   if (linked.length > 0) {
-    return created;
+    return { user: created, created: true };
   }
 
   // A concurrent login created the identity first: drop our user and use theirs.
@@ -68,7 +85,7 @@ export const upsertUserForProfile = async (tx: DbTransaction, profile: AuthProfi
     throw new Error('Identity conflict without an existing identity');
   }
 
-  return winner;
+  return { user: winner, created: false };
 };
 
 /** Upserts the user, drops a previous demo session and claims the anonymous session's unexpired jobs. */
@@ -76,19 +93,33 @@ const linkIdentity = async (
   tx: DbTransaction,
   context: RequestContext,
   profile: AuthProfile,
-): Promise<IdentityLoginResult> => {
-  const user = await upsertUserForProfile(tx, profile);
+): Promise<LinkedIdentity> => {
+  const { user, created } = await upsertUserForProfile(tx, profile);
 
   if (context.sessionToken) {
     await destroySessionToken(tx, context.sessionToken);
   }
 
-  const claimedJobCount = context.anonymousSessionId
+  const claimedJobIds = context.anonymousSessionId
     ? await claimAnonymousJobs(tx, user.id, context.anonymousSessionId)
-    : 0;
+    : [];
 
-  return { user, claimedJobCount };
+  return { user, claimedJobCount: claimedJobIds.length, firstLogin: created, claimedJobIds };
 };
+
+/** `login_completed` and one `job_claimed` per job taken over (Spec §23.3), after the commit. */
+const trackLogin = ({ user, firstLogin, claimedJobIds }: LinkedIdentity): void => {
+  track(AnalyticsEvent.LOGIN_COMPLETED, { actorUserId: user.id, properties: { firstLogin } });
+
+  for (const jobId of claimedJobIds) {
+    trackJobClaimed(user.id, jobId);
+  }
+};
+
+const toIdentityResult = ({ user, claimedJobCount }: LinkedIdentity): IdentityLoginResult => ({
+  user,
+  claimedJobCount,
+});
 
 /**
  * Supabase (Kakao) callback, in one transaction. No app session is issued: the Supabase session
@@ -98,7 +129,13 @@ export const completeSupabaseLogin = async (
   db: Db,
   context: RequestContext,
   profile: AuthProfile,
-): Promise<IdentityLoginResult> => db.transaction(async (tx) => linkIdentity(tx, context, profile));
+): Promise<IdentityLoginResult> => {
+  const linked = await db.transaction(async (tx) => linkIdentity(tx, context, profile));
+
+  trackLogin(linked);
+
+  return toIdentityResult(linked);
+};
 
 /**
  * Demo login, in one transaction: same linking plus a new `offnal_session` (rotation). The route
@@ -108,10 +145,14 @@ export const completeDemoLogin = async (
   db: Db,
   context: RequestContext,
   profile: AuthProfile,
-): Promise<LoginResult> =>
-  db.transaction(async (tx) => {
+): Promise<LoginResult> => {
+  const { linked, session } = await db.transaction(async (tx) => {
     const result = await linkIdentity(tx, context, profile);
-    const session = await createUserSession(tx, result.user.id);
 
-    return { ...result, session };
+    return { linked: result, session: await createUserSession(tx, result.user.id) };
   });
+
+  trackLogin(linked);
+
+  return { ...toIdentityResult(linked), session };
+};

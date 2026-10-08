@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import { isBetaFree } from '@/domain/BillingPolicy';
+import { AnalyticsSink } from '@/domain/enums/AnalyticsSink';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { BillingMode } from '@/domain/enums/BillingMode';
 import { GeminiTier } from '@/domain/enums/GeminiTier';
+import { OcrMode } from '@/domain/enums/OcrMode';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
@@ -319,5 +321,69 @@ describe('parseAppConfig', () => {
       StorageDriver.LOCAL,
     );
     expect(parseAppConfig({ OFFNAL_ENV: 'test', APP_MODE: 'live' }).storageDriver).toBe(StorageDriver.LOCAL);
+  });
+
+  it('reads the OCR shadow settings and keeps OCR off in demo mode and tests', () => {
+    const defaults = parseAppConfig(VALID_PRODUCTION_ENV);
+
+    expect(defaults).toMatchObject({ ocrMode: OcrMode.OFF, ocrShadowSampleRate: 0.3, ocrTimeoutMs: 60_000 });
+
+    const shadow = parseAppConfig(
+      withOverrides({ OCR_MODE: 'shadow', OCR_SHADOW_SAMPLE_RATE: '0.25', OCR_TIMEOUT_MS: '30000' }),
+    );
+
+    expect(shadow).toMatchObject({
+      ocrMode: OcrMode.SHADOW,
+      ocrShadowSampleRate: 0.25,
+      ocrTimeoutMs: 30_000,
+    });
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo', OCR_MODE: 'shadow' }).ocrMode).toBe(
+      OcrMode.OFF,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'test', APP_MODE: 'live', OCR_MODE: 'shadow' }).ocrMode).toBe(
+      OcrMode.OFF,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'preview', APP_MODE: 'live', OCR_MODE: 'shadow' }).ocrMode).toBe(
+      OcrMode.SHADOW,
+    );
+    expect(() => parseAppConfig(withOverrides({ OCR_MODE: 'primary' }))).toThrow();
+    expect(() => parseAppConfig(withOverrides({ OCR_SHADOW_SAMPLE_RATE: '1.5' }))).toThrow();
+  });
+
+  it('defaults the analytics sink per environment (Spec §23.2)', () => {
+    expect(parseAppConfig(VALID_PRODUCTION_ENV).analyticsSink).toBe(AnalyticsSink.DB);
+    expect(parseAppConfig({ OFFNAL_ENV: 'preview', APP_MODE: 'live' }).analyticsSink).toBe(AnalyticsSink.DB);
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'live' }).analyticsSink).toBe(
+      AnalyticsSink.CONSOLE,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'test', APP_MODE: 'live' }).analyticsSink).toBe(AnalyticsSink.OFF);
+    expect(parseAppConfig(withOverrides({ ANALYTICS_SINK: 'off' })).analyticsSink).toBe(AnalyticsSink.OFF);
+    expect(parseAppConfig(withOverrides({ ANALYTICS_SINK: 'console' })).analyticsSink).toBe(
+      AnalyticsSink.CONSOLE,
+    );
+    expect(() => parseAppConfig(withOverrides({ ANALYTICS_SINK: 'posthog' }))).toThrow();
+  });
+
+  it('never stores analytics in demo mode, and in tests only when explicitly enabled', () => {
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo' }).analyticsSink).toBe(
+      AnalyticsSink.CONSOLE,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'preview', APP_MODE: 'demo' }).analyticsSink).toBe(
+      AnalyticsSink.CONSOLE,
+    );
+    expect(
+      parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo', ANALYTICS_SINK: 'db' }).analyticsSink,
+    ).toBe(AnalyticsSink.CONSOLE);
+    expect(parseAppConfig({ OFFNAL_ENV: 'test', APP_MODE: 'demo', ANALYTICS_SINK: 'db' }).analyticsSink).toBe(
+      AnalyticsSink.DB,
+    );
+  });
+
+  it('treats an empty sample rate as the default and caps the OCR timeout', () => {
+    expect(parseAppConfig(withOverrides({ OCR_SHADOW_SAMPLE_RATE: '' })).ocrShadowSampleRate).toBe(0.3);
+    expect(parseAppConfig(withOverrides({ OCR_SHADOW_SAMPLE_RATE: '  ' })).ocrShadowSampleRate).toBe(0.3);
+    expect(parseAppConfig(withOverrides({ OCR_SHADOW_SAMPLE_RATE: '0' })).ocrShadowSampleRate).toBe(0);
+    expect(parseAppConfig(withOverrides({ OCR_TIMEOUT_MS: '120000' })).ocrTimeoutMs).toBe(120_000);
+    expect(() => parseAppConfig(withOverrides({ OCR_TIMEOUT_MS: '120001' }))).toThrow();
   });
 });

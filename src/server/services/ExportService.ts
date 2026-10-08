@@ -101,7 +101,10 @@ export const exportMonthIcs = async (
     generatedAt: new Date(),
   });
 
-  track(AnalyticsEvent.EXPORT_ICS, { includeOff, team: month.teamName !== null });
+  track(AnalyticsEvent.EXPORT_ICS, {
+    actorUserId: requireUser(context).user.id,
+    properties: { includeOff, team: month.teamName !== null },
+  });
 
   return { fileName: buildIcsFileName(month.yearMonth), body };
 };
@@ -114,7 +117,10 @@ export const getExportData = async (
 ): Promise<ExportDataResponse> => {
   const month = await requireExportableMonth(db, context, yearMonth);
 
-  track(AnalyticsEvent.EXPORT_PNG, { team: month.teamName !== null });
+  track(AnalyticsEvent.EXPORT_PNG, {
+    actorUserId: requireUser(context).user.id,
+    properties: { team: month.teamName !== null },
+  });
 
   return {
     displayName: month.displayName,

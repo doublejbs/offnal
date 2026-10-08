@@ -155,8 +155,13 @@ export const discardDraft = (id: string): Promise<OkResponse> =>
 export const getCalendarSummary = (signal?: AbortSignal): Promise<CalendarSummaryResponse> =>
   getJson('/api/calendar', signal);
 
-export const getCalendarMonth = (yearMonth: string, signal?: AbortSignal): Promise<CalendarMonthResponse> =>
-  getJson(`/api/calendar/${encode(yearMonth)}`, signal);
+/** `view`: the month screen itself (counted as a calendar view, Spec §23.7); other reads leave it off. */
+export const getCalendarMonth = (
+  yearMonth: string,
+  signal?: AbortSignal,
+  view = false,
+): Promise<CalendarMonthResponse> =>
+  getJson(`/api/calendar/${encode(yearMonth)}${view ? '?view=1' : ''}`, signal);
 
 export const deleteCalendarMonth = (yearMonth: string): Promise<OkResponse> =>
   sendJson('DELETE', `/api/calendar/${encode(yearMonth)}`);

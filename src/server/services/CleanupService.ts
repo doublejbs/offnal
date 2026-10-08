@@ -10,8 +10,10 @@ import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { type Db, type DbExecutor } from '@/server/db/Database';
 import {
+  analyticsEvents,
   anonymousSessions,
   drafts,
+  ocrShadowRuns,
   paymentEvents,
   payments,
   rateLimitCounters,
@@ -27,6 +29,10 @@ const RATE_LIMIT_RETENTION_DAYS = 40;
 const PAYMENT_EVENT_RETENTION_DAYS = 30;
 /** Checkout windows are minutes long; an order untouched for a day is abandoned. */
 const STALE_PENDING_PAYMENT_HOURS = 24;
+/** Shadow OCR statistics (numbers only) are kept for comparison over a quarter (Spec §22-4). */
+const OCR_SHADOW_RETENTION_DAYS = 90;
+/** Usage events (keys and numbers only) are kept a year plus a margin for yearly comparison (Spec §23.2). */
+const ANALYTICS_RETENTION_DAYS = 400;
 /** Per run, so one invocation stays well inside the function time limit; the next run continues. */
 const JOB_BATCH_SIZE = 200;
 
@@ -45,6 +51,8 @@ export type CleanupResult = {
   paymentEventsDeleted: number;
   /** Team roster drafts untouched for DRAFT_TTL_DAYS (published revisions are kept). */
   teamRosterDraftsDeleted: number;
+  ocrShadowRunsDeleted: number;
+  analyticsEventsDeleted: number;
 };
 
 type SourceRef = {
@@ -214,6 +222,8 @@ export const runCleanup = async (
     paymentsCanceled: 0,
     paymentEventsDeleted: 0,
     teamRosterDraftsDeleted: 0,
+    ocrShadowRunsDeleted: 0,
+    analyticsEventsDeleted: 0,
   };
 
   // Before job expiry, so the deleted drafts' photos and tables go in this same run.
@@ -262,6 +272,18 @@ export const runCleanup = async (
         ),
       )
       .returning({ id: paymentEvents.id }),
+  );
+  result.ocrShadowRunsDeleted = countDeleted(
+    await db
+      .delete(ocrShadowRuns)
+      .where(lt(ocrShadowRuns.createdAt, daysBefore(now, OCR_SHADOW_RETENTION_DAYS)))
+      .returning({ id: ocrShadowRuns.id }),
+  );
+  result.analyticsEventsDeleted = countDeleted(
+    await db
+      .delete(analyticsEvents)
+      .where(lt(analyticsEvents.createdAt, daysBefore(now, ANALYTICS_RETENTION_DAYS)))
+      .returning({ id: analyticsEvents.id }),
   );
 
   return result;

@@ -1,12 +1,21 @@
+/** Stored in `analytics_events.event` (CHECK constraint derives from these values, Spec §23.3). */
 export enum AnalyticsEvent {
   UPLOAD_STARTED = 'upload_started',
   RECOGNITION_COMPLETED = 'recognition_completed',
+  LOGIN_COMPLETED = 'login_completed',
+  JOB_CLAIMED = 'job_claimed',
+  DRAFT_CREATED = 'draft_created',
   REVIEW_COMPLETED = 'review_completed',
   MONTH_PUBLISHED = 'month_published',
+  NEXT_MONTH_REGISTERED = 'next_month_registered',
+  CALENDAR_VIEWED = 'calendar_viewed',
   EXPORT_LINK = 'export_link',
+  SHARED_CALENDAR_VIEWED = 'shared_calendar_viewed',
   EXPORT_ICS = 'export_ics',
   EXPORT_PNG = 'export_png',
-  NEXT_MONTH_REGISTERED = 'next_month_registered',
+  TEAM_CREATED = 'team_created',
+  ROSTER_PUBLISHED = 'roster_published',
+  TEAM_MEMBER_JOINED = 'team_member_joined',
   PAYMENT_SHOWN = 'payment_shown',
   PAYMENT_SUCCEEDED = 'payment_succeeded',
 }

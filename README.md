@@ -59,6 +59,8 @@ pnpm db:generate            # 스키마 변경 → drizzle/ 마이그레이션 �
 pnpm db:migrate             # .env.local의 DATABASE_MIGRATION_URL(없으면 DATABASE_URL, 둘 다 없으면 PGlite)에 마이그레이션 적용
 pnpm db:check               # DATABASE_URL 연결·적용된 마이그레이션 수·모든 앱 테이블 RLS·anon 권한 확인 (비밀번호 출력 안 함)
 pnpm storage:check          # S3(Supabase Storage) 키로 검사 객체 put·get·delete (비밀값 출력 안 함)
+pnpm ocr:shadow-report -- --days 7   # 최근 N일 OCR 그림자 실행 집계 (DATABASE_URL 필요, 수치만 출력)
+pnpm analytics:report -- --days 30   # 최근 N일 사용 지표(깔때기·인식 품질·두 번째 달·공유·활성·재방문) 집계 (DATABASE_URL 필요)
 ```
 
 PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서로 다른 세 달 동시 저장에도 무료는 두 달”을 보장하는 `FOR UPDATE` 잠금은 `pnpm test:pg`로 실제 Postgres에서 확인해야 합니다.
@@ -164,6 +166,30 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 - 정답의 날짜 값을 `null`로 두면 “빈칸·판독 불가” 칸입니다. 결과도 null이면 정답이고, 코드를 채우면 “추측”으로 따로 셉니다.
 - 순위는 **종단(e2e) 정확도** 기준입니다. 모델 탓 실패(1차 no_table·unreadable, MAX_TOKENS·차단·JSON/스키마 불일치)는 그 사람의 날짜를 0점으로 넣고, 인프라 실패(재시도 후에도 429, 5xx, 타임아웃, 네트워크)는 정확도에서 빼고 따로 셉니다. 성공률과 “전 단계 성공 실행만” 정확도도 함께 출력합니다.
 - 429·5xx는 지수 백오프로 몇 번 재시도하고, 서버가 제시한 대기(`retryDelay`)가 상한(120초)을 넘거나 일일 한도면 바로 실패로 기록합니다. 결과는 `.data/` 아래에만 씁니다(밖이면 실행 거부). `GEMINI_TIER`가 paid가 아니면 실제 이름·사진을 쓰지 말라는 경고를 출력합니다. 평가 이미지·정답·결과는 Git에 올리지 않습니다(`.data/`).
+
+### OCR 그림자 모드 (선택, docs/Spec.md §22)
+
+| 변수 | 값 |
+|---|---|
+| `OCR_MODE` | `off`(기본) \| `shadow` — 데모 모드·테스트에서는 항상 `off` |
+| `OCR_SHADOW_SAMPLE_RATE` | `0`~`1`, 기본 `0.3` — 2차 인식 중 그림자 실행할 비율. 빈 값은 기본값(0이 아님) |
+| `OCR_TIMEOUT_MS` | 기본 `60000`, 최대 `120000` — 넘으면 `timeout`으로 기록. 실행 때 2차 인식 함수의 남은 시간(maxDuration 300초 − 경과 − 10초)으로 다시 줄이고, 15초 미만이면 실행하지 않고 `skipped_budget`으로 기록 |
+
+- `shadow`면 개인 2차 인식(`/api/recognitions/[id]/extract`)이 새 초안을 만든 뒤 `after()`로 **응답 이후에** AI 없는 OCR(`tesseract.js`)을 돌려 AI 결과와 날짜별로 비교하고 `ocr_shadow_runs`에 **수치만** 저장합니다(이름·코드·사진 키 없음). 화면·API 응답·저장되는 근무는 바뀌지 않고, OCR 오류·시간 초과는 상태 값으로만 남습니다.
+- 학습 데이터(kor, eng, `4.0.0_best_int`)는 npm 패키지 `@tesseract.js-data/kor`·`@tesseract.js-data/eng`에서 읽습니다(내려받기·캐시 쓰기 없음, 평가도 같음). 워커 스크립트·WASM 코어·학습 데이터는 `next.config.ts`의 `outputFileTracingIncludes`로 2차 인식 함수에만 포함됩니다(함수 번들 약 96MB, 압축 전). Vercel에서는 언어별 워커 1개를 인스턴스 안에서 재사용하고, 인스턴스당 그림자 실행은 한 번에 1개만 돕니다(겹치면 `skipped_busy`).
+- 로컬 측정(샘플 1장, 언어별 워커 1개)에서 OCR 한 번에 약 2~3초, 프로세스 RSS 약 1.1GB였습니다. 함수 메모리 한도를 확인한 뒤 켭니다.
+- 결과 확인: `pnpm ocr:shadow-report -- --days 7`(상태별 건수, AI 없이 처리 가능 비율, AI 대체 비율, 불일치 칸 합계, 처리 시간·메모리 p50/p95, 콜드 스타트 비율). 행은 정리 cron이 90일 뒤 삭제합니다.
+
+### 지표 수집 (docs/Spec.md §23)
+
+| 변수 | 값 |
+|---|---|
+| `ANALYTICS_SINK` | `off` \| `console` \| `db` — 기본: development `console`, test `off`, preview·production `db`. 데모 모드에서는 `db`를 `console`로 바꿔 저장하지 않습니다(테스트는 명시적으로 켠 경우만 저장) |
+
+- 서버 이벤트(업로드·인식·로그인·가져가기·초안·검토·발행·달력 조회·공유·내보내기·팀)는 `analytics_events`(RLS 활성, 정책 없음 = 서버 전용)에 저장합니다. 사용자·작업·달력·팀 id는 `APP_SECRET` HMAC-SHA256 가명 키(앞 32자)로만 남고, 속성은 숫자·불리언·고정 enum 값만 허용합니다(이름·근무 코드·토큰·사진 키 없음).
+- 기록은 응답 뒤(`after()`)에 하고 실패해도 응답은 바뀌지 않습니다(오류 이름만 로그). 행은 정리 cron이 400일 뒤 삭제합니다.
+- 페이지 방문·유입은 Vercel Web Analytics(`@vercel/analytics`, 쿠키 없음)로 봅니다. live 모드의 test가 아닌 환경에서만 렌더하고, 토큰·id가 든 경로는 `/s/[token]`·`/drafts/[id]`처럼 바꾸며 쿼리는 `utm_*`만 남깁니다. **Vercel 프로젝트 설정에서 Web Analytics를 켜야 수집됩니다.**
+- 결과 확인: `pnpm analytics:report -- --days 30`(개인 깔때기 전환율, 확인 필요 칸·수정 칸 p50/p95, 월 전체 일치율, 두 번째 달 등록률, 공유 사용자·열람, 일·주 활성 사용자, 7일 재방문율, 이벤트별 일자 건수).
 
 ### 결제 (토스페이먼츠)
 

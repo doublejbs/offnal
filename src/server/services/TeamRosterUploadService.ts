@@ -86,32 +86,38 @@ export const uploadRoster = async (
   });
   const yearMonth = input.yearMonth;
 
-  return withStoredSource(db, input.bytes, upload.mime, async (tx, source) => {
-    await insertUploadedJob(tx, source, {
-      userId: loggedIn.user.id,
-      anonymousSessionId: null,
-      mime: upload.mime,
-    });
+  return withStoredSource(
+    db,
+    input.bytes,
+    upload.mime,
+    { team: true, claimedByUserId: null },
+    async (tx, source) => {
+      await insertUploadedJob(tx, source, {
+        userId: loggedIn.user.id,
+        anonymousSessionId: null,
+        mime: upload.mime,
+      });
 
-    const [roster] = await tx
-      .insert(teamRosters)
-      .values({
-        teamId: team.id,
-        yearMonth,
-        status: TeamRosterStatus.DRAFT,
-        baseRevision: yearMonth ? await findLatestRevision(tx, team.id, yearMonth) : 0,
-        sourceJobId: source.jobId,
-        authorityConfirmedAt: new Date(),
-        createdBy: loggedIn.user.id,
-      })
-      .returning({ id: teamRosters.id });
+      const [roster] = await tx
+        .insert(teamRosters)
+        .values({
+          teamId: team.id,
+          yearMonth,
+          status: TeamRosterStatus.DRAFT,
+          baseRevision: yearMonth ? await findLatestRevision(tx, team.id, yearMonth) : 0,
+          sourceJobId: source.jobId,
+          authorityConfirmedAt: new Date(),
+          createdBy: loggedIn.user.id,
+        })
+        .returning({ id: teamRosters.id });
 
-    if (!roster) {
-      throw new Error('Roster insert returned no row');
-    }
+      if (!roster) {
+        throw new Error('Roster insert returned no row');
+      }
 
-    return { rosterId: roster.id };
-  });
+      return { rosterId: roster.id };
+    },
+  );
 };
 
 /** Rows from pass-1 candidates (once): row_key = normalized name + same-name ordinal, every date empty. */
@@ -172,7 +178,7 @@ export const ensureRosterRows = async (db: Db, roster: TeamRosterRow): Promise<R
   let job = await findRosterJob(db, roster);
 
   if (job && job.status !== RecognitionStatus.RECOGNIZED) {
-    job = (await runRecognitionForJob(db, job)) ?? (await findRosterJob(db, roster));
+    job = (await runRecognitionForJob(db, job, true)) ?? (await findRosterJob(db, roster));
   }
 
   if (job?.status === RecognitionStatus.RECOGNIZED && job.tableResult) {

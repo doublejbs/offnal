@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { PUBLIC_SHARE_HEADERS } from '@/server/http/PublicShareHeaders';
+import { PUBLIC_SHARE_HEADERS, SHARE_PAGE_HEADERS } from '@/server/http/PublicShareHeaders';
 import nextConfig from '../../next.config';
 
 const loadRules = async () => {
@@ -17,18 +17,34 @@ const toRecord = (headers: { key: string; value: string }[]): Record<string, str
 describe('next.config security headers', () => {
   it('applies the public share headers to /s/* pages and /api/shared/*', async () => {
     const rules = await loadRules();
+    const expected = {
+      // The page has the logged-in logout form: no-referrer would send `Origin: null` on that POST (403).
+      // strict-origin still never sends the tokened path anywhere.
+      '/s/:path*': 'strict-origin',
+      // Config headers override route response headers, so the share API needs the rule too.
+      '/api/shared/:path*': 'no-referrer',
+    };
 
-    // Config headers override route response headers, so the share API needs the rule too.
-    for (const source of ['/s/:path*', '/api/shared/:path*']) {
+    for (const [source, referrerPolicy] of Object.entries(expected)) {
       const shareRule = rules.find((rule) => rule.source === source);
 
       expect(shareRule).toBeDefined();
       expect(toRecord(shareRule?.headers ?? [])).toMatchObject({
         'cache-control': 'no-store, max-age=0',
         'x-robots-tag': 'noindex, nofollow',
-        'referrer-policy': 'no-referrer',
+        'referrer-policy': referrerPolicy,
       });
     }
+
+    expect(
+      Object.fromEntries(
+        Object.entries(SHARE_PAGE_HEADERS).map(([key, value]) => [key.toLowerCase(), value]),
+      ),
+    ).toEqual({
+      'cache-control': 'no-store, max-age=0',
+      'x-robots-tag': 'noindex, nofollow',
+      'referrer-policy': 'strict-origin',
+    });
 
     expect(
       Object.fromEntries(
@@ -39,6 +55,19 @@ describe('next.config security headers', () => {
       'x-robots-tag': 'noindex, nofollow',
       'referrer-policy': 'no-referrer',
     });
+  });
+
+  it('sends only the origin as referrer from pages whose URL carries a token or id', async () => {
+    const rules = await loadRules();
+    const globalIndex = rules.findIndex((rule) => rule.source === '/:path*');
+
+    for (const source of ['/join/:path*', '/teams/:path*', '/recognitions/:path*', '/drafts/:path*', '/checkout/:path*']) {
+      const index = rules.findIndex((rule) => rule.source === source);
+
+      expect(index).toBeGreaterThan(globalIndex);
+      // Not no-referrer: same-origin form POSTs (logout, demo login) must keep a real Origin header.
+      expect(toRecord(rules[index]?.headers ?? [])['referrer-policy']).toBe('strict-origin');
+    }
   });
 
   it('sets baseline headers everywhere, with a stricter referrer policy only on share pages', async () => {

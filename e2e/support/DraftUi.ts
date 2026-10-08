@@ -33,8 +33,8 @@ export const defineUndefinedCodesInUi = async (page: Page): Promise<void> => {
 
   const wRow = getTimeRow(page, MOCK_WORK_CODE_OUTSIDE_LEGEND);
 
-  await wRow.getByLabel('시작').fill(W_START_TIME);
-  await wRow.getByLabel('종료').fill(W_END_TIME);
+  await wRow.getByLabel('시작', { exact: true }).fill(W_START_TIME);
+  await wRow.getByLabel('종료', { exact: true }).fill(W_END_TIME);
   await expect(page.getByRole('button', { name: /^처음 보는 코드/ })).toHaveCount(0);
 };
 

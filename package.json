@@ -23,7 +23,9 @@
     "db:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/db/DbCheck.ts",
     "storage:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/storage/StorageCheck.ts",
     "brand:images": "tsx scripts/GenerateBrandImages.ts",
-    "vision:eval": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/vision/eval/VisionEval.ts"
+    "vision:eval": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/vision/eval/VisionEval.ts",
+    "ocr:shadow-report": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/vision/ocr/OcrShadowReport.ts",
+    "analytics:report": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/analytics/AnalyticsReport.ts"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -40,6 +42,9 @@
     "@google/genai": "^2.24.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.117.2",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/kor": "1.0.0",
+    "@vercel/analytics": "^2.0.1",
     "drizzle-orm": "^0.45.3",
     "ics": "^3.12.0",
     "lucide-react": "^1.48.0",
@@ -49,6 +54,7 @@
     "react-dom": "^19.3.0",
     "server-only": "^0.0.1",
     "sharp": "^0.35.5",
+    "tesseract.js": "^7.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

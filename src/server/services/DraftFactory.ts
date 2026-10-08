@@ -23,6 +23,8 @@ export type NewDraftInput = {
   personRowId: string | null;
   /** Published revision an edit draft was copied from; null otherwise. */
   basePublishedRevision: number | null;
+  /** The AI second-pass entries (row extracts only), kept for `review_completed` (Spec §23.3). */
+  initialEntries?: ShiftEntry[] | null;
 };
 
 /** Drafts live DRAFT_TTL_DAYS from creation (independent of the source photo TTL). */
@@ -40,6 +42,7 @@ export const buildDraftInsert = (input: NewDraftInput, now = new Date()): DraftI
   definitions: input.definitions,
   entries: input.entries,
   sourceCells: input.sourceCells,
+  initialEntries: input.initialEntries ?? null,
   status: DraftStatus.EDITING,
   expiresAt: buildDraftExpiry(now),
 });

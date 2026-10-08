@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq } from 'drizzle-orm';
 
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { buildSharedIcsFileName } from '@/domain/ExportFileNames';
 import { buildIcs } from '@/domain/IcsBuilder';
@@ -106,6 +107,10 @@ export const getSharedCalendar = async (
 ): Promise<SharedCalendarResponse> => {
   const { calendar, visible, target } = await findSharedMonth(db, token, month);
 
+  track(AnalyticsEvent.SHARED_CALENDAR_VIEWED, {
+    subject: { kind: AnalyticsSubjectKind.CALENDAR, id: calendar.id },
+  });
+
   return {
     displayName: calendar.displayName,
     months: visible.map((item) => item.yearMonth),
@@ -147,7 +152,10 @@ export const exportSharedMonthIcs = async (
     generatedAt: new Date(),
   });
 
-  track(AnalyticsEvent.EXPORT_ICS, { includeOff, shared: true });
+  track(AnalyticsEvent.EXPORT_ICS, {
+    subject: { kind: AnalyticsSubjectKind.CALENDAR, id: calendar.id },
+    properties: { includeOff, shared: true },
+  });
 
   return { fileName: buildSharedIcsFileName(target.yearMonth), body };
 };

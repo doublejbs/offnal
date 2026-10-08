@@ -1,0 +1,1 @@
+CREATE INDEX "analytics_events_subject_key_idx" ON "analytics_events" USING btree ("subject_key");

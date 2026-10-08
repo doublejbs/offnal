@@ -6,6 +6,7 @@ import { and, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
 
 import { LEASE_GRACE_MS, MS_PER_HOUR } from '@/domain/DomainLimits';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { type ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
@@ -78,6 +79,13 @@ export const insertUploadedJob = async (
   });
 };
 
+/** Whose upload a job is, for analytics: team roster jobs stay out of the personal funnel (Spec §23.7). */
+export type UploadAnalytics = {
+  team: boolean;
+  /** Logged-in personal uploader: the job is theirs from the start (`job_claimed` with `atUpload`). */
+  claimedByUserId: string | null;
+};
+
 /**
  * Stores the source privately at `sources/{jobId}` (outside any transaction), then runs `write` in one
  * transaction that must insert the job (and whatever belongs with it). If the DB step fails, the stored
@@ -87,6 +95,7 @@ export const withStoredSource = async <T>(
   db: Db,
   bytes: Buffer,
   mime: ImageMimeType,
+  analytics: UploadAnalytics,
   write: (tx: DbTransaction, source: StoredSource) => Promise<T>,
 ): Promise<T> => {
   const jobId = randomUUID();
@@ -98,7 +107,17 @@ export const withStoredSource = async <T>(
   try {
     const result = await db.transaction((tx) => write(tx, source));
 
-    track(AnalyticsEvent.UPLOAD_STARTED);
+    const subject = { kind: AnalyticsSubjectKind.JOB, id: jobId };
+
+    track(AnalyticsEvent.UPLOAD_STARTED, { subject, properties: { team: analytics.team } });
+
+    if (analytics.claimedByUserId) {
+      track(AnalyticsEvent.JOB_CLAIMED, {
+        actorUserId: analytics.claimedByUserId,
+        subject,
+        properties: { atUpload: true },
+      });
+    }
 
     return result;
   } catch (error: unknown) {
@@ -118,20 +137,31 @@ export const createRecognitionJob = async (
   input: CreateRecognitionInput,
   now = new Date(),
 ): Promise<CreatedRecognition> =>
-  withStoredSource(db, input.bytes, input.mime, async (tx, source) => {
-    let anonymousSessionId = input.anonymousSessionId;
-    let issued: IssuedToken | null = null;
+  withStoredSource(
+    db,
+    input.bytes,
+    input.mime,
+    { team: false, claimedByUserId: input.userId },
+    async (tx, source) => {
+      let anonymousSessionId = input.anonymousSessionId;
+      let issued: IssuedToken | null = null;
 
-    if (!input.userId && !anonymousSessionId) {
-      issued = await createAnonymousSession(tx, input.ipHash, now);
-      anonymousSessionId = issued.id;
-      await countNewAnonymousUpload(tx, anonymousSessionId);
-    }
+      if (!input.userId && !anonymousSessionId) {
+        issued = await createAnonymousSession(tx, input.ipHash, now);
+        anonymousSessionId = issued.id;
+        await countNewAnonymousUpload(tx, anonymousSessionId);
+      }
 
-    await insertUploadedJob(tx, source, { userId: input.userId, anonymousSessionId, mime: input.mime }, now);
+      await insertUploadedJob(
+        tx,
+        source,
+        { userId: input.userId, anonymousSessionId, mime: input.mime },
+        now,
+      );
 
-    return { id: source.jobId, issuedAnonymousSession: issued };
-  });
+      return { id: source.jobId, issuedAnonymousSession: issued };
+    },
+  );
 
 /** Atomic lease: only one caller may move the job into `processing` for a given attempt. */
 const acquireLease = async (db: DbExecutor, jobId: string, now: Date): Promise<RecognitionJobRow | null> => {
@@ -185,7 +215,9 @@ export const readSourceBytes = async (job: RecognitionJobRow): Promise<Buffer | 
   return getObjectStorage().get(job.sourceObjectKey);
 };
 
-type PreparedSource = { ok: true; image: VisionImage } | { ok: false; errorCode: RecognitionErrorCode };
+/** `bytes` is the original upload (memory only), kept for the AI-free shadow reader (Spec §22). */
+type PreparedSource =
+  { ok: true; image: VisionImage; bytes: Buffer } | { ok: false; errorCode: RecognitionErrorCode };
 
 /** Loads the source and downscales a provider copy. Errors are logged by name only. */
 export const loadSourceForVision = async (job: RecognitionJobRow): Promise<PreparedSource> => {
@@ -204,7 +236,7 @@ export const loadSourceForVision = async (job: RecognitionJobRow): Promise<Prepa
   }
 
   try {
-    return { ok: true, image: await prepareImageForVision(bytes) };
+    return { ok: true, image: await prepareImageForVision(bytes), bytes };
   } catch (error: unknown) {
     console.warn('[recognition] source preparation failed', { name: describeError(error) });
 
@@ -284,6 +316,7 @@ export const processRecognition = async (
 export const runRecognitionForJob = async (
   db: Db,
   job: RecognitionJobRow,
+  team = false,
 ): Promise<RecognitionJobRow | null> => {
   const leased = isJobExpired(job, new Date()) ? null : await acquireLease(db, job.id, new Date());
 
@@ -291,10 +324,20 @@ export const runRecognitionForJob = async (
     return null;
   }
 
+  const startedAt = Date.now();
   const result = await runTableRecognition(leased);
   const finished = await finishAttempt(db, leased, result);
 
-  track(AnalyticsEvent.RECOGNITION_COMPLETED, { success: result.ok, attempt: leased.attemptCount });
+  track(AnalyticsEvent.RECOGNITION_COMPLETED, {
+    subject: { kind: AnalyticsSubjectKind.JOB, id: leased.id },
+    properties: {
+      success: result.ok,
+      attempt: leased.attemptCount,
+      ms: Date.now() - startedAt,
+      team,
+      ...(result.ok ? {} : { errorCode: result.errorCode }),
+    },
+  });
 
   return finished;
 };
