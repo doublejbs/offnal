@@ -3,6 +3,7 @@ import 'server-only';
 import { after } from 'next/server';
 
 import { OcrMode } from '@/domain/enums/OcrMode';
+import { OcrShadowErrorKind } from '@/domain/enums/OcrShadowErrorKind';
 import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { type Db } from '@/server/db/Database';
@@ -123,7 +124,18 @@ const runScheduled = async (
   shadowGlobal.__offnalOcrShadowInFlight = inFlight + 1;
 
   try {
-    const engine = await resolved.acquireOcr();
+    let engine: Awaited<ReturnType<typeof resolved.acquireOcr>>;
+
+    try {
+      engine = await resolved.acquireOcr();
+    } catch (error: unknown) {
+      // Engine module import or initialization failed; record as an error run.
+      await recordOcrShadowSkip(db, input.jobId, OcrShadowStatus.ERROR, undefined, OcrShadowErrorKind.UNKNOWN);
+      console.warn('[ocr-shadow] acquire failed', { name: describeError(error) });
+
+      return;
+    }
+
     const status = await runOcrShadow(
       { db, ocr: engine.provider, timeoutMs, coldStart: engine.coldStart },
       input,

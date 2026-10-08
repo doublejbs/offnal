@@ -132,11 +132,8 @@ const envSchema = z.object({
   VISION_PIPELINE: z.enum(VisionPipelineMode).default(VisionPipelineMode.WARP_STRIP),
   MOCK_VISION_DELAY_MS: nonNegativeInt(1200),
   OCR_MODE: z.enum(OcrMode).default(OcrMode.OFF),
-  // An empty value (`OCR_SHADOW_SAMPLE_RATE=`) means the default, not 0 (coercion would turn '' into 0).
-  OCR_SHADOW_SAMPLE_RATE: z.preprocess(
-    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
-    z.coerce.number().min(0).max(1).default(DEFAULT_OCR_SHADOW_SAMPLE_RATE),
-  ),
+  // normalizeEnv converts empty strings to undefined, so an empty value means the default.
+  OCR_SHADOW_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(DEFAULT_OCR_SHADOW_SAMPLE_RATE),
   // Also capped by the extract route's remaining maxDuration at run time (Spec §22-9).
   OCR_TIMEOUT_MS: z.coerce.number().int().positive().max(MAX_OCR_TIMEOUT_MS).default(60_000),
   PAYMENT_PROVIDER: z.enum(PaymentProviderType).optional(),

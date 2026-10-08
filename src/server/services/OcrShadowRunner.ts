@@ -94,18 +94,19 @@ const toRunValues = (jobId: string, measurement: ShadowMeasurement) => ({
 });
 
 /**
- * Records a sampled run that did not start (`skipped_busy` or `skipped_budget`): no measurement, counted as
- * a fallback. Never throws.
+ * Records a sampled run that did not start (`skipped_busy` or `skipped_budget`) or failed on engine load.
+ * No measurement, counted as a fallback. Never throws.
  */
 export const recordOcrShadowSkip = async (
   db: DbExecutor,
   jobId: string,
   status: OcrShadowStatus,
   readRssMb: () => number = readProcessRssMb,
+  errorName: OcrShadowErrorKind | null = null,
 ): Promise<void> => {
   await insertRun(db, {
     ...toRunValues(jobId, { status, ...FAILED_MEASUREMENT }),
-    errorName: null,
+    errorName,
     ocrMs: 0,
     coldStart: false,
     rssMb: readRssMb(),
