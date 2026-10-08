@@ -8,7 +8,7 @@ import { PUBLIC_SHARE_HEADERS, SHARE_PAGE_HEADERS } from './src/server/http/Publ
  * so neither other sites nor the analytics script (which reports `document.referrer`, Spec §23.4) see that
  * URL. Not `no-referrer`: it makes same-origin form POSTs (logout, demo login) send `Origin: null` (403).
  */
-const ID_PAGE_SOURCES = ['/join/:path*', '/teams/:path*', '/recognitions/:path*', '/drafts/:path*'];
+const ID_PAGE_SOURCES = ['/join/:path*', '/teams/:path*', '/recognitions/:path*', '/drafts/:path*', '/checkout/:path*'];
 const ORIGIN_ONLY_REFERRER_HEADERS = { 'Referrer-Policy': 'strict-origin' };
 
 const toHeaderList = (headers: Readonly<Record<string, string>>) =>

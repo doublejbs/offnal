@@ -61,7 +61,7 @@ describe('next.config security headers', () => {
     const rules = await loadRules();
     const globalIndex = rules.findIndex((rule) => rule.source === '/:path*');
 
-    for (const source of ['/join/:path*', '/teams/:path*', '/recognitions/:path*', '/drafts/:path*']) {
+    for (const source of ['/join/:path*', '/teams/:path*', '/recognitions/:path*', '/drafts/:path*', '/checkout/:path*']) {
       const index = rules.findIndex((rule) => rule.source === source);
 
       expect(index).toBeGreaterThan(globalIndex);
