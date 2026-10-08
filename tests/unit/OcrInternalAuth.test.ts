@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GET, POST } from '@/app/api/internal/ocr-shadow/route';
 import { resetAppConfigForTesting } from '@/server/config/AppConfig';
@@ -60,6 +60,22 @@ describe('internal OCR route authentication', () => {
     const response = await POST(buildRequest(`Bearer ${SECRET}`));
 
     expect(response.status).toBe(404);
+  });
+
+  it('answers 404 when the configuration is invalid (never a 500 that reveals the route)', async () => {
+    process.env.OCR_TIMEOUT_MS = 'not-a-number';
+    resetAppConfigForTesting();
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const response = await POST(buildRequest(`Bearer ${SECRET}`));
+
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe('');
+    } finally {
+      delete process.env.OCR_TIMEOUT_MS;
+      vi.restoreAllMocks();
+    }
   });
 
   it('gets past authentication with the right secret', async () => {

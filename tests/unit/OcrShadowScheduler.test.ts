@@ -5,6 +5,7 @@ import { maxDuration } from '@/app/api/recognitions/[id]/extract/route';
 import { EXTRACT_MAX_DURATION_SECONDS } from '@/server/services/ExtractRouteLimits';
 import { OCR_SHADOW_ROUTE_PATH } from '@/server/services/OcrShadowRouteLimits';
 import {
+  OCR_ACK_TIMEOUT_MS,
   OCR_CALL_SAFETY_MS,
   type OcrShadowScheduleOptions,
   resolveOcrCallTimeout,
@@ -31,7 +32,7 @@ const STARTED_AT = 1_000_000;
 
 type Task = () => Promise<void>;
 
-const okFetch = () => vi.fn<typeof fetch>(async () => new Response('{"status":"ok"}', { status: 200 }));
+const okFetch = () => vi.fn<typeof fetch>(async () => new Response('{"accepted":true}', { status: 202 }));
 
 const buildOptions = (overrides: Partial<OcrShadowScheduleOptions> = {}) => {
   const tasks: Task[] = [];
@@ -173,11 +174,13 @@ describe('shadow OCR call to the internal route', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('waits at most for what is left of the extract maxDuration', () => {
+  it('waits only for the acknowledgement, and never past the extract maxDuration', () => {
     expect(maxDuration).toBe(EXTRACT_MAX_DURATION_SECONDS);
-    expect(resolveOcrCallTimeout(STARTED_AT, STARTED_AT + 40_000)).toBe(
-      EXTRACT_MAX_DURATION_SECONDS * 1000 - 40_000 - OCR_CALL_SAFETY_MS,
-    );
+    expect(resolveOcrCallTimeout(STARTED_AT, STARTED_AT + 40_000)).toBe(OCR_ACK_TIMEOUT_MS);
+
+    const lateStart = STARTED_AT + EXTRACT_MAX_DURATION_SECONDS * 1000 - OCR_CALL_SAFETY_MS - 3_000;
+
+    expect(resolveOcrCallTimeout(STARTED_AT, lateStart)).toBe(3_000);
   });
 
   it('calls its own deployment on Vercel and APP_URL elsewhere', () => {

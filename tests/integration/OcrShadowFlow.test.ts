@@ -19,6 +19,7 @@ import {
   type OcrShadowExecutorOptions,
   setOcrShadowExecutorOverridesForTesting,
 } from '@/server/services/OcrShadowExecutor';
+import { setOcrShadowRouteScheduleForTesting } from '@/server/services/OcrShadowInternalService';
 import { OCR_SHADOW_ROUTE_PATH } from '@/server/services/OcrShadowRouteLimits';
 import {
   type OcrShadowDeps,
@@ -318,6 +319,22 @@ const useFakeEngine = (overrides: Partial<OcrShadowExecutorOptions> = {}) => {
   });
 };
 
+/** Runs started by the internal route after its 202 (its `after()`), run by the test. */
+let routeTasks: (() => Promise<void>)[] = [];
+
+const captureRouteRuns = (): void => {
+  routeTasks = [];
+  setOcrShadowRouteScheduleForTesting((task) => {
+    routeTasks.push(task);
+  });
+};
+
+const runRouteTasks = async (): Promise<void> => {
+  for (const task of routeTasks.splice(0)) {
+    await task();
+  }
+};
+
 const setInternalSecret = (secret: string | undefined): void => {
   if (secret === undefined) {
     delete process.env.OCR_INTERNAL_SECRET;
@@ -346,11 +363,13 @@ const postInternal = (query: string, body: Uint8Array, secret = INTERNAL_SECRET)
 describe('shadow OCR from the extract route', () => {
   beforeEach(() => {
     setInternalSecret(INTERNAL_SECRET);
+    captureRouteRuns();
   });
 
   afterEach(() => {
     setInternalSecret(undefined);
     setOcrShadowExecutorOverridesForTesting(null);
+    setOcrShadowRouteScheduleForTesting(null);
   });
 
   it('does nothing while OCR is off (tests and demo mode)', async () => {
@@ -407,7 +426,10 @@ describe('shadow OCR from the extract route', () => {
       .where(eq(drafts.id, draftId));
     await tasks[0]!();
 
+    // Acknowledged before the run: nothing recorded until the route's own after() runs.
     expect(calls).toHaveLength(1);
+    expect(await findRuns(jobId)).toEqual([]);
+    await runRouteTasks();
     expect(new URL(calls[0]!.url).searchParams.get('draftId')).toBe(draftId);
     expect(Buffer.from(calls[0]!.init?.body as Uint8Array).length).toBeGreaterThan(0);
 
@@ -448,6 +470,7 @@ describe('shadow OCR from the extract route', () => {
     useFakeEngine({ acquireOcr: async () => Promise.reject(new Error('engine files missing')) });
     await extractRow(other, otherJob, currentYearMonthInSeoul(new Date()));
     await forwarded.tasks[0]!();
+    await runRouteTasks();
 
     expect(await findRuns(otherJob)).toEqual([
       expect.objectContaining({ status: OcrShadowStatus.ERROR, errorName: OcrShadowErrorKind.UNKNOWN }),
@@ -459,11 +482,13 @@ describe('internal shadow OCR route', () => {
   beforeEach(() => {
     setInternalSecret(INTERNAL_SECRET);
     useFakeEngine();
+    captureRouteRuns();
   });
 
   afterEach(() => {
     setInternalSecret(undefined);
     setOcrShadowExecutorOverridesForTesting(null);
+    setOcrShadowRouteScheduleForTesting(null);
   });
 
   it('answers 404 without the secret and writes nothing', async () => {
@@ -493,16 +518,26 @@ describe('internal shadow OCR route', () => {
     ).toBe(413);
     expect(await findRuns(jobId)).toEqual([]);
 
+    expect(routeTasks).toEqual([]);
+
     const accepted = await postInternal(`draftId=${draftId}&jobId=${jobId}`, png);
 
-    expect(accepted.status).toBe(200);
-    expect(await readJson(accepted)).toEqual({ status: OcrShadowStatus.TABLE_FAILED });
-    expect(await findRuns(jobId)).toHaveLength(1);
+    expect(accepted.status).toBe(202);
+    expect(await readJson(accepted)).toEqual({ accepted: true });
+    expect(await findRuns(jobId)).toEqual([]);
+    await runRouteTasks();
+    expect(await findRuns(jobId)).toEqual([
+      expect.objectContaining({ status: OcrShadowStatus.TABLE_FAILED }),
+    ]);
   });
 
   it('answers a probe with numbers only and stores nothing', async () => {
     const before = await env.db.select().from(ocrShadowRuns);
     const response = await postInternal('probe=1', await whitePng());
+
+    // Synchronous: the numbers are in the response, nothing is left to run.
+    expect(routeTasks).toEqual([]);
+
     const body = await readJson<Record<string, unknown>>(response);
 
     expect(response.status).toBe(200);

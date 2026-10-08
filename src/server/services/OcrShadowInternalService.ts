@@ -1,16 +1,16 @@
 import 'server-only';
 
 import { eq } from 'drizzle-orm';
-import { type NextRequest, NextResponse } from 'next/server';
+import { after, type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
-import { type OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { isEqualConstantTime } from '@/server/crypto/TokenCrypto';
 import { type DbExecutor, getDb } from '@/server/db/Database';
 import { drafts } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
+import { describeError } from '@/server/errors/ErrorName';
 import { jsonResponse, NO_STORE, withRoute } from '@/server/http/RouteHelpers';
 import { executeOcrShadow, probeOcrShadow } from '@/server/services/OcrShadowExecutor';
 import {
@@ -25,8 +25,23 @@ const PROBE_FLAG_VALUES = new Set(['1', 'true']);
 
 const idSchema = z.uuid();
 
-/** Response of a shadow run: the recorded status only. */
-export type OcrShadowRunResponse = { status: OcrShadowStatus };
+const ACCEPTED_STATUS = 202;
+
+/** Response of an accepted shadow run (the outcome is only recorded as a row). */
+export type OcrShadowAcceptedResponse = { accepted: true };
+
+type ScheduleTask = (task: () => Promise<void>) => void;
+
+type InternalGlobal = typeof globalThis & { __offnalOcrShadowRouteSchedule?: ScheduleTask };
+
+const internalGlobal = globalThis as InternalGlobal;
+
+/** Replaces `after()` for the run started by this route (null restores it). Tests only. */
+export const setOcrShadowRouteScheduleForTesting = (schedule: ScheduleTask | null): void => {
+  internalGlobal.__offnalOcrShadowRouteSchedule = schedule ?? undefined;
+};
+
+const resolveSchedule = (): ScheduleTask => internalGlobal.__offnalOcrShadowRouteSchedule ?? after;
 
 /**
  * Bearer check of the internal route (Spec §22-11), constant time. False when no secret is configured
@@ -122,21 +137,43 @@ const handleAuthorized = async (request: NextRequest, routeStartedAt: number): P
     throw new ApiError(ApiErrorCode.NOT_FOUND);
   }
 
-  const body: OcrShadowRunResponse = { status: await executeOcrShadow(db, input, routeStartedAt) };
+  // Acknowledged right away: the run continues in this invocation after the response (same maxDuration,
+  // measured from the route's start), so the extract only waits for the 202.
+  resolveSchedule()(async () => {
+    try {
+      await executeOcrShadow(db, input, routeStartedAt);
+    } catch (error: unknown) {
+      console.warn('[ocr-shadow] run failed', { name: describeError(error) });
+    }
+  });
 
-  return jsonResponse(body);
+  const body: OcrShadowAcceptedResponse = { accepted: true };
+
+  return jsonResponse(body, ACCEPTED_STATUS);
+};
+
+/** The configured secret, or null when the configuration itself is invalid (the route then stays hidden). */
+const readSecret = (): string | null => {
+  try {
+    return getAppConfig().ocrInternalSecret;
+  } catch (error: unknown) {
+    console.warn('[ocr-shadow] invalid configuration', { name: describeError(error) });
+
+    return null;
+  }
 };
 
 /**
  * `POST /api/internal/ocr-shadow` (Spec §22-11): a server-to-server call from the extract (no CSRF or
- * Origin check). Any authentication failure is a bare 404. `routeStartedAt` (epoch ms) is the start of
- * this invocation, for the maxDuration budget.
+ * Origin check). Any authentication failure, and an invalid configuration, is a bare 404. A run answers
+ * 202 once its input is validated and runs after the response; a probe answers with its numbers.
+ * `routeStartedAt` (epoch ms) is the start of this invocation, for the maxDuration budget.
  */
 export const handleOcrShadowRequest = async (
   request: NextRequest,
   routeStartedAt: number,
 ): Promise<Response> => {
-  if (!isOcrInternalAuthorized(request.headers.get('authorization'), getAppConfig().ocrInternalSecret)) {
+  if (!isOcrInternalAuthorized(request.headers.get('authorization'), readSecret())) {
     return notFoundResponse();
   }
 

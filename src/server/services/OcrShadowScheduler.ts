@@ -3,6 +3,7 @@ import 'server-only';
 import { after } from 'next/server';
 
 import { OcrMode } from '@/domain/enums/OcrMode';
+import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { describeError } from '@/server/errors/ErrorName';
 import { EXTRACT_MAX_DURATION_SECONDS } from '@/server/services/ExtractRouteLimits';
@@ -17,6 +18,8 @@ const MS_PER_SECOND = 1000;
 
 /** Kept free at the end of the extract invocation when waiting for the internal route. */
 export const OCR_CALL_SAFETY_MS = 5_000;
+/** The internal route answers 202 once it has read the photo and the draft: only that is awaited. */
+export const OCR_ACK_TIMEOUT_MS = 15_000;
 
 type RawEnv = Record<string, string | undefined>;
 
@@ -105,16 +108,20 @@ export const resolveOcrShadowTarget = (env: RawEnv, appUrl: string): OcrShadowTa
     };
   }
 
-  if (env.VERCEL_ENV === 'production') {
+  // VERCEL_ENV uses the same values as OffnalEnv (production, preview, development).
+  if (env.VERCEL_ENV === OffnalEnv.PRODUCTION) {
     return { origin: appUrl, headers: {} };
   }
 
   return { origin: `https://${deploymentHost}`, headers: {} };
 };
 
-/** How long `after()` may wait for the internal route: what is left of the extract maxDuration. */
+/** How long `after()` waits for the 202: OCR_ACK_TIMEOUT_MS, capped by what is left of the extract. */
 export const resolveOcrCallTimeout = (requestStartedAt: number, now: number): number =>
-  EXTRACT_MAX_DURATION_SECONDS * MS_PER_SECOND - Math.max(0, now - requestStartedAt) - OCR_CALL_SAFETY_MS;
+  Math.min(
+    OCR_ACK_TIMEOUT_MS,
+    EXTRACT_MAX_DURATION_SECONDS * MS_PER_SECOND - Math.max(0, now - requestStartedAt) - OCR_CALL_SAFETY_MS,
+  );
 
 const buildRouteUrl = (origin: string, input: OcrShadowRequestInput): string => {
   const url = new URL(OCR_SHADOW_ROUTE_PATH, origin);
@@ -125,7 +132,7 @@ const buildRouteUrl = (origin: string, input: OcrShadowRequestInput): string => 
   return url.toString();
 };
 
-/** Calls the internal route and waits for it; every failure is logged by class name or status only. */
+/** Calls the internal route and waits for its 202; every failure is logged by class name or status only. */
 const callInternalRoute = async (
   input: OcrShadowRequestInput,
   resolved: OcrShadowScheduleOptions,
@@ -154,7 +161,7 @@ const callInternalRoute = async (
     signal: AbortSignal.timeout(timeoutMs),
   });
 
-  // The body is a small status JSON; drain it so the connection is released.
+  // The body is a small acknowledgement; drain it so the connection is released.
   await response.arrayBuffer().catch(() => undefined);
 
   if (!response.ok) {

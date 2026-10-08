@@ -10,7 +10,8 @@
   "scripts": {
     "dev": "next dev",
     "dev:https": "next dev --experimental-https",
-    "build": "next build",
+    "build": "next build && tsx scripts/CheckOcrBundle.ts",
+    "ocr:bundle-check": "tsx scripts/CheckOcrBundle.ts",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
