@@ -207,7 +207,7 @@ describe('shadow OCR concurrency', () => {
   });
 
   it('discards the engine after an error and releases the slot when start-up throws', async () => {
-    const { db } = recordingDb();
+    const { db, rows } = recordingDb();
     const tasks: Task[] = [];
     const engine = fakeEngine();
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -229,8 +229,13 @@ describe('shadow OCR concurrency', () => {
     }
 
     expect(engine.discard).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledTimes(1); // once for acquire failure
     expect(acquireOcr).toHaveBeenCalledTimes(3);
+    // Second row is the error from acquireOcr failure.
+    expect(rows[1]).toMatchObject({
+      status: OcrShadowStatus.ERROR,
+      errorName: OcrShadowErrorKind.UNKNOWN,
+    });
     vi.restoreAllMocks();
   });
 });
