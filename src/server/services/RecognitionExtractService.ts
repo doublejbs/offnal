@@ -2,6 +2,9 @@ import 'server-only';
 
 import { and, eq, isNull } from 'drizzle-orm';
 
+import { countReviewEntries, countUnresolvedEntries } from '@/domain/DraftReviewStats';
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
@@ -9,7 +12,9 @@ import { normalizeExtraction } from '@/domain/ScheduleValidator';
 import { type CandidatesResponse } from '@/domain/types/api/CandidatesResponse';
 import { type ExtractRecognitionRequest } from '@/domain/types/api/ExtractRecognitionRequest';
 import { type ExtractRecognitionResponse } from '@/domain/types/api/ExtractRecognitionResponse';
+import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
+import { track } from '@/server/analytics/Analytics';
 import { type Db, type DbExecutor } from '@/server/db/Database';
 import { drafts, type RecognitionJobRow, users } from '@/server/db/Schema';
 import { ApiError, SOURCE_GONE_MESSAGE } from '@/server/errors/ApiError';
@@ -20,6 +25,27 @@ import { assertExtractAllowed, chargeExtract } from '@/server/services/RateLimit
 import { isSourceAvailable, requireLoggedInOwnedJob } from '@/server/services/RecognitionOwnership';
 import { extractPersonSchedule } from '@/server/services/RecognitionPersonExtractor';
 import { readSourceBytes } from '@/server/services/RecognitionProcessService';
+
+/** `draft_created` (Spec §23.3): counts only; `ms` from the extract request start to the new draft. */
+const trackDraftCreated = (
+  userId: string,
+  jobId: string,
+  entries: ShiftEntry[],
+  requestStartedAt: number,
+  manual: boolean,
+): void => {
+  track(AnalyticsEvent.DRAFT_CREATED, {
+    actorUserId: userId,
+    subject: { kind: AnalyticsSubjectKind.JOB, id: jobId },
+    properties: {
+      dayCount: entries.length,
+      reviewCells: countReviewEntries(entries),
+      unresolvedCells: countUnresolvedEntries(entries),
+      ms: Math.max(0, Date.now() - requestStartedAt),
+      manual,
+    },
+  });
+};
 
 /**
  * Same-process single flight per (job, row, month): concurrent identical extracts share one provider
@@ -133,6 +159,7 @@ const runRowExtract = async (
           yearMonth,
           displayName: candidate.name,
           ...schedule,
+          initialEntries: schedule.entries,
         }),
       )
       .returning({ id: drafts.id });
@@ -145,6 +172,8 @@ const runRowExtract = async (
   });
 
   if (outcome.created) {
+    trackDraftCreated(context.user.id, job.id, schedule.entries, requestStartedAt, false);
+
     // Spec §22 shadow mode: OCR runs after the response and only records statistics.
     scheduleOcrShadow(
       db,
@@ -203,8 +232,9 @@ const extractManualDraft = async (
   table: TableRecognition,
   manualName: string,
   yearMonth: string,
-): Promise<ExtractRecognitionResponse> =>
-  db.transaction(async (tx) => {
+  requestStartedAt: number,
+): Promise<ExtractRecognitionResponse> => {
+  const outcome = await db.transaction(async (tx) => {
     // Serializes concurrent manual extracts of the same user (the unique index ignores null rows).
     await tx.select({ id: users.id }).from(users).where(eq(users.id, context.user.id)).for('update');
 
@@ -223,7 +253,7 @@ const extractManualDraft = async (
       .limit(1);
 
     if (existing) {
-      return { draftId: existing.id };
+      return { draftId: existing.id, entries: null };
     }
 
     const schedule = normalizeExtraction(
@@ -249,8 +279,15 @@ const extractManualDraft = async (
       throw new Error('Draft insert returned no row');
     }
 
-    return { draftId: inserted.id };
+    return { draftId: inserted.id, entries: schedule.entries };
   });
+
+  if (outcome.entries) {
+    trackDraftCreated(context.user.id, job.id, outcome.entries, requestStartedAt, true);
+  }
+
+  return { draftId: outcome.draftId };
+};
 
 /**
  * Second pass → personal draft. Idempotent per (job, row, month) and per (job, manual name, month).
@@ -270,5 +307,5 @@ export const extractDraft = async (
     return extractRowDraft(db, loggedIn, job, table, input.rowId, input.yearMonth, requestStartedAt);
   }
 
-  return extractManualDraft(db, loggedIn, job, table, input.manualName, input.yearMonth);
+  return extractManualDraft(db, loggedIn, job, table, input.manualName, input.yearMonth, requestStartedAt);
 };

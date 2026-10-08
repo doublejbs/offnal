@@ -224,6 +224,7 @@ describe('cleanup run', () => {
       paymentEventsDeleted: 0,
       teamRosterDraftsDeleted: 0,
       ocrShadowRunsDeleted: 0,
+      analyticsEventsDeleted: 0,
     });
   });
 

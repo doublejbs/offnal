@@ -82,8 +82,8 @@ export const grantPaidPayment = async (
   }
 
   track(AnalyticsEvent.PAYMENT_SUCCEEDED, {
-    amount: outcome.payment.amount,
-    granted: outcome.entitlementInserted,
+    actorUserId: outcome.payment.userId,
+    properties: { amount: outcome.payment.amount, granted: outcome.entitlementInserted },
   });
 
   return { payment: outcome.payment, entitlementInserted: outcome.entitlementInserted };

@@ -2,10 +2,13 @@ import 'server-only';
 
 import { and, eq, gt, isNull, notExists, or, type SQL, sql } from 'drizzle-orm';
 
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
 import { type RecognitionStatusResponse } from '@/domain/types/api/RecognitionStatusResponse';
+import { track } from '@/server/analytics/Analytics';
 import { type DbExecutor } from '@/server/db/Database';
 import { type RecognitionJobRow, recognitionJobs, teamRosters } from '@/server/db/Schema';
 import { ApiError } from '@/server/errors/ApiError';
@@ -105,13 +108,13 @@ export const findOwnedJob = async (
   return job;
 };
 
-/** Links unexpired, unclaimed jobs of the anonymous session to the user (conditional UPDATE). */
+/** Links unexpired, unclaimed jobs of the anonymous session to the user (conditional UPDATE). Returns their ids. */
 export const claimAnonymousJobs = async (
   db: DbExecutor,
   userId: string,
   anonymousSessionId: string,
   now = new Date(),
-): Promise<number> => {
+): Promise<string[]> => {
   const claimed = await db
     .update(recognitionJobs)
     .set({ userId })
@@ -124,15 +127,19 @@ export const claimAnonymousJobs = async (
     )
     .returning({ id: recognitionJobs.id });
 
-  return claimed.length;
+  return claimed.map((row) => row.id);
 };
 
-/** Spec §6 conditions in one conditional UPDATE: same anonymous session, unexpired, unclaimed or already ours. */
+/**
+ * Spec §6 conditions in one conditional UPDATE: same anonymous session, unexpired, unclaimed (or, unless
+ * `unclaimedOnly`, already ours).
+ */
 const claimJobForUser = async (
   db: DbExecutor,
   context: LoggedInContext,
   jobId: string,
   now: Date,
+  unclaimedOnly = false,
 ): Promise<RecognitionJobRow | null> => {
   if (!context.anonymousSessionId) {
     return null;
@@ -146,12 +153,22 @@ const claimJobForUser = async (
         eq(recognitionJobs.id, jobId),
         eq(recognitionJobs.anonymousSessionId, context.anonymousSessionId),
         gt(recognitionJobs.expiresAt, now),
-        or(isNull(recognitionJobs.userId), eq(recognitionJobs.userId, context.user.id)),
+        unclaimedOnly
+          ? isNull(recognitionJobs.userId)
+          : or(isNull(recognitionJobs.userId), eq(recognitionJobs.userId, context.user.id)),
       ),
     )
     .returning();
 
   return claimed ?? null;
+};
+
+/** `job_claimed` (Spec §23.3): a logged-in user took over a job uploaded before login. */
+export const trackJobClaimed = (userId: string, jobId: string): void => {
+  track(AnalyticsEvent.JOB_CLAIMED, {
+    actorUserId: userId,
+    subject: { kind: AnalyticsSubjectKind.JOB, id: jobId },
+  });
 };
 
 /** Already owned by this user → same success; another user's or foreign session's job → 404. */
@@ -162,7 +179,14 @@ export const claimRecognition = async (
 ): Promise<RecognitionStatusResponse> => {
   const loggedIn = requireUser(context);
   const now = new Date();
-  const claimed = await claimJobForUser(db, loggedIn, requireUuid(jobId), now);
+  const id = requireUuid(jobId);
+  const newlyClaimed = await claimJobForUser(db, loggedIn, id, now, true);
+
+  if (newlyClaimed) {
+    trackJobClaimed(loggedIn.user.id, newlyClaimed.id);
+  }
+
+  const claimed = newlyClaimed ?? (await claimJobForUser(db, loggedIn, id, now));
 
   return toStatusResponse(claimed ?? (await findOwnedJob(db, loggedIn, jobId)), loggedIn, now);
 };
@@ -185,6 +209,10 @@ export const requireLoggedInOwnedJob = async (
 
   if (!job) {
     throw new ApiError(ApiErrorCode.NOT_FOUND);
+  }
+
+  if (found.userId === null) {
+    trackJobClaimed(loggedIn.user.id, job.id);
   }
 
   return { context: loggedIn, job };

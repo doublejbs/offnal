@@ -1,5 +1,5 @@
+import { countReviewEntries } from '@/domain/DraftReviewStats';
 import { OcrCellInk } from '@/domain/enums/OcrCellInk';
-import { ShiftReviewReason } from '@/domain/enums/ShiftReviewReason';
 import { normalizePersonName } from '@/domain/PersonName';
 import { type ExtractedCell } from '@/domain/types/ExtractedCell';
 import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
@@ -45,9 +45,7 @@ export const countBlankCells = (row: OcrRow, yearMonth: string): number =>
  * alone is not counted: the code was read, only its times are missing, whichever pipeline read it.
  */
 export const countReviewCells = (schedule: NormalizedSchedule): number =>
-  schedule.entries.filter(
-    (entry) => entry.code === null || entry.reviewReasons.includes(ShiftReviewReason.AMBIGUOUS),
-  ).length;
+  countReviewEntries(schedule.entries);
 
 const toExtractedCell = (cell: OcrCell): ExtractedCell => {
   if (cell.ink === OcrCellInk.BLANK) {

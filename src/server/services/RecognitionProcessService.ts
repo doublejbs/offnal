@@ -6,6 +6,7 @@ import { and, eq, gt, inArray, lt, or, sql } from 'drizzle-orm';
 
 import { LEASE_GRACE_MS, MS_PER_HOUR } from '@/domain/DomainLimits';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { type ImageMimeType } from '@/domain/enums/ImageMimeType';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { RecognitionStatus } from '@/domain/enums/RecognitionStatus';
@@ -98,7 +99,7 @@ export const withStoredSource = async <T>(
   try {
     const result = await db.transaction((tx) => write(tx, source));
 
-    track(AnalyticsEvent.UPLOAD_STARTED);
+    track(AnalyticsEvent.UPLOAD_STARTED, { subject: { kind: AnalyticsSubjectKind.JOB, id: jobId } });
 
     return result;
   } catch (error: unknown) {
@@ -293,10 +294,19 @@ export const runRecognitionForJob = async (
     return null;
   }
 
+  const startedAt = Date.now();
   const result = await runTableRecognition(leased);
   const finished = await finishAttempt(db, leased, result);
 
-  track(AnalyticsEvent.RECOGNITION_COMPLETED, { success: result.ok, attempt: leased.attemptCount });
+  track(AnalyticsEvent.RECOGNITION_COMPLETED, {
+    subject: { kind: AnalyticsSubjectKind.JOB, id: leased.id },
+    properties: {
+      success: result.ok,
+      attempt: leased.attemptCount,
+      ms: Date.now() - startedAt,
+      ...(result.ok ? {} : { errorCode: result.errorCode }),
+    },
+  });
 
   return finished;
 };

@@ -1,9 +1,11 @@
 import 'server-only';
 
-import { and, eq, isNull, max, sql } from 'drizzle-orm';
+import { and, count, eq, isNull, lte, max, sql } from 'drizzle-orm';
 
 import { isBetaFree } from '@/domain/BillingPolicy';
+import { countEditedDays, countReviewEntries } from '@/domain/DraftReviewStats';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
@@ -12,6 +14,7 @@ import { decideMonthAccess } from '@/domain/EntitlementPolicy';
 import { getPublishBlockers } from '@/domain/ScheduleValidator';
 import { type PublishDraftResponse } from '@/domain/types/api/PublishDraftResponse';
 import { type RevisionConflictDetails } from '@/domain/types/api/RevisionConflictDetails';
+import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { track } from '@/server/analytics/Analytics';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { getPricing } from '@/server/config/PricingConfig';
@@ -33,7 +36,17 @@ import { requireUser, requireUuid } from '@/server/validation/RequestGuards';
 const TEAM_MONTH_PUBLISH_MESSAGE =
   '이 달은 팀 근무표가 있어 개인으로 저장할 수 없어요. 고칠 곳이 있으면 관리자에게 요청해 주세요.';
 
-type PublishOutcome = PublishDraftResponse & { recognitionJobId: string | null };
+/** Analytics inputs of a new publish (Spec §23.3); null for an idempotent repeat. */
+type PublishFacts = {
+  entries: ShiftEntry[];
+  initialEntries: ShiftEntry[] | null;
+  /** The month had no published row before (first publish, or again after deletion). */
+  newMonth: boolean;
+  /** Position of this month among the calendar's published months, by first publish time. */
+  monthIndex: number;
+};
+
+type PublishOutcome = PublishDraftResponse & { recognitionJobId: string | null; facts: PublishFacts | null };
 
 const getOrCreateCalendarId = async (
   tx: DbTransaction,
@@ -115,6 +128,20 @@ const ensureEntitlement = async (tx: DbTransaction, userId: string, yearMonth: s
   return true;
 };
 
+/** Published months of the calendar first published at or before `publishedAt` (this month included). */
+const countMonthsPublishedBy = async (
+  tx: DbTransaction,
+  calendarId: string,
+  publishedAt: Date,
+): Promise<number> => {
+  const [row] = await tx
+    .select({ value: count() })
+    .from(publishedMonths)
+    .where(and(eq(publishedMonths.calendarId, calendarId), lte(publishedMonths.publishedAt, publishedAt)));
+
+  return row?.value ?? 1;
+};
+
 const throwConflict = (details: RevisionConflictDetails): never => {
   throw new ApiError(ApiErrorCode.REVISION_CONFLICT, { details });
 };
@@ -147,6 +174,7 @@ const runPublishTransaction = async (
         usedTrial: false,
         alreadyPublished: true,
         recognitionJobId: draft.recognitionJobId,
+        facts: null,
       };
     }
 
@@ -209,7 +237,7 @@ const runPublishTransaction = async (
           updatedAt: new Date(),
         },
       })
-      .returning({ revision: publishedMonths.revision });
+      .returning({ revision: publishedMonths.revision, publishedAt: publishedMonths.publishedAt });
 
     // 6. Draft → published (other editing drafts of the month are kept).
     await tx.update(drafts).set({ status: DraftStatus.PUBLISHED }).where(eq(drafts.id, draft.id));
@@ -221,6 +249,12 @@ const runPublishTransaction = async (
       usedTrial,
       alreadyPublished: false,
       recognitionJobId: draft.recognitionJobId,
+      facts: {
+        entries: draft.entries,
+        initialEntries: draft.initialEntries,
+        newMonth: publishedRevision === 0,
+        monthIndex: await countMonthsPublishedBy(tx, calendarId, published?.publishedAt ?? new Date()),
+      },
     };
   });
 
@@ -248,6 +282,51 @@ export const deleteJobSourceBestEffort = async (db: Db, jobId: string): Promise<
   }
 };
 
+/**
+ * Spec §23.3: `review_completed` (AI drafts only: edits against the AI result), `month_published`, and
+ * `next_month_registered` when a new month is the user's second or later.
+ */
+const trackPublish = (
+  userId: string,
+  recognitionJobId: string | null,
+  response: PublishDraftResponse,
+  facts: PublishFacts,
+): void => {
+  const subject = recognitionJobId ? { kind: AnalyticsSubjectKind.JOB, id: recognitionJobId } : null;
+
+  if (facts.initialEntries) {
+    const editedCells = countEditedDays(facts.initialEntries, facts.entries);
+
+    track(AnalyticsEvent.REVIEW_COMPLETED, {
+      actorUserId: userId,
+      subject,
+      properties: {
+        editedCells,
+        initialReviewCells: countReviewEntries(facts.initialEntries),
+        fullMonthMatch: editedCells === 0,
+      },
+    });
+  }
+
+  track(AnalyticsEvent.MONTH_PUBLISHED, {
+    actorUserId: userId,
+    subject,
+    properties: {
+      revision: response.publishedRevision,
+      monthIndex: facts.monthIndex,
+      usedTrial: response.usedTrial,
+      beta: isBetaFree(getAppConfig()),
+    },
+  });
+
+  if (facts.newMonth && facts.monthIndex >= 2) {
+    track(AnalyticsEvent.NEXT_MONTH_REGISTERED, {
+      actorUserId: userId,
+      properties: { monthIndex: facts.monthIndex },
+    });
+  }
+};
+
 /** Spec §7.2 publish transaction. Re-publishing an already published draft succeeds without a new entitlement. */
 export const publishDraft = async (
   db: Db,
@@ -256,22 +335,19 @@ export const publishDraft = async (
   revision: number,
 ): Promise<PublishDraftResponse> => {
   const { user } = requireUser(context);
-  const { recognitionJobId, ...response } = await runPublishTransaction(
+  const { recognitionJobId, facts, ...response } = await runPublishTransaction(
     db,
     user.id,
     requireUuid(draftId),
     revision,
   );
 
-  if (!response.alreadyPublished) {
+  if (facts) {
     if (recognitionJobId) {
       await deleteJobSourceBestEffort(db, recognitionJobId);
     }
 
-    track(AnalyticsEvent.MONTH_PUBLISHED, {
-      usedTrial: response.usedTrial,
-      revision: response.publishedRevision,
-    });
+    trackPublish(user.id, recognitionJobId, response, facts);
   }
 
   return response;

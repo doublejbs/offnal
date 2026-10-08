@@ -7,7 +7,10 @@ import { type ReactNode } from 'react';
 import { getEnvironmentBannerText } from '@/client/EnvironmentBanner';
 import AppShell from '@/components/AppShell';
 import ConfigProvider from '@/components/ConfigProvider';
+import PageAnalytics from '@/components/PageAnalytics';
 import { isBetaFree } from '@/domain/BillingPolicy';
+import { shouldRenderPageAnalytics } from '@/server/analytics/PageAnalyticsPolicy';
+import { getAppConfig } from '@/server/config/AppConfig';
 import { buildPublicConfig } from '@/server/config/PublicConfig';
 import { getServerComponentContext } from '@/server/http/RequestContext';
 import { buildSiteMetadata, readSiteMetadataSource } from '@/server/metadata/SiteMetadata';
@@ -55,6 +58,7 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
             {children}
           </AppShell>
         </ConfigProvider>
+        {shouldRenderPageAnalytics(getAppConfig()) ? <PageAnalytics /> : null}
       </body>
     </html>
   );

@@ -624,3 +624,17 @@ interface PaymentProvider {
 
 - 단위: 속성 검증(문자열·객체 거부), 가명 키가 안정적이고 원래 id를 포함하지 않음, sink별 동작, 경로 가리기 패턴.
 - 통합(PGlite, sink=db): 개인 흐름 한 번 → 이벤트 순서·키 연결, 저장 행에 이름·코드·토큰이 없음, 기록 실패가 응답을 바꾸지 않음, RLS 검사 통과, 정리 cron 400일.
+
+### 23.7 구현 메모 (2026-10-08)
+
+- 코드: 기록 `src/server/analytics/Analytics.ts`(`track(event, { actorUserId?, subject?, properties? })`), 가명 키 `AnalyticsKeys.ts`, 속성 검증 `AnalyticsProperties.ts`(허용 enum 문자열은 현재 `RecognitionErrorCode`만), 리포트 `AnalyticsReportQueries.ts`(SQL)·`AnalyticsStats.ts`(전환율·서식)·`AnalyticsReport.ts`(CLI), 경로 가리기 `src/client/PageViewRedaction.ts`. 마이그레이션 0011(테이블·`drafts.initial_entries`)·0012(RLS).
+- **기록 시점**: 요청 안에서는 `after()`, 요청 밖(스크립트·테스트)에서는 `after()`가 던지므로 실패를 삼키는 분리된 Promise로 쓴다. `created_at`은 `track` 호출 시각(인스턴스 안에서 1ms씩 단조 증가 — 같은 밀리초 이벤트의 순서 유지). 잘못된 속성은 이벤트를 버리고 오류 이름만 로그.
+- **데모**: `ANALYTICS_SINK=db`를 지정해도 데모 모드는 `console`(저장 안 함). test 환경은 명시적으로 켠 값을 그대로 쓴다(통합 테스트가 데모 모드로 돈다).
+- **AI 초안 원본**: 초안은 수정 시 `entries`를 덮어써 AI 결과가 남지 않으므로 `drafts.initial_entries`(jsonb, 행 추출 초안만, 초안과 같이 만료)를 추가했다. `review_completed`는 이 값이 있는 초안의 발행에서만 기록하고, `editedCells`는 날짜의 일(day) 번호로 비교한다(월 변경 후에도 비교 가능).
+- **키 보강**: `review_completed`·`month_published`에도 subject=job을 붙여(작업에서 온 초안일 때) 깔때기의 발행 단계를 작업 단위로 센다. `recognition_completed` 실패 시 `errorCode`(enum)를 함께 남긴다. `draft_created`는 이름 직접 입력 초안도 `manual: true`로 기록한다(품질 지표에서는 제외).
+- **`monthIndex`**: 그 달력의 `published_months` 중 처음 발행 시각(`published_at`)이 이 달 이하인 수. 발행한 달을 지웠다 다시 발행하면 새 달로 다시 센다. `next_month_registered`는 그 달에 발행 행이 없던 발행(첫 발행)이고 `monthIndex ≥ 2`일 때.
+- **`job_claimed`**: 로그인 콜백(익명 세션의 작업 일괄 연결)과 `POST claim`·로그인 후 첫 접근에서 실제로 `user_id`가 비어 있던 작업만(이미 내 작업인 반복 요청 제외). `login_completed`·`job_claimed`는 트랜잭션 커밋 뒤 기록.
+- **`calendar_viewed`**: `GET /api/calendar`·`GET /api/calendar/:ym` 라우트에서 성공 후 기록(서버 컴포넌트의 홈·달력 첫 화면 리다이렉트는 제외). 월 화면은 두 API를 모두 불러 한 방문에 2건이 생길 수 있다(일 단위 재방문 계산이라 무관).
+- **팀**: `team_created`(memberCount 1), `team_member_joined`(관리자 승인 시, actor = 합류한 멤버, 승인 뒤 활성 멤버 수), `roster_published`(revision, changedCellCount). `export_link`는 공유 끄기도 `visibleMonthCount: 0`으로 기록해 리포트의 "공유 켠 사용자"는 기간 내 마지막 설정 기준이다.
+- **7일 재방문**: 처음 발행(전체 기간 중 첫 `month_published`)이 기간 안이면서 리포트 시점보다 7일 이상 전인 사용자 중, 발행 다음 날(서울 기준) 이후 7일 안에 `calendar_viewed`가 있는 비율. 발행 직후 같은 날 달력으로 이동하는 것은 재방문으로 세지 않는다.
+- **페이지 방문**: `<Analytics beforeSend>`는 함수를 넘겨야 해서 클라이언트 컴포넌트 `PageAnalytics`로 감싸 루트 레이아웃에서 live·non-test일 때만 렌더한다. 정해진 경로 외에도 UUID·긴 토큰 모양 세그먼트는 `[id]`로 바꾸고, 파싱할 수 없는 URL은 보내지 않는다.

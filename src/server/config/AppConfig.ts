@@ -2,6 +2,7 @@ import 'server-only';
 
 import { z } from 'zod';
 
+import { AnalyticsSink } from '@/domain/enums/AnalyticsSink';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { BillingMode } from '@/domain/enums/BillingMode';
@@ -71,6 +72,8 @@ export type AppConfig = {
   sourceTtlHours: number;
   draftTtlDays: number;
   cronSecret: string | null;
+  /** Where usage events go (Spec §23.2). Never `db` in demo mode; `off` in tests unless set explicitly. */
+  analyticsSink: AnalyticsSink;
 };
 
 type RawEnv = Record<string, string | undefined>;
@@ -157,6 +160,7 @@ const envSchema = z.object({
   SOURCE_TTL_HOURS: positiveInt(24),
   DRAFT_TTL_DAYS: positiveInt(30),
   CRON_SECRET: optionalText,
+  ANALYTICS_SINK: z.enum(AnalyticsSink).optional(),
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;
@@ -280,6 +284,28 @@ const collectProductionViolations = (
   return violations;
 };
 
+/**
+ * Spec §23.2: development logs to the console, tests are off, preview/production store in the DB. Demo
+ * data is never stored (db → console). Tests may opt in explicitly (integration tests with sink=db).
+ */
+const resolveAnalyticsSink = (
+  requested: AnalyticsSink | undefined,
+  offnalEnv: OffnalEnv,
+  appMode: AppMode,
+): AnalyticsSink => {
+  if (offnalEnv === OffnalEnv.TEST) {
+    return requested ?? AnalyticsSink.OFF;
+  }
+
+  const sink = requested ?? (offnalEnv === OffnalEnv.DEVELOPMENT ? AnalyticsSink.CONSOLE : AnalyticsSink.DB);
+
+  if (appMode === AppMode.DEMO && sink === AnalyticsSink.DB) {
+    return AnalyticsSink.CONSOLE;
+  }
+
+  return sink;
+};
+
 /** Parses and validates environment variables. Throws on invalid values or unsafe production settings. */
 export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
   const env = normalizeEnv(rawEnv);
@@ -365,6 +391,7 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     sourceTtlHours: parsed.SOURCE_TTL_HOURS,
     draftTtlDays: parsed.DRAFT_TTL_DAYS,
     cronSecret: parsed.CRON_SECRET ?? null,
+    analyticsSink: resolveAnalyticsSink(parsed.ANALYTICS_SINK, offnalEnv, appMode),
   };
 };
 

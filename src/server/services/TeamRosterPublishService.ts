@@ -2,6 +2,8 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { RevisionConflictReason } from '@/domain/enums/RevisionConflictReason';
 import { TeamRosterStatus } from '@/domain/enums/TeamRosterStatus';
@@ -9,6 +11,7 @@ import { diffRosterRows } from '@/domain/TeamRosterDiff';
 import { type PreviousRowRef } from '@/domain/types/api/PreviousRowRef';
 import { type PublishTeamRosterRequest } from '@/domain/types/api/PublishTeamRosterRequest';
 import { type PublishTeamRosterResponse } from '@/domain/types/api/PublishTeamRosterResponse';
+import { track } from '@/server/analytics/Analytics';
 import { type Db, type DbTransaction } from '@/server/db/Database';
 import {
   type TeamRosterRow,
@@ -238,6 +241,17 @@ export const publishTeamRoster = async (
 
   if (sourceJobId) {
     await deleteJobSourceBestEffort(db, sourceJobId);
+  }
+
+  if (!response.alreadyPublished) {
+    track(AnalyticsEvent.ROSTER_PUBLISHED, {
+      actorUserId: loggedIn.user.id,
+      subject: { kind: AnalyticsSubjectKind.TEAM, id: team.id },
+      properties: {
+        revision: response.revision,
+        changedCellCount: response.changedCellCount,
+      },
+    });
   }
 
   return response;

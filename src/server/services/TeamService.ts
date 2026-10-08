@@ -2,6 +2,8 @@ import 'server-only';
 
 import { and, asc, count, eq, isNotNull, ne } from 'drizzle-orm';
 
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRole } from '@/domain/enums/TeamRole';
 import { type CreateTeamRequest } from '@/domain/types/api/CreateTeamRequest';
@@ -10,6 +12,7 @@ import { type TeamDetailResponse } from '@/domain/types/api/TeamDetailResponse';
 import { type TeamDto } from '@/domain/types/api/TeamDto';
 import { type TeamListResponse } from '@/domain/types/api/TeamListResponse';
 import { type UpdateTeamRequest } from '@/domain/types/api/UpdateTeamRequest';
+import { track } from '@/server/analytics/Analytics';
 import { type Db, type DbExecutor } from '@/server/db/Database';
 import { teamMembers, teamRosters, type TeamRow, teams } from '@/server/db/Schema';
 import { type RequestContext } from '@/server/http/RequestContext';
@@ -92,6 +95,12 @@ export const createTeam = async (
     });
 
     return team.id;
+  });
+
+  track(AnalyticsEvent.TEAM_CREATED, {
+    actorUserId: user.id,
+    subject: { kind: AnalyticsSubjectKind.TEAM, id: teamId },
+    properties: { memberCount: 1 },
   });
 
   return getTeamDetail(db, loggedIn, teamId);

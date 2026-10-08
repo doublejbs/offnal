@@ -90,6 +90,16 @@ const countActiveAdmins = async (db: DbExecutor, teamId: string, exceptUserId?: 
   return row?.value ?? 0;
 };
 
+/** Active members of the team (analytics `memberCount`). */
+export const countActiveMembers = async (db: DbExecutor, teamId: string): Promise<number> => {
+  const [row] = await db
+    .select({ value: count() })
+    .from(teamMembers)
+    .where(and(eq(teamMembers.teamId, teamId), eq(teamMembers.status, TeamMemberStatus.ACTIVE)));
+
+  return row?.value ?? 0;
+};
+
 /** Leaving/removal/demotion of an admin must leave at least one other active admin. */
 export const assertNotLastAdmin = async (db: DbExecutor, membership: TeamMemberRow): Promise<void> => {
   if (membership.role !== TeamRole.ADMIN || membership.status !== TeamMemberStatus.ACTIVE) {

@@ -2,6 +2,8 @@ import 'server-only';
 
 import { and, eq, sql } from 'drizzle-orm';
 
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { AnalyticsSubjectKind } from '@/domain/enums/AnalyticsSubjectKind';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { TeamMembershipConflictReason } from '@/domain/enums/TeamMembershipConflictReason';
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
@@ -10,6 +12,7 @@ import { type ApproveTeamMemberRequest } from '@/domain/types/api/ApproveTeamMem
 import { type OkResponse } from '@/domain/types/api/OkResponse';
 import { type TeamMemberDto } from '@/domain/types/api/TeamMemberDto';
 import { type UpdateTeamMemberRequest } from '@/domain/types/api/UpdateTeamMemberRequest';
+import { track } from '@/server/analytics/Analytics';
 import { type Db, type DbTransaction } from '@/server/db/Database';
 import { isUniqueViolation } from '@/server/db/DbErrors';
 import {
@@ -27,7 +30,12 @@ import {
   requireTeamAdmin,
   throwMembershipConflict,
 } from '@/server/services/TeamAccess';
-import { assertLinkableRow, assertNotLastAdmin, loadMemberDto } from '@/server/services/TeamMemberQueries';
+import {
+  assertLinkableRow,
+  assertNotLastAdmin,
+  countActiveMembers,
+  loadMemberDto,
+} from '@/server/services/TeamMemberQueries';
 import { listPublishedRosters } from '@/server/services/TeamRosterRows';
 import { requireUser, requireUuid } from '@/server/validation/RequestGuards';
 
@@ -115,7 +123,7 @@ export const approveMember = async (
 ): Promise<TeamMemberDto> => {
   const { context: loggedIn, team } = await requireTeamAdmin(db, context, teamId);
 
-  await db.transaction(async (tx) => {
+  const joined = await db.transaction(async (tx) => {
     await lockTeamAsAdmin(tx, team.id, loggedIn.user.id);
 
     const target = await requireTargetMembership(tx, team.id, userId);
@@ -142,6 +150,15 @@ export const approveMember = async (
         .where(eq(teamMembers.id, target.id)),
     );
     await acknowledgePublishedMonths(tx, team.id, target.userId);
+
+    return { userId: target.userId, memberCount: await countActiveMembers(tx, team.id) };
+  });
+
+  // The member who joined is the actor (the approving admin is not the one joining).
+  track(AnalyticsEvent.TEAM_MEMBER_JOINED, {
+    actorUserId: joined.userId,
+    subject: { kind: AnalyticsSubjectKind.TEAM, id: team.id },
+    properties: { memberCount: joined.memberCount },
   });
 
   return loadMemberDto(db, team.id, userId, loggedIn.user.id);

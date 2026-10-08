@@ -167,7 +167,7 @@ export const createPayment = async (
     return inserted;
   });
 
-  track(AnalyticsEvent.PAYMENT_SHOWN, { amount: payment.amount });
+  track(AnalyticsEvent.PAYMENT_SHOWN, { actorUserId: user.id, properties: { amount: payment.amount } });
 
   return {
     orderId: payment.id,

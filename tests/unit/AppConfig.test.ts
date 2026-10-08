@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { isBetaFree } from '@/domain/BillingPolicy';
+import { AnalyticsSink } from '@/domain/enums/AnalyticsSink';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { BillingMode } from '@/domain/enums/BillingMode';
@@ -347,6 +348,35 @@ describe('parseAppConfig', () => {
     );
     expect(() => parseAppConfig(withOverrides({ OCR_MODE: 'primary' }))).toThrow();
     expect(() => parseAppConfig(withOverrides({ OCR_SHADOW_SAMPLE_RATE: '1.5' }))).toThrow();
+  });
+
+  it('defaults the analytics sink per environment (Spec §23.2)', () => {
+    expect(parseAppConfig(VALID_PRODUCTION_ENV).analyticsSink).toBe(AnalyticsSink.DB);
+    expect(parseAppConfig({ OFFNAL_ENV: 'preview', APP_MODE: 'live' }).analyticsSink).toBe(AnalyticsSink.DB);
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'live' }).analyticsSink).toBe(
+      AnalyticsSink.CONSOLE,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'test', APP_MODE: 'live' }).analyticsSink).toBe(AnalyticsSink.OFF);
+    expect(parseAppConfig(withOverrides({ ANALYTICS_SINK: 'off' })).analyticsSink).toBe(AnalyticsSink.OFF);
+    expect(parseAppConfig(withOverrides({ ANALYTICS_SINK: 'console' })).analyticsSink).toBe(
+      AnalyticsSink.CONSOLE,
+    );
+    expect(() => parseAppConfig(withOverrides({ ANALYTICS_SINK: 'posthog' }))).toThrow();
+  });
+
+  it('never stores analytics in demo mode, and in tests only when explicitly enabled', () => {
+    expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo' }).analyticsSink).toBe(
+      AnalyticsSink.CONSOLE,
+    );
+    expect(parseAppConfig({ OFFNAL_ENV: 'preview', APP_MODE: 'demo' }).analyticsSink).toBe(
+      AnalyticsSink.CONSOLE,
+    );
+    expect(
+      parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo', ANALYTICS_SINK: 'db' }).analyticsSink,
+    ).toBe(AnalyticsSink.CONSOLE);
+    expect(parseAppConfig({ OFFNAL_ENV: 'test', APP_MODE: 'demo', ANALYTICS_SINK: 'db' }).analyticsSink).toBe(
+      AnalyticsSink.DB,
+    );
   });
 
   it('treats an empty sample rate as the default and caps the OCR timeout', () => {

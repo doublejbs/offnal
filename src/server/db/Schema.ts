@@ -15,6 +15,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { AuthIdentityProvider } from '@/domain/enums/AuthIdentityProvider';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
@@ -33,6 +34,7 @@ import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { type SourceCell } from '@/domain/types/SourceCell';
 import { type TableRecognition } from '@/domain/types/TableRecognition';
+import { type AnalyticsProperties } from '@/server/analytics/AnalyticsProperties';
 
 const YEAR_MONTH_REGEX = '^(20[0-9]{2}|2100)-(0[1-9]|1[0-2])$';
 
@@ -147,6 +149,11 @@ export const drafts = pgTable(
     definitions: jsonb('definitions').$type<ShiftDefinition[]>().notNull(),
     entries: jsonb('entries').$type<ShiftEntry[]>().notNull(),
     sourceCells: jsonb('source_cells').$type<SourceCell[]>().notNull().default([]),
+    /**
+     * Entries as the AI second pass produced them (row extracts only; null for manual and edit drafts).
+     * Compared with the published entries for `review_completed` (Spec §23.3); expires with the draft.
+     */
+    initialEntries: jsonb('initial_entries').$type<ShiftEntry[]>(),
     status: text('status').$type<DraftStatus>().notNull(),
     revision: integer('revision').notNull().default(1),
     /** published_months.revision this draft was copied from (edit drafts only); guards stale overwrites. */
@@ -506,6 +513,29 @@ export const ocrShadowRuns = pgTable(
   ],
 );
 
+/**
+ * Usage events (Spec §23.2). Server only (RLS on, no policies). Pseudonymous keys instead of ids, and
+ * properties limited to numbers, booleans and fixed enum values (validated before insert).
+ */
+export const analyticsEvents = pgTable(
+  'analytics_events',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    event: text('event').$type<AnalyticsEvent>().notNull(),
+    /** HMAC of `user:` + user id (`AnalyticsKeys`), null before login. */
+    actorKey: text('actor_key'),
+    /** HMAC of `job:`/`calendar:`/`team:` + id. */
+    subjectKey: text('subject_key'),
+    properties: jsonb('properties').$type<AnalyticsProperties>().notNull().default({}),
+    createdAt: buildCreatedAtColumn(),
+  },
+  (table) => [
+    index('analytics_events_event_created_at_idx').on(table.event, table.createdAt),
+    index('analytics_events_actor_key_created_at_idx').on(table.actorKey, table.createdAt),
+    buildEnumCheck('analytics_events_event_check', table.event, AnalyticsEvent),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type AuthIdentityRow = typeof authIdentities.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
@@ -524,3 +554,4 @@ export type TeamRosterRow = typeof teamRosters.$inferSelect;
 export type TeamRosterRowRow = typeof teamRosterRows.$inferSelect;
 export type TeamRosterChangeRow = typeof teamRosterChanges.$inferSelect;
 export type OcrShadowRunRow = typeof ocrShadowRuns.$inferSelect;
+export type AnalyticsEventRow = typeof analyticsEvents.$inferSelect;

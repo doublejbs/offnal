@@ -78,6 +78,20 @@
       "when": 1791444122083,
       "tag": "0010_ocr_shadow_skip_status",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791446977474,
+      "tag": "0011_analytics_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791446985149,
+      "tag": "0012_analytics_events_rls",
+      "breakpoints": true
     }
   ]
 }

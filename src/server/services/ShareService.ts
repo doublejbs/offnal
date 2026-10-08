@@ -201,7 +201,10 @@ export const updateShare = async (
     );
   });
 
-  track(AnalyticsEvent.EXPORT_LINK, { visibleMonthCount: settings.visibleMonths.length });
+  track(AnalyticsEvent.EXPORT_LINK, {
+    actorUserId: user.id,
+    properties: { visibleMonthCount: settings.visibleMonths.length },
+  });
 
   return settings;
 };
@@ -239,8 +242,7 @@ export const rotateShare = async (db: Db, context: RequestContext): Promise<Shar
 /** DELETE /api/calendar/share: sharing off and token removed (idempotent). Month visibility is kept. */
 export const disableShare = async (db: Db, context: RequestContext): Promise<ShareSettingsResponse> => {
   const { user } = requireUser(context);
-
-  return db.transaction(async (tx) => {
+  const settings = await db.transaction(async (tx) => {
     const calendar = await lockOwnedCalendar(tx, user.id);
 
     if (!calendar) {
@@ -259,4 +261,9 @@ export const disableShare = async (db: Db, context: RequestContext): Promise<Sha
       user.displayName,
     );
   });
+
+  // Sharing off: the latest share setting shows no month (report counts users still sharing).
+  track(AnalyticsEvent.EXPORT_LINK, { actorUserId: user.id, properties: { visibleMonthCount: 0 } });
+
+  return settings;
 };
