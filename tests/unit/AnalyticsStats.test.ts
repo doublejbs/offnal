@@ -13,6 +13,7 @@ import {
 const EMPTY_REPORT: AnalyticsReportData = {
   days: 30,
   funnel: { uploaded: 0, recognized: 0, claimed: 0, drafted: 0, published: 0 },
+  team: { uploaded: 0, recognized: 0 },
   quality: {
     drafts: 0,
     reviewCells: { p50: null, p95: null },
@@ -21,7 +22,7 @@ const EMPTY_REPORT: AnalyticsReportData = {
     fullMonthMatches: 0,
   },
   secondMonth: { publishers: 0, repeatPublishers: 0 },
-  share: { sharers: 0, sharedViews: 0, sharedLinks: 0 },
+  share: { sharers: 0, sharedViewDays: 0, sharedLinks: 0 },
   activity: { dailyActive: [], weeklyActive: 0 },
   retention: { eligible: 0, retained: 0 },
   daily: [],
@@ -80,7 +81,8 @@ describe('analytics stats', () => {
         fullMonthMatches: 1,
       },
       secondMonth: { publishers: 4, repeatPublishers: 1 },
-      share: { sharers: 2, sharedViews: 9, sharedLinks: 3 },
+      share: { sharers: 2, sharedViewDays: 9, sharedLinks: 3 },
+      team: { uploaded: 2, recognized: 1 },
       activity: { dailyActive: [{ date: '2026-10-01', users: 3 }], weeklyActive: 5 },
       retention: { eligible: 4, retained: 2 },
       daily: [{ date: '2026-10-01', event: AnalyticsEvent.UPLOAD_STARTED, count: 10 }],
@@ -88,6 +90,9 @@ describe('analytics stats', () => {
 
     expect(text).toContain('최근 7일');
     expect(text).toContain('업로드');
+    expect(text).toContain('업로드 코호트');
+    expect(text).toContain('팀 근무표 업로드: 2건');
+    expect(text).toContain('링크·일 기준');
     expect(text).toContain('40.0%');
     expect(text).toContain('월 전체 일치율');
     expect(text).toContain('25.0%');

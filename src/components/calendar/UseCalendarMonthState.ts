@@ -34,7 +34,7 @@ const pickInitialDate = (month: CalendarMonthResponse): string | null => {
 export const useCalendarMonthState = (yearMonth: string) => {
   const router = useRouter();
   const summary = useLoad('calendar-summary', (signal) => getCalendarSummary(signal));
-  const month = useLoad(yearMonth, (signal) => getCalendarMonth(yearMonth, signal));
+  const month = useLoad(yearMonth, (signal) => getCalendarMonth(yearMonth, signal, true));
   const [pickedDate, setSelectedDate] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);

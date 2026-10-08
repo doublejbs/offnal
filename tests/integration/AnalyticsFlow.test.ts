@@ -12,8 +12,17 @@ import { type ShareSettingsResponse } from '@/domain/types/api/ShareSettingsResp
 import { flushAnalyticsForTesting } from '@/server/analytics/Analytics';
 import { buildActorKey, buildSubjectKey } from '@/server/analytics/AnalyticsKeys';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { analyticsEvents, type AnalyticsEventRow, calendars, drafts, users } from '@/server/db/Schema';
+import {
+  analyticsEvents,
+  type AnalyticsEventRow,
+  calendars,
+  drafts,
+  recognitionJobs,
+  users,
+} from '@/server/db/Schema';
+import { type LoggedInContext } from '@/server/http/RequestContext';
 import { runCleanup } from '@/server/services/CleanupService';
+import { requireLoggedInOwnedJob } from '@/server/services/RecognitionOwnership';
 import { MOCK_CANDIDATE_NAMES } from '@/server/vision/MockVisionProvider';
 
 import {
@@ -26,7 +35,7 @@ import { createEnvSandbox } from '../helpers/EnvSandbox';
 import { claimJob, createReadyDraft, devLogin, publishDraft, uploadAndProcess } from '../helpers/OffnalFlows';
 import { publishReady } from '../helpers/PaymentFlows';
 import { createTeam, loggedInClient } from '../helpers/TeamFlows';
-import { joinAndApprove, setupInvitedTeam } from '../helpers/TeamRosterFlows';
+import { createRoster, extractNext, joinAndApprove, setupInvitedTeam } from '../helpers/TeamRosterFlows';
 
 const FIRST_MONTH = '2026-10';
 const SECOND_MONTH = '2026-11';
@@ -108,12 +117,12 @@ describe('analytics events (sink=db)', () => {
 
     const [upload, recognition, login, claim, draft, review, published] = rows;
 
-    expect(upload).toMatchObject({ actorKey: null, subjectKey: jobKey(jobId), properties: {} });
+    expect(upload).toMatchObject({ actorKey: null, subjectKey: jobKey(jobId), properties: { team: false } });
     expect(recognition).toMatchObject({ actorKey: null, subjectKey: jobKey(jobId) });
-    expect(recognition!.properties).toMatchObject({ success: true, attempt: 1 });
+    expect(recognition!.properties).toMatchObject({ success: true, attempt: 1, team: false });
     expect(typeof recognition!.properties.ms).toBe('number');
     expect(login).toMatchObject({ actorKey, subjectKey: null, properties: { firstLogin: true } });
-    expect(claim).toMatchObject({ actorKey, subjectKey: jobKey(jobId) });
+    expect(claim).toMatchObject({ actorKey, subjectKey: jobKey(jobId), properties: { atUpload: false } });
     expect(draft).toMatchObject({ actorKey, subjectKey: jobKey(jobId) });
     expect(draft!.properties).toMatchObject({ dayCount: 31, manual: false });
     expect(draft!.properties.reviewCells).toBeGreaterThan(0);
@@ -183,10 +192,18 @@ describe('analytics events (sink=db)', () => {
 
     await clearEvents();
 
+    // Summary and plain month reads (checkout, export sheet) are not calendar views; the month page sends view=1.
     expect((await client.send(calendarRoute, '/api/calendar')).status).toBe(200);
     expect(
       (await client.send(monthRoute, `/api/calendar/${FIRST_MONTH}`, { params: { yearMonth: FIRST_MONTH } }))
         .status,
+    ).toBe(200);
+    expect(
+      (
+        await client.send(monthRoute, `/api/calendar/${FIRST_MONTH}?view=1`, {
+          params: { yearMonth: FIRST_MONTH },
+        })
+      ).status,
     ).toBe(200);
 
     const viewer = createApiTestClient();
@@ -201,15 +218,76 @@ describe('analytics events (sink=db)', () => {
 
     expect(rows.map((row) => row.event)).toEqual([
       AnalyticsEvent.CALENDAR_VIEWED,
-      AnalyticsEvent.CALENDAR_VIEWED,
       AnalyticsEvent.SHARED_CALENDAR_VIEWED,
     ]);
     expect(rows[0]).toMatchObject({ actorKey: buildActorKey(userId, secret()), subjectKey: null });
-    expect(rows[2]).toMatchObject({
+    expect(rows[1]).toMatchObject({
       actorKey: null,
       subjectKey: buildSubjectKey({ kind: AnalyticsSubjectKind.CALENDAR, id: calendar!.id }, secret()),
     });
     expect(JSON.stringify(rows)).not.toContain(token);
+  });
+
+  it('counts a logged-in upload as claimed at upload time', async () => {
+    const client = createApiTestClient();
+    const name = '로그인 후 업로드 사용자';
+
+    await devLogin(client, name);
+    await clearEvents();
+
+    const jobId = await uploadAndProcess(client);
+    const rows = await readEvents();
+    const actorKey = buildActorKey(await findUserId(name), secret());
+
+    expect(rows.map((row) => row.event)).toEqual([
+      AnalyticsEvent.UPLOAD_STARTED,
+      AnalyticsEvent.JOB_CLAIMED,
+      AnalyticsEvent.RECOGNITION_COMPLETED,
+    ]);
+    expect(rows[1]).toMatchObject({ actorKey, subjectKey: jobKey(jobId), properties: { atUpload: true } });
+  });
+
+  it('logs job_claimed once when concurrent requests reach an unclaimed job', async () => {
+    const client = createApiTestClient();
+    const jobId = await uploadAndProcess(client);
+    const [job] = await env.db.select().from(recognitionJobs).where(eq(recognitionJobs.id, jobId));
+    const [user] = await env.db.insert(users).values({ displayName: '동시 접근 사용자' }).returning();
+    const context: LoggedInContext = {
+      user: user!,
+      sessionToken: null,
+      supabaseUserId: null,
+      anonymousSessionId: job!.anonymousSessionId,
+      ip: '203.0.113.250',
+      ipHash: 'hash',
+    };
+
+    await clearEvents();
+    await Promise.all([
+      requireLoggedInOwnedJob(env.db, context, jobId),
+      requireLoggedInOwnedJob(env.db, context, jobId),
+    ]);
+
+    const rows = await readEvents();
+
+    expect(rows.filter((row) => row.event === AnalyticsEvent.JOB_CLAIMED)).toHaveLength(1);
+  });
+
+  it('marks team roster uploads as team jobs', async () => {
+    const team = await setupInvitedTeam('팀 업로드 관리자', '업로드 병동');
+
+    await clearEvents();
+
+    const rosterId = await createRoster(team.admin, team.teamId);
+
+    await extractNext(team.admin, team.teamId, rosterId);
+
+    const rows = await readEvents();
+    const upload = rows.find((row) => row.event === AnalyticsEvent.UPLOAD_STARTED);
+    const recognition = rows.find((row) => row.event === AnalyticsEvent.RECOGNITION_COMPLETED);
+
+    expect(upload?.properties).toMatchObject({ team: true });
+    expect(recognition?.properties).toMatchObject({ team: true });
+    expect(rows.some((row) => row.event === AnalyticsEvent.JOB_CLAIMED)).toBe(false);
   });
 
   it('records team creation and an approved member', async () => {

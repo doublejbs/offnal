@@ -168,6 +168,7 @@ export const trackJobClaimed = (userId: string, jobId: string): void => {
   track(AnalyticsEvent.JOB_CLAIMED, {
     actorUserId: userId,
     subject: { kind: AnalyticsSubjectKind.JOB, id: jobId },
+    properties: { atUpload: false },
   });
 };
 
@@ -205,14 +206,22 @@ export const requireLoggedInOwnedJob = async (
     throw new ApiError(ApiErrorCode.EXPIRED);
   }
 
-  const job = found.userId === null ? await claimJobForUser(db, loggedIn, found.id, now) : found;
+  if (found.userId !== null) {
+    return { context: loggedIn, job: found };
+  }
+
+  // Only the request whose conditional UPDATE actually took the job logs it; a concurrent one that lost
+  // the race finds the job already ours and claims nothing.
+  const newlyClaimed = await claimJobForUser(db, loggedIn, found.id, now, true);
+
+  if (newlyClaimed) {
+    trackJobClaimed(loggedIn.user.id, newlyClaimed.id);
+  }
+
+  const job = newlyClaimed ?? (await claimJobForUser(db, loggedIn, found.id, now));
 
   if (!job) {
     throw new ApiError(ApiErrorCode.NOT_FOUND);
-  }
-
-  if (found.userId === null) {
-    trackJobClaimed(loggedIn.user.id, job.id);
   }
 
   return { context: loggedIn, job };

@@ -51,7 +51,8 @@ const qualitySchema = z.object({
 });
 
 const secondMonthSchema = z.object({ publishers: count, repeat_publishers: count });
-const shareSchema = z.object({ sharers: count, shared_views: count, shared_links: count });
+const shareSchema = z.object({ sharers: count, shared_view_days: count, shared_links: count });
+const teamSchema = z.object({ uploaded: count, recognized: count });
 const weeklySchema = z.object({ users: count });
 const retentionSchema = z.object({ eligible: count, retained: count });
 const dailyActiveSchema = z.object({ date: z.string(), users: count });
@@ -65,6 +66,16 @@ const boolProperty = (key: string) => sql`coalesce((properties ->> ${key})::bool
 const seoulDate = (column: ReturnType<typeof sql>) =>
   sql`to_char(${column} at time zone ${SEOUL}, 'YYYY-MM-DD')`;
 
+/**
+ * Events whose actor did not act (an admin approved them, a payment webhook arrived): left out of the
+ * active-user counts so they reflect people who opened the app.
+ */
+const NON_USER_INITIATED_EVENTS = [AnalyticsEvent.TEAM_MEMBER_JOINED, AnalyticsEvent.PAYMENT_SUCCEEDED];
+const userInitiated = sql`event not in (${sql.join(
+  NON_USER_INITIATED_EVENTS.map((event) => sql`${event}`),
+  sql`, `,
+)})`;
+
 /** Spec §23.5 metrics for `[now − days, now]`, computed in SQL (keys and numbers only). */
 export const collectAnalyticsReport = async (
   db: DbExecutor,
@@ -73,21 +84,43 @@ export const collectAnalyticsReport = async (
   const since = new Date(now.getTime() - days * MS_PER_DAY);
   const inWindow = sql`created_at >= ${at(since)} and created_at <= ${at(now)}`;
 
+  // Upload cohort: personal jobs whose upload is in the window, followed to now (later steps of those jobs
+  // may fall after the window). A logged-in upload logs `job_claimed` (atUpload) at upload time.
   const funnel = await readFirst(
+    db,
+    sql`
+      with cohort as (
+        select distinct subject_key
+        from analytics_events
+        where ${isEvent(AnalyticsEvent.UPLOAD_STARTED)} and not ${boolProperty('team')} and ${inWindow}
+      )
+      select
+        (select count(*) from cohort) as uploaded,
+        count(distinct e.subject_key) filter (
+          where e.event = ${AnalyticsEvent.RECOGNITION_COMPLETED} and coalesce((e.properties ->> 'success')::boolean, false)
+        ) as recognized,
+        count(distinct e.subject_key) filter (where e.event = ${AnalyticsEvent.JOB_CLAIMED}) as claimed,
+        count(distinct e.subject_key) filter (where e.event = ${AnalyticsEvent.DRAFT_CREATED}) as drafted,
+        count(distinct e.subject_key) filter (where e.event = ${AnalyticsEvent.MONTH_PUBLISHED}) as published
+      from analytics_events e
+      join cohort on cohort.subject_key = e.subject_key
+      where e.created_at <= ${at(now)}
+    `,
+    funnelSchema,
+  );
+
+  const team = await readFirst(
     db,
     sql`
       select
         count(distinct subject_key) filter (where ${isEvent(AnalyticsEvent.UPLOAD_STARTED)}) as uploaded,
         count(distinct subject_key) filter (
           where ${isEvent(AnalyticsEvent.RECOGNITION_COMPLETED)} and ${boolProperty('success')}
-        ) as recognized,
-        count(distinct subject_key) filter (where ${isEvent(AnalyticsEvent.JOB_CLAIMED)}) as claimed,
-        count(distinct subject_key) filter (where ${isEvent(AnalyticsEvent.DRAFT_CREATED)}) as drafted,
-        count(distinct subject_key) filter (where ${isEvent(AnalyticsEvent.MONTH_PUBLISHED)}) as published
+        ) as recognized
       from analytics_events
-      where ${inWindow}
+      where ${boolProperty('team')} and ${inWindow}
     `,
-    funnelSchema,
+    teamSchema,
   );
 
   const aiDraft = sql`${isEvent(AnalyticsEvent.DRAFT_CREATED)} and not ${boolProperty('manual')}`;
@@ -134,7 +167,7 @@ export const collectAnalyticsReport = async (
           ) latest
           where latest.visible > 0
         ) as sharers,
-        count(*) as shared_views,
+        count(distinct subject_key || ':' || ${seoulDate(sql`created_at`)}) as shared_view_days,
         count(distinct subject_key) as shared_links
       from analytics_events
       where ${isEvent(AnalyticsEvent.SHARED_CALENDAR_VIEWED)} and ${inWindow}
@@ -146,7 +179,7 @@ export const collectAnalyticsReport = async (
     await db.execute(sql`
       select ${seoulDate(sql`created_at`)} as date, count(distinct actor_key) as users
       from analytics_events
-      where actor_key is not null and ${inWindow}
+      where actor_key is not null and ${userInitiated} and ${inWindow}
       group by 1
       order by 1
     `),
@@ -158,7 +191,7 @@ export const collectAnalyticsReport = async (
     sql`
       select count(distinct actor_key) as users
       from analytics_events
-      where actor_key is not null and created_at >= ${at(weekStart)} and created_at <= ${at(now)}
+      where actor_key is not null and ${userInitiated} and created_at >= ${at(weekStart)} and created_at <= ${at(now)}
     `,
     weeklySchema,
   );
@@ -205,6 +238,7 @@ export const collectAnalyticsReport = async (
   return {
     days,
     funnel,
+    team,
     quality: {
       drafts: quality.drafts,
       reviewCells: { p50: quality.review_p50, p95: quality.review_p95 },
@@ -213,7 +247,11 @@ export const collectAnalyticsReport = async (
       fullMonthMatches: quality.full_matches,
     },
     secondMonth: { publishers: secondMonth.publishers, repeatPublishers: secondMonth.repeat_publishers },
-    share: { sharers: share.sharers, sharedViews: share.shared_views, sharedLinks: share.shared_links },
+    share: {
+      sharers: share.sharers,
+      sharedViewDays: share.shared_view_days,
+      sharedLinks: share.shared_links,
+    },
     activity: { dailyActive, weeklyActive: weekly.users },
     retention,
     daily,

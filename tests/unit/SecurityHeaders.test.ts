@@ -41,6 +41,18 @@ describe('next.config security headers', () => {
     });
   });
 
+  it('sends no referrer from pages whose URL carries a token or id (analytics script, other sites)', async () => {
+    const rules = await loadRules();
+    const globalIndex = rules.findIndex((rule) => rule.source === '/:path*');
+
+    for (const source of ['/join/:path*', '/teams/:path*', '/recognitions/:path*', '/drafts/:path*']) {
+      const index = rules.findIndex((rule) => rule.source === source);
+
+      expect(index).toBeGreaterThan(globalIndex);
+      expect(toRecord(rules[index]?.headers ?? [])['referrer-policy']).toBe('no-referrer');
+    }
+  });
+
   it('sets baseline headers everywhere, with a stricter referrer policy only on share pages', async () => {
     const rules = await loadRules();
     const globalRule = rules.find((rule) => rule.source === '/:path*');

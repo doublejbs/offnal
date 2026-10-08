@@ -2,7 +2,10 @@ import { type AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 
 export type Percentiles = { p50: number | null; p95: number | null };
 
-/** Distinct jobs per personal funnel stage (Spec §23.5). */
+/**
+ * Personal upload cohort (Spec §23.5, §23.7): jobs uploaded in the window (team roster uploads excluded),
+ * each stage counting those jobs that reached it by the report time.
+ */
 export type FunnelCounts = {
   uploaded: number;
   recognized: number;
@@ -25,6 +28,8 @@ export type DailyEventCount = { date: string; event: AnalyticsEvent; count: numb
 export type AnalyticsReportData = {
   days: number;
   funnel: FunnelCounts;
+  /** Team roster uploads in the window (kept out of the personal funnel). */
+  team: { uploaded: number; recognized: number };
   quality: {
     /** AI drafts (manual drafts excluded). */
     drafts: number;
@@ -43,7 +48,8 @@ export type AnalyticsReportData = {
   share: {
     /** Users whose latest share setting shows at least one month. */
     sharers: number;
-    sharedViews: number;
+    /** Distinct (shared calendar, Seoul day) pairs: month switches on one visit count once. */
+    sharedViewDays: number;
     /** Distinct shared calendars viewed. */
     sharedLinks: number;
   };
@@ -64,7 +70,7 @@ export type AnalyticsReportData = {
 const FUNNEL_LABELS: [keyof FunnelCounts, string][] = [
   ['uploaded', '업로드'],
   ['recognized', '인식 성공'],
-  ['claimed', '로그인해 가져감'],
+  ['claimed', '로그인 연결(가져감·로그인 후 업로드)'],
   ['drafted', '초안'],
   ['published', '발행'],
 ];
@@ -137,8 +143,9 @@ export const formatAnalyticsReport = (data: AnalyticsReportData): string => {
   return [
     `[analytics:report] 최근 ${data.days}일`,
     '',
-    '개인 깔때기 (고유 작업 수)',
+    '개인 깔때기 (업로드 코호트: 기간 안에 올린 작업, 이후 단계는 지금까지)',
     ...formatFunnel(data.funnel),
+    `  팀 근무표 업로드: ${data.team.uploaded}건 (인식 성공 ${data.team.recognized}건, 깔때기 제외)`,
     '',
     '인식 품질',
     `  초안 ${quality.drafts}건 — 확인 필요 칸 ${formatPercentiles(quality.reviewCells)}`,
@@ -147,10 +154,10 @@ export const formatAnalyticsReport = (data: AnalyticsReportData): string => {
     '',
     '재사용·공유',
     `  두 번째 달 등록률: ${formatRate(toRate(secondMonth.repeatPublishers, secondMonth.publishers))} (${secondMonth.repeatPublishers}/${secondMonth.publishers}명)`,
-    `  공유 켠 사용자: ${share.sharers}명, 공유 열람: ${share.sharedViews}회, 열람된 링크: ${share.sharedLinks}개`,
-    `  공유 링크당 열람: ${share.sharedLinks === 0 ? '—' : (share.sharedViews / share.sharedLinks).toFixed(1)}`,
+    `  공유 켠 사용자: ${share.sharers}명, 공유 열람(링크·일 기준): ${share.sharedViewDays}회, 열람된 링크: ${share.sharedLinks}개`,
+    `  공유 링크당 열람(링크·일 기준): ${share.sharedLinks === 0 ? '—' : (share.sharedViewDays / share.sharedLinks).toFixed(1)}`,
     '',
-    '활성 사용자',
+    '활성 사용자 (본인이 한 행동 기준: 팀 승인·결제 웹훅 제외)',
     `  일 활성(평균): ${dailyAverage === null ? '—' : `${dailyAverage.toFixed(1)}명`}, 마지막 날(${latestDay?.date ?? '—'}): ${latestDay?.users ?? 0}명`,
     `  주 활성(마지막 7일): ${activity.weeklyActive}명`,
     `  7일 재방문율: ${formatRate(toRate(retention.retained, retention.eligible))} (${retention.retained}/${retention.eligible}명, 첫 발행 후 7일이 지난 사용자 기준)`,

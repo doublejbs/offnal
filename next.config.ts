@@ -3,6 +3,13 @@ import type { NextConfig } from 'next';
 import { HTML_LIMITED_BOTS } from './src/server/http/HtmlLimitedBots';
 import { PUBLIC_SHARE_HEADERS } from './src/server/http/PublicShareHeaders';
 
+/**
+ * Pages whose URL carries a token or an id (invite token, team/job/draft ids): no Referer at all, so neither
+ * other sites nor the analytics script (which reports `document.referrer`, Spec §23.4) see that URL.
+ */
+const ID_PAGE_SOURCES = ['/join/:path*', '/teams/:path*', '/recognitions/:path*', '/drafts/:path*'];
+const NO_REFERRER_HEADERS = { 'Referrer-Policy': 'no-referrer' };
+
 const toHeaderList = (headers: Readonly<Record<string, string>>) =>
   Object.entries(headers).map(([key, value]) => ({ key, value }));
 
@@ -71,6 +78,7 @@ const nextConfig: NextConfig = {
   agentRules: false,
   headers: async () => [
     { source: '/:path*', headers: toHeaderList(BASELINE_HEADERS) },
+    ...ID_PAGE_SOURCES.map((source) => ({ source, headers: toHeaderList(NO_REFERRER_HEADERS) })),
     // Later rules override earlier ones (and route response headers) for the same key, so both the share
     // page and its API get no-referrer, no-store and noindex. The /s/[token] page itself must also be
     // rendered dynamically (never prerendered/ISR-cached), otherwise a stopped link could still be served.
