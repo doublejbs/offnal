@@ -186,7 +186,7 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 - **claim**: `POST /api/recognitions/:id/claim`과 `/auth/callback`에서 수행. 조건: 로그인 상태 + 작업의 `anonymous_session_id`가 현재 `offnal_anon`과 일치 + 미만료 + (`user_id is null` 또는 이미 같은 사용자). 이미 다른 사용자에 연결된 작업은 404. 조건부 UPDATE로 중복 연결 방지.
 - 이미 로그인한 사용자가 업로드하면 작업은 처음부터 `user_id`로 귀속된다.
 - 공유 토큰: 32바이트 랜덤 base64url. 조회용 sha256 해시 + 소유자 재표시용 AES-256-GCM 암호문(`APP_SECRET` 파생 키). 공유 응답·페이지는 `Cache-Control: no-store`, `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`.
-- 분석 이벤트(`Analytics.track`)는 이벤트 이름 enum + 숫자/불리언 속성만 허용. 이름·근무·토큰·원본 금지. 기본 구현은 서버 콘솔 구조화 로그(개발) / no-op.
+- 분석 이벤트(`Analytics.track`)는 이벤트 이름 enum + 숫자/불리언(·고정 enum 문자열) 속성만 허용. 이름·근무·토큰·원본 금지. 저장·가명 키·보관은 §23.
 
 ---
 
@@ -568,3 +568,59 @@ interface PaymentProvider {
    - **워커 오류 처리**: tesseract.js 7은 워커 쪽 거부를 `errorHandler`가 없으면 `message` 리스너 안에서 다시 던진다(처리되지 않은 예외 → 인스턴스 종료). 제공자는 빈 `errorHandler`를 넘긴다(작업 Promise는 그대로 거부). 또 tesseract.js는 Node Worker에 `worker.onerror`만 대입하는데 Node Worker는 이를 리스너로 쓰지 않는다(직접 확인). `createWorker`가 돌려주는 객체의 비공개 `worker` 필드(Node Worker)에 `error` 리스너를 붙여, 크래시(예: 워커 메모리 초과) 시 기다리던 작업을 `recognize`로 실패시키고 엔진을 못 쓰게 표시한다. **남는 위험**: `createWorker`가 끝나기 전(코어·언어 로드·초기화 중) 워커 스레드의 `error`는 잡을 수 없어 인스턴스가 죽을 수 있다. 전역 `uncaughtException` 처리기는 두지 않는다. tesseract.js를 올릴 때 이 필드·동작을 다시 확인한다.
    - **집계**: `skipped_*` 행은 건수만 보여 주고 비율·p50/p95·콜드 스타트 비율에서 뺀다(측정값 없음).
    - **번들 크기**: 2차 인식 함수 추적 파일 합계 약 96MB(압축 전, 학습 데이터 4.3MB 포함, tesseract 관련 47.5MB). 추적된 파일만 복사한 디렉터리에서 네트워크를 막고 kor·eng 인식이 되는 것을 확인했다.
+
+## 23. 지표 수집 (2026-10-08 추가)
+
+베타 오픈(§20) 뒤 사용 흐름을 숫자로 보기 위해, 지금까지 개발 콘솔 로그·운영 no-op이던 `Analytics.track`(§6)을 운영에서 실제로 저장한다. 관찰 지표는 Handoff §8(월 전체 일치율, 수정 칸 수, 처리 지연·비용, 두 번째 달 등록, 공유 재방문)을 따르고 KPI 목표는 정하지 않는다.
+
+### 23.1 원칙
+
+- **개인정보 금지 유지**(§6): 이벤트에는 이름·근무 코드·날짜별 근무·토큰·사진 키·원본을 넣지 않는다. 속성은 숫자·불리언과 고정 enum 문자열만.
+- **식별자는 가명 키**: `actor_key` = HMAC-SHA256(`APP_SECRET`, `user:` + userId) 앞 32자, `subject_key` = 같은 방식의 `job:`/`calendar:`/`team:` + id. 원래 id로 되돌릴 수 없고, DB 안에서 다른 테이블과 직접 조인되지 않는다. 비로그인 단계(업로드·1차 인식)는 `subject_key`(작업)만 있다.
+- **사용자 흐름에 영향 없음**: 기록은 응답 뒤(`after()`) 또는 실패를 삼키는 방식으로 하고 절대 던지지 않는다. 기록 실패는 오류 이름만 로그.
+- 데모 모드·테스트 환경은 저장하지 않는다(테스트는 명시적으로 켠 경우만).
+
+### 23.2 저장
+
+- 새 테이블 `analytics_events`(RLS 활성화, 정책 없음 = 서버 전용): `id` uuid, `event`(string enum `AnalyticsEvent`, CHECK), `actor_key` text null, `subject_key` text null, `properties` jsonb(숫자·불리언·enum 문자열만, 서버에서 검증), `created_at`. 인덱스 `(event, created_at)`, `(actor_key, created_at)`.
+- 설정 `ANALYTICS_SINK` = `off` | `console` | `db`. 기본: development `console`, test `off`, preview·production `db`.
+- 보관: 정리 cron이 400일 지난 행 삭제(연간 비교가 가능하도록 1년+여유).
+
+### 23.3 이벤트
+
+| 이벤트 | 시점 | 키 | 속성 |
+|---|---|---|---|
+| `upload_started` (기존) | 업로드 접수 | subject=job | — |
+| `recognition_completed` (기존) | 1차 인식 끝 | subject=job | `success`, `attempt`, `ms` |
+| `login_completed` (신규) | 로그인 콜백 성공 | actor | `firstLogin` |
+| `job_claimed` (신규) | 흐린 미리보기 뒤 로그인해 작업을 가져감 | actor, subject=job | — |
+| `draft_created` (신규) | 2차 인식으로 초안 생성 | actor, subject=job | `dayCount`, `reviewCells`, `unresolvedCells`, `ms` |
+| `review_completed` (기존, 미사용 → 사용) | 발행 직전 | actor | `editedCells`(AI 초안 대비 바뀐 날 수), `initialReviewCells`, `fullMonthMatch`(editedCells=0) |
+| `month_published` (기존) | 발행 | actor | `revision`, `monthIndex`(사용자의 몇 번째 서로 다른 달), `usedTrial`, `beta` |
+| `next_month_registered` (기존, 미사용 → 사용) | 새로운 두 번째 이상 달 첫 발행 | actor | `monthIndex` |
+| `calendar_viewed` (신규) | 내 달력 조회(`GET /api/calendar`·월 화면) | actor | — (일 단위 재방문 계산용) |
+| `export_link` (기존) | 공유 설정 변경 | actor | `visibleMonthCount` |
+| `shared_calendar_viewed` (신규) | 공유 링크 열람 | subject=calendar | — |
+| `export_ics`/`export_png` (기존) | 내보내기 | actor 또는 subject | 기존 속성 |
+| `team_created`·`roster_published`·`team_member_joined` (신규) | 팀 흐름 | actor, subject=team | `memberCount` 등 숫자 |
+| `payment_shown`/`payment_succeeded` (기존) | 결제(베타에서는 발생 안 함) | actor | 기존 속성 |
+
+### 23.4 페이지 방문·유입
+
+- `@vercel/analytics`의 `<Analytics />`를 루트 레이아웃에 둔다(쿠키 없음, Vercel 대시보드에서 방문·유입 경로·기기 확인). 데모·테스트에서는 렌더하지 않는다.
+- **경로 가리기**: `beforeSend`로 토큰·id가 들어간 경로를 패턴으로 바꾼다 — `/s/[token]`, `/join/[token]`, `/recognitions/[id]`, `/drafts/[id]`, `/teams/[id]/...`, `/checkout/[yearMonth]`. 쿼리 문자열은 `utm_*`만 남긴다.
+- Vercel 프로젝트 설정에서 Web Analytics를 켜야 수집된다(운영 작업).
+
+### 23.5 확인 도구
+
+`pnpm analytics:report -- --days 30` — 기간 내:
+- 개인 깔때기: 업로드 → 인식 성공 → 로그인해 가져감 → 초안 → 발행(단계별 고유 건수·전환율)
+- 인식 품질: 초안의 확인 필요 칸 p50/p95, 발행 시 수정 칸 p50/p95, **월 전체 일치율**(fullMonthMatch 비율)
+- 두 번째 달 등록률(발행 사용자 중 monthIndex≥2 사용자), 공유 켠 사용자 수·공유 열람 수·공유 링크당 열람
+- 일·주 활성 사용자(actor 기준), 7일 재방문율(첫 발행 후 7일 안에 다시 `calendar_viewed`)
+- 이벤트별 일자 건수
+
+### 23.6 테스트
+
+- 단위: 속성 검증(문자열·객체 거부), 가명 키가 안정적이고 원래 id를 포함하지 않음, sink별 동작, 경로 가리기 패턴.
+- 통합(PGlite, sink=db): 개인 흐름 한 번 → 이벤트 순서·키 연결, 저장 행에 이름·코드·토큰이 없음, 기록 실패가 응답을 바꾸지 않음, RLS 검사 통과, 정리 cron 400일.
