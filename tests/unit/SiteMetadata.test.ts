@@ -1,16 +1,24 @@
 import { describe, expect, it } from 'vitest';
 
+import { BillingMode } from '@/domain/enums/BillingMode';
+import { parseAppConfig } from '@/server/config/AppConfig';
 import {
   buildEntryPageMetadata,
   buildSiteMetadata,
   OG_IMAGE_PATH,
   PRIVATE_ROBOTS,
+  readSiteMetadataSource,
   SHARED_PAGE_DESCRIPTION,
   SHARED_PAGE_METADATA,
   SHARED_PAGE_TITLE,
 } from '@/server/metadata/SiteMetadata';
 
-const SOURCE = { appUrl: 'https://offnal.example', priceKrw: 990, freeMonthLimit: 2 };
+const SOURCE = {
+  appUrl: 'https://offnal.example',
+  billingMode: BillingMode.PAID,
+  priceKrw: 990,
+  freeMonthLimit: 2,
+};
 
 describe('buildSiteMetadata', () => {
   it('uses APP_URL as metadataBase and the title template', () => {
@@ -32,6 +40,15 @@ describe('buildSiteMetadata', () => {
     );
   });
 
+  it('drops price and free months from the description in beta free mode', () => {
+    const description = buildSiteMetadata({ ...SOURCE, billingMode: BillingMode.BETA_FREE }).description;
+
+    expect(description).toBe(
+      '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요.',
+    );
+    expect(description).not.toMatch(/원|무료|결제|이용권/);
+  });
+
   it('declares a 1200x630 og image, ko_KR locale and a large twitter card', () => {
     const metadata = buildSiteMetadata(SOURCE);
 
@@ -46,6 +63,18 @@ describe('buildSiteMetadata', () => {
 
   it('leaves og:url unset so child pages do not inherit the home URL', () => {
     expect(buildSiteMetadata(SOURCE).openGraph).not.toHaveProperty('url');
+  });
+});
+
+describe('readSiteMetadataSource', () => {
+  it('reads the billing mode from config', () => {
+    const paid = readSiteMetadataSource(parseAppConfig({ OFFNAL_ENV: 'development' }));
+    const betaFree = readSiteMetadataSource(
+      parseAppConfig({ OFFNAL_ENV: 'development', BILLING_MODE: 'beta_free' }),
+    );
+
+    expect(paid.billingMode).toBe(BillingMode.PAID);
+    expect(betaFree.billingMode).toBe(BillingMode.BETA_FREE);
   });
 });
 

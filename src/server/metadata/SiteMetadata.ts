@@ -1,8 +1,9 @@
 import { type Metadata } from 'next';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
+import { type BillingMode } from '@/domain/enums/BillingMode';
 import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
-import { getPricing } from '@/server/config/PricingConfig';
+import { getPricing, isBetaFree } from '@/server/config/PricingConfig';
 
 export const SITE_NAME = '오프날';
 export const DEFAULT_TITLE = '오프날 — 근무표 한 장으로 내 근무 달력';
@@ -18,6 +19,7 @@ export const PRIVATE_ROBOTS = { index: false, follow: false } satisfies Metadata
 
 export type SiteMetadataSource = {
   appUrl: string;
+  billingMode: BillingMode;
   priceKrw: number;
   freeMonthLimit: number;
 };
@@ -29,15 +31,30 @@ const OG_IMAGE = {
   alt: OG_IMAGE_ALT,
 };
 
-export const buildSiteDescription = ({ priceKrw, freeMonthLimit }: SiteMetadataSource): string =>
-  '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. ' +
-  `처음 ${formatMonthCount(freeMonthLimit)} 무료, 이후 한 달분 ${formatPrice(priceKrw)}.`;
+const SERVICE_SENTENCE = '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요.';
 
-/** Pricing and APP_URL for metadata, read from runtime config on each request. */
+/** Beta free mode drops the pricing sentence (Spec §20.4). */
+export const buildSiteDescription = (source: SiteMetadataSource): string => {
+  if (isBetaFree(source)) {
+    return SERVICE_SENTENCE;
+  }
+
+  return (
+    `${SERVICE_SENTENCE} ` +
+    `처음 ${formatMonthCount(source.freeMonthLimit)} 무료, 이후 한 달분 ${formatPrice(source.priceKrw)}.`
+  );
+};
+
+/** Billing mode, pricing and APP_URL for metadata, read from runtime config on each request. */
 export const readSiteMetadataSource = (config: AppConfig = getAppConfig()): SiteMetadataSource => {
   const pricing = getPricing(config);
 
-  return { appUrl: config.appUrl, priceKrw: pricing.priceKrw, freeMonthLimit: pricing.freeMonthLimit };
+  return {
+    appUrl: config.appUrl,
+    billingMode: config.billingMode,
+    priceKrw: pricing.priceKrw,
+    freeMonthLimit: pricing.freeMonthLimit,
+  };
 };
 
 /**

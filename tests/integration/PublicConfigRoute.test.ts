@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { GET as publicConfigRoute } from '@/app/api/config/public/route';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import { BillingMode } from '@/domain/enums/BillingMode';
 import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
 import {
   createApiTestClient,
@@ -38,6 +39,7 @@ describe('public config', () => {
 
     expect(body).toMatchObject({
       appMode: AppMode.DEMO,
+      billingMode: BillingMode.PAID,
       priceKrw: 990,
       freeMonthLimit: 2,
       authProviders: [AuthProviderType.DEV],
@@ -81,5 +83,20 @@ describe('public config', () => {
     });
     expect(JSON.stringify(body)).not.toContain('sb_publishable');
     expect(devLoginResponse.status).toBe(404);
+  });
+
+  it('reports beta_free and never flags mock payment in beta free mode', async () => {
+    envSandbox.set({ BILLING_MODE: 'beta_free' });
+
+    const client = createApiTestClient();
+    const body = await readJson<PublicConfigResponse>(
+      await client.send(publicConfigRoute, '/api/config/public'),
+    );
+
+    expect(body).toMatchObject({
+      billingMode: BillingMode.BETA_FREE,
+      isMockVision: true,
+      isMockPayment: false,
+    });
   });
 });

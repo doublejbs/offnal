@@ -217,7 +217,7 @@ const collectProductionViolations = (
     (!parsed.TOSS_CLIENT_KEY || !parsed.TOSS_SECRET_KEY)
   ) {
     violations.push(
-      'PAYMENT_PROVIDER=toss requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY (or BILLING_MODE=beta_free)',
+      'PAYMENT_PROVIDER=toss (or unset) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY (or BILLING_MODE=beta_free)',
     );
   }
 

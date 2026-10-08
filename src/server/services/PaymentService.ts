@@ -30,6 +30,7 @@ import {
   markPaymentFailed,
   matchesOrder,
 } from '@/server/services/PaymentGrant';
+import { assertPaymentsEnabled } from '@/server/services/PaymentGuard';
 import { requireUser } from '@/server/validation/RequestGuards';
 
 const CUSTOMER_KEY_LENGTH = 40;
@@ -87,7 +88,7 @@ const findPendingPayments = async (
     );
 
 /**
- * POST /api/payments. 409 ALREADY_ENTITLED / FREE_MONTH_AVAILABLE when nothing needs buying. One pending order per user and month is reused (price/provider changes cancel the
+ * POST /api/payments (404 in beta free mode). 409 ALREADY_ENTITLED / FREE_MONTH_AVAILABLE when nothing needs buying. One pending order per user and month is reused (price/provider changes cancel the
  * old one). The amount always comes from PricingConfig.
  */
 export const createPayment = async (
@@ -95,6 +96,8 @@ export const createPayment = async (
   context: RequestContext,
   body: CreatePaymentRequest,
 ): Promise<CreatePaymentResponse> => {
+  assertPaymentsEnabled();
+
   const { user } = requireUser(context);
   const provider = getPaymentProvider();
   const clientConfig = provider.getClientConfig();
@@ -210,7 +213,7 @@ const findOwnedPayment = async (db: DbExecutor, userId: string, orderId: string)
 };
 
 /**
- * POST /api/payments/confirm. Month already entitled → 409 ALREADY_ENTITLED without charging. Declines → payment `failed` + 402 PAYMENT_FAILED (drafts and published
+ * POST /api/payments/confirm (404 in beta free mode). Month already entitled → 409 ALREADY_ENTITLED without charging. Declines → payment `failed` + 402 PAYMENT_FAILED (drafts and published
  * months untouched). Transient provider errors → 502 PROVIDER_ERROR with the order still pending, so the
  * client can retry and a webhook can still grant it.
  */
@@ -219,6 +222,8 @@ export const confirmPayment = async (
   context: RequestContext,
   body: ConfirmPaymentRequest,
 ): Promise<ConfirmPaymentResponse> => {
+  assertPaymentsEnabled();
+
   const { user } = requireUser(context);
   const payment = await findOwnedPayment(db, user.id, body.orderId);
 

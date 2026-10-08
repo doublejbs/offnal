@@ -13,7 +13,7 @@ import { type PublishDraftResponse } from '@/domain/types/api/PublishDraftRespon
 import { type RevisionConflictDetails } from '@/domain/types/api/RevisionConflictDetails';
 import { track } from '@/server/analytics/Analytics';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { getPricing } from '@/server/config/PricingConfig';
+import { getPricing, isBetaFree } from '@/server/config/PricingConfig';
 import { type Db, type DbTransaction } from '@/server/db/Database';
 import { calendars, drafts, publishedMonths, recognitionJobs, users } from '@/server/db/Schema';
 import { ApiError, DRAFT_EXPIRED_MESSAGE } from '@/server/errors/ApiError';
@@ -22,6 +22,7 @@ import { isDraftExpired } from '@/server/services/DraftService';
 import {
   countTrialEntitlements,
   hasEntitlement,
+  insertBetaEntitlement,
   insertTrialEntitlement,
 } from '@/server/services/EntitlementService';
 import { findTeamMonthForUser } from '@/server/services/TeamMonthLookup';
@@ -79,13 +80,23 @@ const findInitialRevision = async (tx: DbTransaction, userId: string, yearMonth:
   return (row?.value ?? 0) + 1;
 };
 
-/** Uses the month's entitlement, else inserts a trial while free months remain, else 402. */
+/**
+ * Uses the month's entitlement, else (beta free) inserts a beta one without spending a trial, else inserts a
+ * trial while free months remain, else 402. Returns whether a trial was used.
+ */
 const ensureEntitlement = async (tx: DbTransaction, userId: string, yearMonth: string): Promise<boolean> => {
   if (await hasEntitlement(tx, userId, yearMonth)) {
     return false;
   }
 
   const config = getAppConfig();
+
+  if (isBetaFree(config)) {
+    await insertBetaEntitlement(tx, userId, yearMonth);
+
+    return false;
+  }
+
   const pricing = getPricing(config);
   const access = decideMonthAccess({
     billingMode: config.billingMode,

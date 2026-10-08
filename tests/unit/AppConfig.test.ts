@@ -145,10 +145,10 @@ describe('parseAppConfig', () => {
 
   it('blocks paid production with Toss but without Toss keys', () => {
     expect(() => parseAppConfig(withOverrides({ TOSS_CLIENT_KEY: undefined }))).toThrow(
-      /PAYMENT_PROVIDER=toss requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY/,
+      /PAYMENT_PROVIDER=toss \(or unset\) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY \(or BILLING_MODE=beta_free\)/,
     );
     expect(() => parseAppConfig(withOverrides({ TOSS_SECRET_KEY: undefined }))).toThrow(
-      /PAYMENT_PROVIDER=toss requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY/,
+      /PAYMENT_PROVIDER=toss \(or unset\) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY \(or BILLING_MODE=beta_free\)/,
     );
     // Unset PAYMENT_PROVIDER resolves to toss in live mode.
     expect(() =>
@@ -160,7 +160,7 @@ describe('parseAppConfig', () => {
           TOSS_SECRET_KEY: undefined,
         }),
       ),
-    ).toThrow(/PAYMENT_PROVIDER=toss requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY/);
+    ).toThrow(/PAYMENT_PROVIDER=toss \(or unset\) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY \(or BILLING_MODE=beta_free\)/);
   });
 
   it('accepts beta_free production without Toss keys', () => {
