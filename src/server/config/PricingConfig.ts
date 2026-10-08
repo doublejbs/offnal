@@ -1,3 +1,5 @@
+import { BillingMode } from '@/domain/enums/BillingMode';
+
 /** Initial proposal values (README). The only place that fixes pricing defaults. */
 export const DEFAULT_PRICE_KRW = 990;
 export const DEFAULT_FREE_MONTH_LIMIT = 2;
@@ -21,3 +23,7 @@ export const getPricing = (config: PricingSource): Pricing => ({
   freeMonthLimit: config.freeMonthLimit,
   currency: PRICE_CURRENCY,
 });
+
+/** Beta free mode: no payment, trial or price anywhere (Spec §20). Pure, so client-safe callers may use it. */
+export const isBetaFree = (config: { billingMode: BillingMode }): boolean =>
+  config.billingMode === BillingMode.BETA_FREE;

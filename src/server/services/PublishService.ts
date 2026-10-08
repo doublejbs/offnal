@@ -85,8 +85,10 @@ const ensureEntitlement = async (tx: DbTransaction, userId: string, yearMonth: s
     return false;
   }
 
-  const pricing = getPricing(getAppConfig());
+  const config = getAppConfig();
+  const pricing = getPricing(config);
   const access = decideMonthAccess({
+    billingMode: config.billingMode,
     hasEntitlementForMonth: false,
     trialUsedCount: await countTrialEntitlements(tx, userId),
     freeMonthLimit: pricing.freeMonthLimit,

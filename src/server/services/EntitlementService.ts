@@ -46,9 +46,11 @@ export const getMonthAccessInfo = async (
   userId: string,
   yearMonth: string,
 ): Promise<MonthAccessInfo> => {
-  const pricing = getPricing(getAppConfig());
+  const config = getAppConfig();
+  const pricing = getPricing(config);
   const trialUsedCount = await countTrialEntitlements(db, userId);
   const monthAccess = decideMonthAccess({
+    billingMode: config.billingMode,
     hasEntitlementForMonth: await hasEntitlement(db, userId, yearMonth),
     trialUsedCount,
     freeMonthLimit: pricing.freeMonthLimit,
