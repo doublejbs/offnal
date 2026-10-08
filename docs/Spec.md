@@ -568,6 +568,7 @@ interface PaymentProvider {
    - **워커 오류 처리**: tesseract.js 7은 워커 쪽 거부를 `errorHandler`가 없으면 `message` 리스너 안에서 다시 던진다(처리되지 않은 예외 → 인스턴스 종료). 제공자는 빈 `errorHandler`를 넘긴다(작업 Promise는 그대로 거부). 또 tesseract.js는 Node Worker에 `worker.onerror`만 대입하는데 Node Worker는 이를 리스너로 쓰지 않는다(직접 확인). `createWorker`가 돌려주는 객체의 비공개 `worker` 필드(Node Worker)에 `error` 리스너를 붙여, 크래시(예: 워커 메모리 초과) 시 기다리던 작업을 `recognize`로 실패시키고 엔진을 못 쓰게 표시한다. **남는 위험**: `createWorker`가 끝나기 전(코어·언어 로드·초기화 중) 워커 스레드의 `error`는 잡을 수 없어 인스턴스가 죽을 수 있다. 전역 `uncaughtException` 처리기는 두지 않는다. tesseract.js를 올릴 때 이 필드·동작을 다시 확인한다.
    - **집계**: `skipped_*` 행은 건수만 보여 주고 비율·p50/p95·콜드 스타트 비율에서 뺀다(측정값 없음).
    - **번들 크기**: 2차 인식 함수 추적 파일 합계 약 96MB(압축 전, 학습 데이터 4.3MB 포함, tesseract 관련 47.5MB). 추적된 파일만 복사한 디렉터리에서 네트워크를 막고 kor·eng 인식이 되는 것을 확인했다.
+10. **운영 번들 보류 (2026-10-08)**: pnpm의 `node_modules` 링크 폴더를 거친 OCR 엔진·학습 데이터 포함 설정 때문에 Vercel이 함수 패키지를 거부했다("files in symlinked directories", 빌드는 성공·배포 단계 실패). 그래서 엔진 파일은 빌드 변수 `OCR_BUNDLE=1`일 때만 2차 인식 함수에 넣는다(기본 미포함). 운영은 `OCR_MODE` 미설정(off)이며, 엔진 없이 `shadow`를 켜면 `error`(`unknown`) 행만 남고 사용자 응답은 그대로다. 켜기 전 할 일: 링크 없는 실제 경로로 포함하거나(`node-linker=hoisted` 검토) 번들 방식 수정 → Preview에서 메모리(Hobby 2GB)·동시 요청 실측 → 운영 적용.
 
 ## 23. 지표 수집 (2026-10-08 추가)
 
