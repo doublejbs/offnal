@@ -185,7 +185,9 @@ export const readSourceBytes = async (job: RecognitionJobRow): Promise<Buffer | 
   return getObjectStorage().get(job.sourceObjectKey);
 };
 
-type PreparedSource = { ok: true; image: VisionImage } | { ok: false; errorCode: RecognitionErrorCode };
+/** `bytes` is the original upload (memory only), kept for the AI-free shadow reader (Spec §22). */
+type PreparedSource =
+  { ok: true; image: VisionImage; bytes: Buffer } | { ok: false; errorCode: RecognitionErrorCode };
 
 /** Loads the source and downscales a provider copy. Errors are logged by name only. */
 export const loadSourceForVision = async (job: RecognitionJobRow): Promise<PreparedSource> => {
@@ -204,7 +206,7 @@ export const loadSourceForVision = async (job: RecognitionJobRow): Promise<Prepa
   }
 
   try {
-    return { ok: true, image: await prepareImageForVision(bytes) };
+    return { ok: true, image: await prepareImageForVision(bytes), bytes };
   } catch (error: unknown) {
     console.warn('[recognition] source preparation failed', { name: describeError(error) });
 

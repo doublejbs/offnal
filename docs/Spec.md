@@ -507,3 +507,64 @@ interface PaymentProvider {
 
 - 단위: `BILLING_MODE` 파싱·production 검증 4가지, 판정 순서, 베타 문구에 `무료|결제|원|이용권`이 없음.
 - 통합(`BetaFreeFlow`): 서로 다른 세 달 이상 발행 성공·trial 0행, 같은 달 재발행·동시 발행 1행, 세 번째 달 ICS 200, 결제 API 3종 404, `paid` 전환 후 `EXISTING`·`freeRemaining=2`. 변환 SQL 검증.
+
+---
+
+## 21. AI 없는 인식 시제품 (OCR 우선 + AI 대체) (2026-10-02 추가)
+
+목표: 생성형 AI 없이 개인 근무를 추출할 수 있는 비율과 정확도를 측정한다. 결과가 좋으면 “OCR 먼저, 애매하면 AI” 혼합 방식을 도입한다. 이번 범위는 **측정용 시제품**이며 서비스 기본 동작은 바꾸지 않는다.
+
+1. **격자 검출(AI 없음)**: 기존 원근 보정·QuadRefiner를 재사용하되, 표 모서리를 AI 1차 인식 대신 이미지 처리로 찾는 경로를 만든다(가장 큰 사각 격자 윤곽 → 네 모서리). 보정된 표에서 가로·세로 선을 투영 히스토그램 등으로 찾아 행·열 경계를 계산한다.
+2. **머리글 해석**: 날짜 열(1~N)과 이름 열을 위치 규칙으로 찾는다(첫 열 = 이름, 날짜 숫자 행 = 머리글). 날짜 숫자는 OCR(숫자 허용 목록)로 읽어 열 수·연속성 검증(1부터 N까지). 연월은 OCR로 “YYYY 년 M 월” 패턴을 찾고 실패하면 사용자 입력.
+3. **칸 읽기**: 각 칸을 잘라 OCR. 허용 문자 목록(라틴 코드 + 범례·표에 나온 한글 코드)으로 제한하고, 결과를 알려진 코드 사전(범례 코드 + 표 전체에서 자주 나온 토큰)과 대조. 신뢰도 낮음·사전 밖·빈칸 판정 애매 → null(확인 필요). 빈칸·대시는 기존 규칙대로 null.
+4. **이름**: 이름 열을 한글 OCR로 읽어 후보로 쓰되, 정확도가 낮으면 “사진에서 내 행 탭하기”(행 번호 선택) 대안을 측정 지표로만 기록한다(이번엔 UI 없음).
+5. **엔진**: Node에서 돌아가는 OCR(예: `tesseract.js` + `kor`/`eng` 학습 데이터). 서버 전용 어댑터 `OcrProvider` 뒤에 두어 교체 가능하게. 학습 데이터는 저장소에 커밋하지 않고 실행 시 캐시(`.data/ocr`). → §22-5에서 npm 패키지(`@tesseract.js-data/*`) 번들로 변경.
+6. **평가**: `pnpm vision:eval`에 OCR 파이프라인(`--pipeline ocr`, `ocr-then-ai`)을 추가해 샘플 3장 기준으로 다음을 기존 AI 결과와 비교한다 — 사람별 정확도·한 달 전체 일치·틀린 칸(추측)·확인 필요 칸·“확인 필요 0칸으로 끝난 비율”(= AI 없이 처리 가능 비율)·처리 시간·비용(OCR은 0원). `ocr-then-ai`는 OCR 결과의 확인 필요 칸이 기준(예: 3칸) 이상이거나 격자 검출 실패 시에만 AI로 넘긴다.
+7. 원칙 유지: 틀린 값을 확정하는 것보다 확인 필요로 남기는 쪽을 택한다(추측 금지). 서비스 화면·API는 바꾸지 않는다.
+8. **구현 메모(시제품)**: 엔진은 `tesseract.js`(WASM, 시스템 바이너리 불필요, kor/eng LSTM, 허용 문자 목록 지원). 코드는 `src/server/vision/ocr/`(서비스 경로에서 import하지 않음 — 평가 전용).
+   - 격자: 축소 회색조의 적응 이진화(채도 높은 주말 색 띠 제외) → 가장 큰 선 연결 성분 → 네 변 RANSAC 직선 → 교점 = 표 모서리 → 기존 호모그래피·`warpRaw`로 평면화. 행·열은 긴 어두운 run의 투영 프로파일(미세 기울기 대비 창 합산) 봉우리, 굵은 구분선은 병합, 일·사람 간격은 고르게 보정. 셀 읽기 전에 격자선 픽셀을 주변 배경 값으로 지운다.
+   - 칸: Otsu + 국소 대비 이진화(형광펜 덩어리와 글자 분리) → 잡티·선 잔재·동그라미(다른 성분을 감싸는 성분) 제거 → 빈칸/대시/글자 판정. 글자는 안티앨리어싱 회색으로 다시 그려 OCR(라틴 A–Z → 사전 → 한글 → 사전 글자 제한 재시도).
+   - **표 내 글자 모양 합의**(반복 개선에서 추가): 한 사진의 같은 코드는 같은 글꼴이므로, OCR이 확신한 칸을 견본으로 삼아 확신 없는 칸은 견본과 뚜렷이 가장 가까운 코드만 받는다(OCR이 다른 사전 코드로 읽었으면 거부). 확신한 OCR 값이라도 모양이 다른 코드와 뚜렷이 같으면 철회(확인 필요). 같은 토큰으로 일관되게 읽힌 미등록 코드(W)는 모양이 서로 같고 기존 코드와 다르면 사전에 추가.
+   - 칸 판정은 빈칸/대시/글자/**애매(AMBIGUOUS)** 넷. 대비가 글자 기준(45)보다 낮지만 20 이상이고 글자 높이(칸 높이의 25% 이상) 성분이 남으면 흐린 잉크 = 애매로 보고 OCR하지 않는다(null·확인 필요, 미해결로 셈). 낮은 대비의 작은 잡티만 남으면 빈칸.
+   - 날짜 수 N: 머리글 연속성 검증으로 확정된 마지막 날까지가 기본. 제목 월이 더 길면, 다음 열 머리글이 그 날짜 숫자를 일부라도 읽은 경우(예: 31일 열에서 “3”·“37”)에만 하루씩 늘린다. 확인되지 않은 날은 읽지 않아 MISSING_DATE(확인 필요)로 남는다.
+   - 이름 열: 1일 열 앞의 열(보통 0열 하나) 중 2글자 이상 한글 이름이 가장 많이 읽힌 열을 쓴다(동률이면 왼쪽).
+   - 사람 추출의 연월은 대상 월(서비스에서는 사용자가 확정한 월, 평가에서는 정답 월) 하나만 쓴다 — 저장 연월과 날짜 수 자르기가 같은 값. OCR이 읽은 제목 월은 표 점수(연월 일치)에서만 쓴다.
+   - **두 가지 칸 수를 구분한다.**
+     - **미해결 칸**(`countUnresolved`, AI 대체 기준): OCR이 결정하지 못한 칸 = 사전 코드 없는 글자 칸 + 애매 칸 + 격자가 닿지 않은 날. 빈칸·대시는 세지 않는다(AI도 그 칸을 null로 돌려주므로 AI에 넘길 이유가 아님).
+     - **확인 필요 칸**(`countReviewCells`, “AI 없이 처리” 지표): `normalizeExtraction` 뒤 사용자가 확인해야 하는 날 = code null(UNREADABLE — 빈칸·대시 포함, MISSING_DATE, DUPLICATE_DATE) 또는 AMBIGUOUS. 기존 규칙(빈칸·대시 → UNREADABLE, OFF 추측 금지)을 그대로 따르며 AI 결과에도 같은 규칙이다. UNDEFINED_CODE만 있는 날은 세지 않는다(코드는 읽혔고 시간 입력만 남음 — 어느 경로든 같음).
+   - **“AI 없이 처리”** = 이름 정확 일치 + 확인 필요 칸 0. 따라서 이 지표에 든 사람은 평가표의 ‘확인 필요’(정답 코드가 있는데 null) 칸이 항상 0이다. 정답상 빈칸·대시가 있는 사람은(정답에서 null이 올바른 값이어도) 서비스에서 확인 필요로 보이므로 들어가지 않는다. 참고용으로 빈칸·대시 판정 칸을 뺀 “AI 없이(빈칸 제외)”도 함께 출력한다.
+   - `ocr-then-ai` 대체 기준: 표 읽기 실패, 이름 정확 일치 행 없음(또는 동명 2행), 미해결 칸 ≥ 3(`--ocr-fallback-threshold`로 바꿔 측정 가능, 기본 3). 대체 시에만 1차 AI를 사진당 한 번 호출하고 그 사람은 기존 warp-strip 경로.
+   - `tesseract.js`는 평가 전용이라 devDependencies에 둔다(서비스 빌드에 포함하지 않음).
+
+## 22. OCR 혼합 인식 서비스 적용 — 1단계 그림자 모드 (2026-10-02 추가)
+
+목표: §21 시제품을 실제 서비스(Vercel icn1 서버리스)에서 돌려 ① 실행 가능성(메모리·콜드 스타트·처리 시간)과 ② 실제 사진에서의 정확도를 확인한다. **사용자에게 보이는 결과는 바꾸지 않는다** — 화면·API 응답·저장되는 근무는 기존 AI 경로(warp-strip) 결과 그대로다. 결과가 좋으면 2단계에서 “OCR 먼저, 확인 필요 1칸 이상이면 AI” 경로로 전환한다(별도 결정).
+
+1. **설정**: `OCR_MODE` = `off`(기본) | `shadow`. 문자열 enum `OcrMode`(`src/domain/enums/`). `OCR_SHADOW_SAMPLE_RATE`(0~1, 기본 0.3, 빈 값은 기본값)로 표본 비율 조절. 데모 모드·테스트에서는 `off`.
+2. **실행 시점**: 2차 인식(`/api/recognitions/[id]/extract`, 개인 경로)에서 AI 추출이 성공해 응답이 정해진 뒤, `next/server`의 `after()`로 응답 이후에 OCR을 실행한다. 응답 시간·성공 여부에 영향 없음. OCR 오류·시간 초과(기본 60초, 최대 120초, `OCR_TIMEOUT_MS` — 실행 때 남은 함수 시간으로 다시 줄임, 9 참고)는 잡아서 결과 행에 오류 코드로만 기록하고 절대 던지지 않는다. 팀 근무표 추출(extract-next)은 이번 범위 밖.
+3. **입력**: 원본 사진(Storage에서 읽은 바이트, 2차 인식이 이미 읽은 것을 재사용할 수 있으면 재사용). 사람 매칭은 사용자가 고른 이름으로 `findOcrRow`. 대상 월은 사용자가 확정한 월.
+4. **비교 기록**: 새 테이블 `ocr_shadow_runs`(RLS 활성화, 정책 없음 = 서버 전용). **개인정보 금지** — 이름·근무 코드·사진 키를 저장하지 않고 수치만 저장한다.
+   - 컬럼: `id`, `job_id`(FK 없이 uuid — 원본·작업 삭제와 무관하게 통계 유지), `created_at`, `status`(enum `OcrShadowStatus`: `ok` | `table_failed` | `row_not_found` | `timeout` | `error` | `skipped_busy` | `skipped_budget`), `error_name`(`error` 행의 고정 분류 enum `OcrShadowErrorKind`: `download` | `worker_init` | `recognize` | `decode` | `table` | `unknown`, CHECK 제약), `day_count`, `agree_cells`(AI와 OCR 코드 일치), `disagree_cells`(둘 다 값이 있는데 다름 — OCR이 틀린 값을 낸 후보), `ocr_null_cells`(AI는 값, OCR은 null), `ai_null_cells`(OCR은 값, AI는 null), `unresolved_cells`(`countUnresolved`), `review_cells`(`countReviewCells`), `would_fallback`(기준 1칸 이상 또는 표/행 실패 시 true), `ocr_ms`(실행 시작부터의 경과 — 공유 워커 대기·워커 시작 포함), `cold_start`(이번 인스턴스 첫 OCR 여부), `rss_mb`(실행 직후 `process.memoryUsage().rss` 한 번 — 최대치 아님).
+   - 비교 기준은 AI 결과(정답 아님). `disagree_cells`가 0이 아닌 행은 수동 점검 대상(사진은 원래 보관 정책대로 만료).
+   - 보관: 정리 cron이 90일 지난 행 삭제.
+5. **엔진 배포**: `tesseract.js`를 다시 `dependencies`로 옮기고 `serverExternalPackages`·`outputFileTracingIncludes`로 워커 스크립트·`tesseract.js-core` WASM을 함수 번들에 포함한다. 학습 데이터(kor, eng)는 저장소에 커밋하지 않고 npm 패키지 `@tesseract.js-data/kor`·`@tesseract.js-data/eng`(1.0.0, `4.0.0_best_int` — 이전 CDN 다운로드와 같은 파일)로 설치해 2차 인식 함수 번들에 포함한다(콜드 스타트에 네트워크·`/tmp` 쓰기 없음). 서버리스에서는 언어별 워커 1개로 제한하고 인스턴스 안에서 재사용한다(종료하지 않음).
+6. **확인 도구**: `pnpm ocr:shadow-report` — DB의 최근 N일 `ocr_shadow_runs`를 집계해 상태별 건수, AI 없이 처리 가능 비율(`status=ok`·`would_fallback=false`·`review_cells=0`), 기준 1칸 시 AI 대체 비율, 불일치 칸 합계, `ocr_ms`·`rss_mb` p50/p95, 콜드 스타트 비율을 출력한다.
+7. **테스트**: 그림자 실행기는 `OcrProvider`를 주입받아 가짜 엔진으로 단위·통합 테스트(PGlite) — 비교 수치 계산, 오류·시간 초과 시 행 기록 및 비전파, `off`·표본 제외 시 미실행, 저장 행에 이름·코드가 없음, RLS 검사 통과.
+8. 원칙 유지: 로그에도 이름·코드·사진 내용을 남기지 않는다(오류 이름·수치만).
+9. **구현 메모(1단계)**
+   - 코드: 비교 `src/server/vision/ocr/OcrShadowComparison.ts`(순수 함수), 실행기 `src/server/services/OcrShadowRunner.ts`(`OcrProvider`·시계·RSS·표 읽기 주입), 예약 `src/server/services/OcrShadowScheduler.ts`(`after()`, 표본 추출), 엔진 `src/server/vision/ocr/OcrServiceEngine.ts`(인스턴스당 하나, 종료하지 않음), 집계 `OcrShadowStats.ts`·`OcrShadowReport.ts`.
+   - 실행 조건: 2차 인식이 **새 초안을 만든 경우에만**(이미 있는 초안을 돌려주거나 동시 요청에 진 경우는 제외 — 같은 사진·사람 중복 통계 방지). 엔진 모듈은 실행 때 동적 import라 `off`에서는 tesseract.js를 불러오지 않는다.
+   - 입력: 2차 인식이 Storage에서 읽은 원본 바이트를 그대로 재사용(추가 읽기 없음), EXIF 회전 후 RGB로 디코드(평가와 같음).
+   - 비교: 두 결과 모두 `normalizeExtraction` 뒤 날짜별로 비교. 양쪽 모두 null인 날은 네 칸 수 어디에도 넣지 않는다(`day_count` − 합계). `would_fallback`은 미해결 1칸 이상(2단계 기준) 또는 표·행 실패·시간 초과·오류.
+   - 시간 초과(리뷰 반영 후 오류도) 시 그 엔진을 종료·폐기한다(tesseract.js는 작업 취소가 없어 밀린 작업이 다음 요청을 막지 않게). 다음 실행은 새 엔진(`cold_start=true`).
+   - 번들: tesseract.js 7의 Node 워커는 `getCore`에 OEM 대신 boolean을 넘겨 LSTM 전용 워커도 전체(legacy 포함) 코어를 읽는다. 그래서 두 계열 WASM 코어를 모두 포함한다. `.data/`(PGlite·로컬 저장소·예전 OCR 캐시)는 `outputFileTracingExcludes`로 번들에서 뺀다.
+   - 아래는 1단계 리뷰 반영(2026-10-02).
+   - **종료된 엔진**: `TesseractOcrProvider`는 `terminate()` 뒤(또는 워커 스레드 오류 뒤) 모든 `recognize`를 즉시 거부하고 워커를 새로 만들지 않는다. 종료 중에 시작이 끝난 풀도 바로 종료한다. 시간 초과·오류로 폐기된 엔진을 붙잡은 백그라운드 작업이 새 워커를 띄워 메모리가 새는 일을 막는다.
+   - **중단 신호**: 실행기는 시간 초과 때 `AbortController`로 `readOcrTable(source, ocr, signal)`을 중단한다. 표 읽기는 단계 사이마다 신호를 확인하고, 모든 OCR 작업에 신호를 실어 보내 워커 큐에 이미 들어간 작업도 꺼낼 때 건너뛴다(CPU 사용 중단). 지금 돌고 있는 한 칸(WASM 호출)은 끝까지 돈다.
+   - **동시 실행 제한**: 인스턴스당 그림자 실행 1개(`globalThis` 카운터). 이미 돌고 있으면 실행하지 않고 `skipped_busy` 행만 남긴다.
+   - **시간 예산**: 2차 인식 라우트의 `maxDuration`(300초, `EXTRACT_MAX_DURATION_SECONDS` — 라우트는 정적 리터럴이어야 해 테스트로 같은 값을 보장)을 `after()` 작업도 함께 쓴다. 라우트가 요청 시작 시각을 넘기고, 실행 직전에 `timeout = min(OCR_TIMEOUT_MS, 300초 − 경과 − 10초)`로 정한다. 15초 미만이면 `skipped_budget` 행만 남긴다. `OCR_TIMEOUT_MS`는 최대 120초.
+   - **엔진 폐기**: `timeout`과 `error` 모두 엔진을 폐기한다(다음 실행은 새 엔진, `cold_start=true`). 사진 디코드 실패처럼 엔진과 무관한 오류도 폐기하지만 드물고 비용은 콜드 스타트 한 번이다.
+   - **오류 분류**: tesseract.js는 메시지 문자열로 거부하므로 클래스 이름 대신 고정 분류만 `error_name`에 저장한다. 제공자가 `OcrEngineError(kind)`로 감싸고(학습 데이터 없음 `download`, 워커 시작 실패 `worker_init`, 작업 실패·크래시·종료 후 호출 `recognize`), 그 밖에는 실행 단계(`decode` → `table` → `unknown`)로 정한다. 메시지는 어디에도 남기지 않는다. 0009 마이그레이션이 기존 행의 클래스 이름을 `unknown`으로 바꾸고 CHECK를 건다.
+   - **워커 오류 처리**: tesseract.js 7은 워커 쪽 거부를 `errorHandler`가 없으면 `message` 리스너 안에서 다시 던진다(처리되지 않은 예외 → 인스턴스 종료). 제공자는 빈 `errorHandler`를 넘긴다(작업 Promise는 그대로 거부). 또 tesseract.js는 Node Worker에 `worker.onerror`만 대입하는데 Node Worker는 이를 리스너로 쓰지 않는다(직접 확인). `createWorker`가 돌려주는 객체의 비공개 `worker` 필드(Node Worker)에 `error` 리스너를 붙여, 크래시(예: 워커 메모리 초과) 시 기다리던 작업을 `recognize`로 실패시키고 엔진을 못 쓰게 표시한다. **남는 위험**: `createWorker`가 끝나기 전(코어·언어 로드·초기화 중) 워커 스레드의 `error`는 잡을 수 없어 인스턴스가 죽을 수 있다. 전역 `uncaughtException` 처리기는 두지 않는다. tesseract.js를 올릴 때 이 필드·동작을 다시 확인한다.
+   - **집계**: `skipped_*` 행은 건수만 보여 주고 비율·p50/p95·콜드 스타트 비율에서 뺀다(측정값 없음).
+   - **번들 크기**: 2차 인식 함수 추적 파일 합계 약 96MB(압축 전, 학습 데이터 4.3MB 포함, tesseract 관련 47.5MB). 추적된 파일만 복사한 디렉터리에서 네트워크를 막고 kor·eng 인식이 되는 것을 확인했다.

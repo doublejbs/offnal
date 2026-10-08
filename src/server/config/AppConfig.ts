@@ -6,6 +6,7 @@ import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { BillingMode } from '@/domain/enums/BillingMode';
 import { GeminiTier } from '@/domain/enums/GeminiTier';
+import { OcrMode } from '@/domain/enums/OcrMode';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
@@ -45,6 +46,11 @@ export type AppConfig = {
   /** Second-pass input pipeline (Spec §15). */
   visionPipeline: VisionPipelineMode;
   mockVisionDelayMs: number;
+  /** AI-free OCR in the service (Spec §22). Always `off` in demo mode and automated tests. */
+  ocrMode: OcrMode;
+  /** Share (0–1) of eligible extracts that get a shadow OCR run. */
+  ocrShadowSampleRate: number;
+  ocrTimeoutMs: number;
   paymentProvider: PaymentProviderType;
   tossClientKey: string | null;
   tossSecretKey: string | null;
@@ -80,6 +86,8 @@ const DEFAULT_VISION_MODEL = 'claude-opus-5-5';
 const DEFAULT_GEMINI_VISION_MODEL = 'gemini-3.7-flash';
 
 export const DEFAULT_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_OCR_SHADOW_SAMPLE_RATE = 0.3;
+export const MAX_OCR_TIMEOUT_MS = 120_000;
 
 const optionalText = z.string().optional();
 const positiveInt = (defaultValue: number) => z.coerce.number().int().positive().default(defaultValue);
@@ -123,6 +131,14 @@ const envSchema = z.object({
   VISION_TIMEOUT_MS: positiveInt(240_000),
   VISION_PIPELINE: z.enum(VisionPipelineMode).default(VisionPipelineMode.WARP_STRIP),
   MOCK_VISION_DELAY_MS: nonNegativeInt(1200),
+  OCR_MODE: z.enum(OcrMode).default(OcrMode.OFF),
+  // An empty value (`OCR_SHADOW_SAMPLE_RATE=`) means the default, not 0 (coercion would turn '' into 0).
+  OCR_SHADOW_SAMPLE_RATE: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.coerce.number().min(0).max(1).default(DEFAULT_OCR_SHADOW_SAMPLE_RATE),
+  ),
+  // Also capped by the extract route's remaining maxDuration at run time (Spec §22-9).
+  OCR_TIMEOUT_MS: z.coerce.number().int().positive().max(MAX_OCR_TIMEOUT_MS).default(60_000),
   PAYMENT_PROVIDER: z.enum(PaymentProviderType).optional(),
   TOSS_CLIENT_KEY: optionalText,
   TOSS_SECRET_KEY: optionalText,
@@ -327,6 +343,10 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     visionTimeoutMs: parsed.VISION_TIMEOUT_MS,
     visionPipeline: parsed.VISION_PIPELINE,
     mockVisionDelayMs: parsed.MOCK_VISION_DELAY_MS,
+    // Demo data and test runs never start the OCR engine (no downloads, no worker threads).
+    ocrMode: isDemo || offnalEnv === OffnalEnv.TEST ? OcrMode.OFF : parsed.OCR_MODE,
+    ocrShadowSampleRate: parsed.OCR_SHADOW_SAMPLE_RATE,
+    ocrTimeoutMs: parsed.OCR_TIMEOUT_MS,
     paymentProvider:
       parsed.PAYMENT_PROVIDER ?? (isDemo ? PaymentProviderType.MOCK : PaymentProviderType.TOSS),
     tossClientKey: parsed.TOSS_CLIENT_KEY ?? null,

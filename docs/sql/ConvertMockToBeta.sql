@@ -8,7 +8,7 @@
 --   - docs/sql/CleanupMockPayments.sql은 베타 전환에 쓰지 않는다(이용권을 지워 그 달 ICS·PNG가 402가 된다).
 --
 -- 언제 실행하나
---   - 마이그레이션 0007(entitlements_source_check에 'beta' 추가)이 적용된 뒤 — `pnpm db:check`로 8개 적용 확인.
+--   - 마이그레이션 0007(entitlements_source_check에 'beta' 추가)이 적용된 뒤 — `pnpm db:check`로 0007까지(8개 이상) 적용 확인.
 --   - Vercel 환경 변수를 BILLING_MODE=beta_free(OFFNAL_ENV=production, PAYMENT_PROVIDER 삭제)로 바꾼 뒤 재배포가 완료된 후.
 --     (이유: 환경 전환 전에 이 SQL을 실행하면 구 배포가 계속 같은 DB에서 trial 행을 만들 수 있으므로, beta_free 배포 후에 SQL을 실행해야 안전하다.)
 --   - Supabase 대시보드 SQL Editor에서 이 파일 전체를 한 번에 실행한다. 한 트랜잭션이라 중간에 실패하면 모두 되돌아간다.

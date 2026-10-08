@@ -19,6 +19,8 @@ import { AuthIdentityProvider } from '@/domain/enums/AuthIdentityProvider';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
 import { type ImageMimeType } from '@/domain/enums/ImageMimeType';
+import { OcrShadowErrorKind } from '@/domain/enums/OcrShadowErrorKind';
+import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
@@ -470,6 +472,40 @@ export const memberSharedTeamMonths = pgTable(
   ],
 );
 
+/**
+ * Shadow OCR runs (Spec §22): numbers only — no names, codes or object keys. `job_id` has no foreign key so
+ * the statistics outlive the job and its photo; the cleanup cron deletes rows after 90 days.
+ */
+export const ocrShadowRuns = pgTable(
+  'ocr_shadow_runs',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    jobId: uuid('job_id').notNull(),
+    createdAt: buildCreatedAtColumn(),
+    status: text('status').$type<OcrShadowStatus>().notNull(),
+    /** Fixed error classification (`OcrShadowErrorKind`) for `error` rows, never a class name or message. */
+    errorName: text('error_name').$type<OcrShadowErrorKind>(),
+    dayCount: integer('day_count'),
+    agreeCells: integer('agree_cells'),
+    disagreeCells: integer('disagree_cells'),
+    ocrNullCells: integer('ocr_null_cells'),
+    aiNullCells: integer('ai_null_cells'),
+    unresolvedCells: integer('unresolved_cells'),
+    reviewCells: integer('review_cells'),
+    wouldFallback: boolean('would_fallback').notNull(),
+    /** Wall time from the run start: includes waiting for the shared workers and starting them. */
+    ocrMs: integer('ocr_ms').notNull(),
+    coldStart: boolean('cold_start').notNull(),
+    /** Process RSS right after the run: a snapshot, not the peak (Spec §22-9). */
+    rssMb: integer('rss_mb').notNull(),
+  },
+  (table) => [
+    index('ocr_shadow_runs_created_at_idx').on(table.createdAt),
+    buildEnumCheck('ocr_shadow_runs_status_check', table.status, OcrShadowStatus),
+    buildEnumCheck('ocr_shadow_runs_error_name_check', table.errorName, OcrShadowErrorKind),
+  ],
+);
+
 export type UserRow = typeof users.$inferSelect;
 export type AuthIdentityRow = typeof authIdentities.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
@@ -487,3 +523,4 @@ export type TeamInviteRow = typeof teamInvites.$inferSelect;
 export type TeamRosterRow = typeof teamRosters.$inferSelect;
 export type TeamRosterRowRow = typeof teamRosterRows.$inferSelect;
 export type TeamRosterChangeRow = typeof teamRosterChanges.$inferSelect;
+export type OcrShadowRunRow = typeof ocrShadowRuns.$inferSelect;

@@ -1,6 +1,7 @@
 /**
- * Vision model comparison eval (Spec §13, §15):
- * `pnpm vision:eval -- --dir .data/eval --models a,b --pipeline baseline,warp,warp-strip --repeat 2`.
+ * Vision model comparison eval (Spec §13, §15, §21):
+ * `pnpm vision:eval -- --dir .data/eval --models a,b --pipeline baseline,warp,warp-strip --repeat 2`, and the
+ * AI-free pipelines `--pipeline ocr` (no model needed) / `ocr-then-ai` (OCR first, AI fallback per person).
  * Runs the real flow per model × sample (pass 1 once, pass 2 per pipeline), scores it against truth.json
  * and writes `.data/eval/results/<timestamp>.json` plus debug images (grid overlay, warped table, strips)
  * under `.data/eval/debug/<timestamp>/`. Eval images, truths, results and debug images stay out of Git.
@@ -20,6 +21,8 @@ import {
 } from '@/server/vision/eval/EvalArgs';
 import { ModelUnavailableError } from '@/server/vision/eval/EvalCallRetry';
 import { createDebugSink } from '@/server/vision/eval/EvalDebugImages';
+import { runOcrEval } from '@/server/vision/eval/EvalOcrMain';
+import { formatOcrTable } from '@/server/vision/eval/EvalOcrSummary';
 import { createProvider, readEnv } from '@/server/vision/eval/EvalProviders';
 import {
   formatCellErrors,
@@ -122,6 +125,22 @@ const prepareSamples = async (
     }),
   );
 
+/** Per-person rows of the OCR pipelines for the correct-days table. */
+const ocrPersonSummaries = (runs: EvalRun[]): ModelSummary[] => {
+  const keys = [...new Set(runs.map((run) => `${run.pipeline}\u0000${run.model}`))];
+
+  return keys.map((key) => {
+    const [pipeline, model] = key.split('\u0000') as [EvalRun['pipeline'], string];
+
+    return summarizeModel(
+      model,
+      runs.filter((run) => run.pipeline === pipeline && run.model === model),
+      null,
+      pipeline,
+    );
+  });
+};
+
 const main = async (): Promise<void> => {
   const args = parseEvalArgs(process.argv.slice(2));
   // Fail before any paid/quota-limited call if results would land outside .data/.
@@ -151,14 +170,18 @@ const main = async (): Promise<void> => {
   );
 
   log(
-    `vision eval: ${samples.length} sample(s), ${people.length} person(s), ${args.models.length} model(s), pipelines ${args.pipelines.join(',')}, repeat ${args.repeat}`,
+    `vision eval: ${samples.length} sample(s), ${people.length} person(s), ${args.models.length} model(s), pipelines ${[...args.pipelines, ...args.ocrPipelines].join(',')}, repeat ${args.repeat}`,
   );
 
-  const results = await Promise.all(
-    args.models.map((target) =>
-      runModel(target, prepared, { repeat: args.repeat, pipelines: args.pipelines, debugRoot }),
-    ),
-  );
+  const results =
+    args.pipelines.length === 0
+      ? []
+      : await Promise.all(
+          args.models.map((target) =>
+            runModel(target, prepared, { repeat: args.repeat, pipelines: args.pipelines, debugRoot }),
+          ),
+        );
+  const ocr = args.ocrPipelines.length > 0 ? await runOcrEval(args, prepared, debugRoot, log) : null;
   const summaries: ModelSummary[] = sortSummaries(
     args.models.flatMap((target, index) =>
       args.pipelines.map((pipeline) =>
@@ -188,7 +211,8 @@ const main = async (): Promise<void> => {
       ),
     ),
   );
-  const runs = results.flatMap((result) => result.runs);
+  const aiRuns = results.flatMap((result) => result.runs);
+  const runs = [...aiRuns, ...(ocr?.runs ?? [])];
   const totalDays = Math.max(
     0,
     ...prepared.flatMap(({ sample }) =>
@@ -196,14 +220,28 @@ const main = async (): Promise<void> => {
     ),
   );
 
-  console.log(
-    `\n## Models (sorted by e2e accuracy, then paid cost; model failures score 0, infra failures excluded; prices as of ${MODEL_PRICES_AS_OF})\n`,
-  );
-  console.log(formatSummaryTable(summaries));
-  console.log('\n## Per sample\n');
-  console.log(formatSampleTable(sampleSummaries));
+  if (aiRuns.length > 0) {
+    console.log(
+      `\n## Models (sorted by e2e accuracy, then paid cost; model failures score 0, infra failures excluded; prices as of ${MODEL_PRICES_AS_OF})\n`,
+    );
+    console.log(formatSummaryTable(summaries));
+    console.log('\n## Per sample\n');
+    console.log(formatSampleTable(sampleSummaries));
+  }
+
+  if (ocr) {
+    console.log(
+      `\n## AI-free OCR pipelines (Spec §21; OCR $0, AI fallback at paid prices as of ${MODEL_PRICES_AS_OF})\n`,
+    );
+    console.log(formatOcrTable([...ocr.summaries, ...ocr.sampleSummaries]));
+
+    for (const [label, reason] of Object.entries(ocr.skipped)) {
+      console.log(`ocr-then-ai ${label} skipped: ${reason}`);
+    }
+  }
+
   console.log('\n## Correct days per person (one value per fully successful run)\n');
-  console.log(formatPersonTable(summaries, people, totalDays));
+  console.log(formatPersonTable([...summaries, ...ocrPersonSummaries(ocr?.runs ?? [])], people, totalDays));
   console.log('\n## Wrong / 추측 / null cells (date: expected→got)\n');
   console.log(formatCellErrors(runs) || '(none)');
 
@@ -236,6 +274,9 @@ const main = async (): Promise<void> => {
         samples: samples.map((sample) => sample.id),
         summaries,
         sampleSummaries,
+        ocr: ocr
+          ? { summaries: ocr.summaries, sampleSummaries: ocr.sampleSummaries, skipped: ocr.skipped }
+          : null,
         runs,
       },
       null,

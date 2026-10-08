@@ -2,11 +2,16 @@ import { VisionEvalFailureKind } from '@/domain/enums/VisionEvalFailureKind';
 import { VisionEvalPersonOutcome } from '@/domain/enums/VisionEvalPersonOutcome';
 import { VisionEvalStatus } from '@/domain/enums/VisionEvalStatus';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
-import { type CallRecord, type EvalRun, type PersonRun } from '@/server/vision/eval/EvalTypes';
+import {
+  type CallRecord,
+  type EvalPipeline,
+  type EvalRun,
+  type PersonRun,
+} from '@/server/vision/eval/EvalTypes';
 
 export type ModelSummary = {
   model: string;
-  pipeline: VisionPipelineMode;
+  pipeline: EvalPipeline;
   /** Set for per-sample summaries, null for totals. */
   sampleId: string | null;
   runs: number;
@@ -116,7 +121,7 @@ export const summarizeModel = (
   model: string,
   runs: EvalRun[],
   skipped: string | null,
-  pipeline: VisionPipelineMode = VisionPipelineMode.BASELINE,
+  pipeline: EvalPipeline = VisionPipelineMode.BASELINE,
   sampleId: string | null = null,
 ): ModelSummary => {
   const ok = runs.filter((run) => run.status === VisionEvalStatus.OK);

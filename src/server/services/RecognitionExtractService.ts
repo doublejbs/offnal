@@ -15,6 +15,7 @@ import { drafts, type RecognitionJobRow, users } from '@/server/db/Schema';
 import { ApiError, SOURCE_GONE_MESSAGE } from '@/server/errors/ApiError';
 import { type LoggedInContext, type RequestContext } from '@/server/http/RequestContext';
 import { buildDraftInsert } from '@/server/services/DraftFactory';
+import { scheduleOcrShadow } from '@/server/services/OcrShadowScheduler';
 import { assertExtractAllowed, chargeExtract } from '@/server/services/RateLimitService';
 import { isSourceAvailable, requireLoggedInOwnedJob } from '@/server/services/RecognitionOwnership';
 import { extractPersonSchedule } from '@/server/services/RecognitionPersonExtractor';
@@ -91,20 +92,27 @@ const runRowExtract = async (
   table: TableRecognition,
   candidate: { rowId: string; name: string },
   yearMonth: string,
+  requestStartedAt: number,
 ): Promise<ExtractRecognitionResponse> => {
   // Refuse before the (slow, paid) provider call; the actual charge happens once, with the insert.
   await assertExtractAllowed(db, context.user.id);
 
-  const schedule = await extractPersonSchedule(job, table, candidate.rowId, candidate.name, yearMonth);
+  const { schedule, sourceBytes } = await extractPersonSchedule(
+    job,
+    table,
+    candidate.rowId,
+    candidate.name,
+    yearMonth,
+  );
 
-  return db.transaction(async (tx) => {
+  const outcome = await db.transaction(async (tx) => {
     await tx.select({ id: users.id }).from(users).where(eq(users.id, context.user.id)).for('update');
 
     const existing = await findRowDraft(tx, job.id, candidate.rowId, yearMonth);
 
     if (existing && existing.status !== DraftStatus.DISCARDED) {
       // A concurrent request won: drop our duplicate result without charging.
-      return { draftId: existing.id };
+      return { draftId: existing.id, created: false };
     }
 
     if (existing) {
@@ -133,8 +141,19 @@ const runRowExtract = async (
       throw new Error('Draft insert returned no row');
     }
 
-    return { draftId: inserted.id };
+    return { draftId: inserted.id, created: true };
   });
+
+  if (outcome.created) {
+    // Spec §22 shadow mode: OCR runs after the response and only records statistics.
+    scheduleOcrShadow(
+      db,
+      { jobId: job.id, sourceBytes, name: candidate.name, yearMonth, aiSchedule: schedule },
+      requestStartedAt,
+    );
+  }
+
+  return { draftId: outcome.draftId };
 };
 
 const extractRowDraft = async (
@@ -144,6 +163,7 @@ const extractRowDraft = async (
   table: TableRecognition,
   rowId: string,
   yearMonth: string,
+  requestStartedAt: number,
 ): Promise<ExtractRecognitionResponse> => {
   const candidate = table.candidates.find((item) => item.rowId === rowId);
 
@@ -164,9 +184,11 @@ const extractRowDraft = async (
     return inflight;
   }
 
-  const flight = runRowExtract(db, context, job, table, candidate, yearMonth).finally(() => {
-    inflightRowExtracts.delete(flightKey);
-  });
+  const flight = runRowExtract(db, context, job, table, candidate, yearMonth, requestStartedAt).finally(
+    () => {
+      inflightRowExtracts.delete(flightKey);
+    },
+  );
 
   inflightRowExtracts.set(flightKey, flight);
 
@@ -230,18 +252,22 @@ const extractManualDraft = async (
     return { draftId: inserted.id };
   });
 
-/** Second pass → personal draft. Idempotent per (job, row, month) and per (job, manual name, month). */
+/**
+ * Second pass → personal draft. Idempotent per (job, row, month) and per (job, manual name, month).
+ * `requestStartedAt` (epoch ms) bounds the shadow OCR run that shares the route's maxDuration.
+ */
 export const extractDraft = async (
   db: Db,
   context: RequestContext,
   jobId: string,
   input: ExtractRecognitionRequest,
+  requestStartedAt: number = Date.now(),
 ): Promise<ExtractRecognitionResponse> => {
   const { context: loggedIn, job } = await requireLoggedInOwnedJob(db, context, jobId);
   const table = requireTableResult(job);
 
   if ('rowId' in input) {
-    return extractRowDraft(db, loggedIn, job, table, input.rowId, input.yearMonth);
+    return extractRowDraft(db, loggedIn, job, table, input.rowId, input.yearMonth, requestStartedAt);
   }
 
   return extractManualDraft(db, loggedIn, job, table, input.manualName, input.yearMonth);
