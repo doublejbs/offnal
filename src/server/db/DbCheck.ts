@@ -68,7 +68,8 @@ const runDbCheck = async (): Promise<void> => {
       // A warning, not a failure: expected on a test deployment, fatal only before going to production.
       console.warn(
         `[db:check] 경고: 테스트 결제(mock) 데이터가 있어요 — 결제 ${mockData.payments}건, 이용권 ${mockData.entitlements}건. ` +
-          'OFFNAL_ENV=production으로 전환하기 전에 docs/sql/CleanupMockPayments.sql을 실행하거나 별도 Supabase 프로젝트를 쓰세요.',
+          'OFFNAL_ENV=production으로 전환하기 전에 베타 무료 운영(BILLING_MODE=beta_free)이면 docs/sql/ConvertMockToBeta.sql, ' +
+          '유료 운영이면 docs/sql/CleanupMockPayments.sql을 실행하거나 별도 Supabase 프로젝트를 쓰세요.',
       );
     }
 

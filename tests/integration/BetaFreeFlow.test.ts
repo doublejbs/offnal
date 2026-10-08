@@ -215,6 +215,24 @@ describe('beta free payment routes', () => {
     );
     await expectNotFound(await sendWebhook(client, { orderId: 'x' }));
   });
+
+  it('control: the same request in paid mode with Toss and no keys fails with 503, not 404', async () => {
+    const client = createApiTestClient();
+
+    await createLoggedInJob(client, '유료 토스 사용자');
+
+    envSandbox.set({
+      BILLING_MODE: 'paid',
+      PAYMENT_PROVIDER: 'toss',
+      TOSS_CLIENT_KEY: undefined,
+      TOSS_SECRET_KEY: undefined,
+    });
+
+    const response = await requestPayment(client, { yearMonth: '2027-08' });
+
+    expect(response.status).toBe(503);
+    expect((await readJson<ApiErrorBody>(response)).error.code).toBe(ApiErrorCode.PROVIDER_NOT_CONFIGURED);
+  });
 });
 
 describe('switching back to paid', () => {

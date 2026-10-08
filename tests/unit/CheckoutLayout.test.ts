@@ -11,6 +11,8 @@ afterEach(() => {
 
 describe('CheckoutLayout', () => {
   it('renders checkout screens in paid mode', () => {
+    envSandbox.set({ BILLING_MODE: 'paid' });
+
     expect(CheckoutLayout({ children: 'checkout' })).toBe('checkout');
   });
 
