@@ -637,9 +637,9 @@ interface PaymentProvider {
 - **팀 근무표 업로드**: 같은 업로드·1차 인식 경로를 쓰므로 `upload_started`·`recognition_completed`에 `team`(불리언)을 붙이고, 리포트는 `team=true` 작업을 개인 깔때기에서 빼고 별도 한 줄로 보여 준다.
 - **`calendar_viewed`**: 월 화면이 부르는 `GET /api/calendar/:ym?view=1`에서만 성공 후 기록한다. 같은 API를 쓰는 결제·내보내기 화면과 `GET /api/calendar`(요약)·서버 컴포넌트 리다이렉트는 조회로 세지 않는다.
 - **팀**: `team_created`(memberCount 1), `team_member_joined`(관리자 승인 시, actor = 합류한 멤버, 승인 뒤 활성 멤버 수), `roster_published`(revision, changedCellCount). `export_link`는 공유 끄기도 `visibleMonthCount: 0`으로 기록해 리포트의 "공유 켠 사용자"는 기간 내 마지막 설정 기준이다.
-- **깔때기는 업로드 코호트**: 기간 안에 `upload_started`(개인)가 있는 작업을 모으고, 그 작업들의 이후 단계는 리포트 시점까지 센다(기간 밖에서 올린 작업의 기간 안 단계는 넣지 않는다). 인식 품질·두 번째 달·공유 지표는 기간 안 이벤트 기준.
+- **깔때기는 업로드 코호트**: 기간 안에 `upload_started`(개인)가 있는 작업을 모으고, 그 작업들의 이후 단계는 리포트 시점까지 센다(기간 밖에서 올린 작업의 기간 안 단계는 넣지 않는다). 인식 성공 이후 단계(로그인 연결·초안·발행)는 인식에 성공한 작업만 세어 각 단계가 앞 단계의 부분집합이 되게 한다(로그인 후 업로드는 인식 전에 연결로 기록되기 때문). 코호트 조인용으로 `subject_key` 인덱스를 둔다(0013). 인식 품질·두 번째 달·공유 지표는 기간 안 이벤트 기준.
 - **활성 사용자**: 본인이 하지 않은 행동의 actor(`team_member_joined` — 관리자 승인, `payment_succeeded` — 결제 웹훅에서도 기록)는 일·주 활성 사용자에서 뺀다. 재방문은 원래 `calendar_viewed`만 본다.
 - **공유 열람**: 공유 화면은 달을 바꿀 때마다 API를 불러 `shared_calendar_viewed`가 여러 건 생긴다. 리포트는 (공유 달력, 서울 날짜) 고유 쌍으로 센다.
-- **Referer**: Vercel 분석 스크립트는 `document.referrer`를 보내고 `beforeSend` 이벤트에는 referrer가 없어 가릴 수 없다. 그래서 토큰·id가 URL에 든 `/join/*`·`/teams/*`·`/recognitions/*`·`/drafts/*`도 `/s/*`처럼 `Referrer-Policy: no-referrer`(next.config.ts)로 보낸다.
+- **Referer**: Vercel 분석 스크립트는 `document.referrer`를 보내고 `beforeSend` 이벤트에는 referrer가 없어 가릴 수 없다. 그래서 토큰·id가 URL에 든 `/join/*`·`/teams/*`·`/recognitions/*`·`/drafts/*`와 `/s/*` 페이지(헤더·`<meta name="referrer">`)를 `Referrer-Policy: strict-origin`으로 보낸다(같은 사이트·다른 사이트 모두 오리진만). `no-referrer`는 같은 오리진 폼 POST(로그아웃·데모 로그인)의 `Origin`을 `null`로 만들어 CSRF 검사(403)에 걸리므로 쓰지 않는다. `/api/shared/*` 응답은 그대로 `no-referrer`.
 - **7일 재방문**: 처음 발행(전체 기간 중 첫 `month_published`)이 기간 안이면서 리포트 시점보다 7일 이상 전인 사용자 중, 발행 다음 날(서울 기준) 이후 7일 안에 `calendar_viewed`가 있는 비율. 발행 직후 같은 날 달력으로 이동하는 것은 재방문으로 세지 않는다.
 - **페이지 방문**: `<Analytics beforeSend>`는 함수를 넘겨야 해서 클라이언트 컴포넌트 `PageAnalytics`로 감싸 루트 레이아웃에서 live·non-test일 때만 렌더한다. 정해진 경로 외에도 UUID·긴 토큰 모양 세그먼트는 `[id]`로 바꾸고, 파싱할 수 없는 URL은 보내지 않는다.

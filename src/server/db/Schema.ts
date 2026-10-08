@@ -532,6 +532,8 @@ export const analyticsEvents = pgTable(
   (table) => [
     index('analytics_events_event_created_at_idx').on(table.event, table.createdAt),
     index('analytics_events_actor_key_created_at_idx').on(table.actorKey, table.createdAt),
+    // Funnel cohort joins follow one job (or calendar, team) across events.
+    index('analytics_events_subject_key_idx').on(table.subjectKey),
     buildEnumCheck('analytics_events_event_check', table.event, AnalyticsEvent),
   ],
 );

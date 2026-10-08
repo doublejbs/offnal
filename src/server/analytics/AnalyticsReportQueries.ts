@@ -93,17 +93,25 @@ export const collectAnalyticsReport = async (
         select distinct subject_key
         from analytics_events
         where ${isEvent(AnalyticsEvent.UPLOAD_STARTED)} and not ${boolProperty('team')} and ${inWindow}
+      ),
+      -- Later stages only for jobs that were recognized, so every stage is a subset of the one before
+      -- (a logged-in upload is claimed at upload even when recognition then fails).
+      recognized as (
+        select distinct e.subject_key
+        from analytics_events e
+        join cohort on cohort.subject_key = e.subject_key
+        where e.event = ${AnalyticsEvent.RECOGNITION_COMPLETED}
+          and coalesce((e.properties ->> 'success')::boolean, false)
+          and e.created_at <= ${at(now)}
       )
       select
         (select count(*) from cohort) as uploaded,
-        count(distinct e.subject_key) filter (
-          where e.event = ${AnalyticsEvent.RECOGNITION_COMPLETED} and coalesce((e.properties ->> 'success')::boolean, false)
-        ) as recognized,
+        (select count(*) from recognized) as recognized,
         count(distinct e.subject_key) filter (where e.event = ${AnalyticsEvent.JOB_CLAIMED}) as claimed,
         count(distinct e.subject_key) filter (where e.event = ${AnalyticsEvent.DRAFT_CREATED}) as drafted,
         count(distinct e.subject_key) filter (where e.event = ${AnalyticsEvent.MONTH_PUBLISHED}) as published
       from analytics_events e
-      join cohort on cohort.subject_key = e.subject_key
+      join recognized on recognized.subject_key = e.subject_key
       where e.created_at <= ${at(now)}
     `,
     funnelSchema,

@@ -131,7 +131,8 @@ describe('collectAnalyticsReport', () => {
     const report = await collectAnalyticsReport(env.db, { days: 30, now: NOW });
 
     // Cohort: personal jobs uploaded in the window (job1, job2, job3); later steps of those jobs only.
-    expect(report.funnel).toEqual({ uploaded: 3, recognized: 1, claimed: 2, drafted: 2, published: 1 });
+    // Later stages only for recognized jobs: job3 (logged-in upload, never recognized) stops at upload.
+    expect(report.funnel).toEqual({ uploaded: 3, recognized: 1, claimed: 1, drafted: 1, published: 1 });
     expect(report.team).toEqual({ uploaded: 1, recognized: 1 });
     expect(report.quality).toEqual({
       drafts: 1,

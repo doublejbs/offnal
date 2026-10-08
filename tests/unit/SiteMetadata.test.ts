@@ -103,5 +103,7 @@ describe('SHARED_PAGE_METADATA', () => {
     });
     expect(SHARED_PAGE_METADATA.openGraph).not.toHaveProperty('url');
     expect(SHARED_PAGE_METADATA.robots).toMatchObject(PRIVATE_ROBOTS);
+    // Same as the /s/* header: origin only, so the logout form POST keeps a real Origin.
+    expect(SHARED_PAGE_METADATA.referrer).toBe('strict-origin');
   });
 });

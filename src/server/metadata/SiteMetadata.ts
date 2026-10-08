@@ -118,5 +118,6 @@ export const SHARED_PAGE_METADATA: Metadata = {
     images: [OG_IMAGE],
   },
   robots: { ...PRIVATE_ROBOTS, nocache: true },
-  referrer: 'no-referrer',
+  // Origin only (never the tokened path); no-referrer would null the Origin of the logout form POST.
+  referrer: 'strict-origin',
 };

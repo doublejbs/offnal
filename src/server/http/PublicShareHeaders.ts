@@ -9,6 +9,15 @@ export const PUBLIC_SHARE_HEADERS: Readonly<Record<string, string>> = {
   'Referrer-Policy': 'no-referrer',
 };
 
+/**
+ * The /s/:token page (next.config.ts): same, but `strict-origin` — origin only, never the tokened path.
+ * `no-referrer` would make the logged-in logout form POST send `Origin: null`, which the CSRF check rejects.
+ */
+export const SHARE_PAGE_HEADERS: Readonly<Record<string, string>> = {
+  ...PUBLIC_SHARE_HEADERS,
+  'Referrer-Policy': 'strict-origin',
+};
+
 /** Applies PUBLIC_SHARE_HEADERS to every response of the handler, errors included. */
 export const withPublicShareHeaders =
   <TArgs extends unknown[]>(handler: (...args: TArgs) => Promise<Response>) =>
