@@ -1,4 +1,5 @@
 import { formatDayOnly } from '@/client/MonthLayout';
+import { BillingMode } from '@/domain/enums/BillingMode';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
 import { PublishBlockReason } from '@/domain/enums/PublishBlockReason';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
@@ -40,8 +41,28 @@ export type AccessDescription = {
   requiresPayment: boolean;
 };
 
+/** Beta free mode (Spec §20.4): no price, free months or payment. */
+const BETA_SAVE_TEXT = '저장하면 바로 달력에 반영돼요';
+const BETA_EXISTING_TEXT = '이미 등록한 달이에요. 고친 내용으로 다시 저장돼요';
+
+const describeBetaMonthAccess = (access: MonthAccessInfo): AccessDescription => {
+  if (access.monthAccess === MonthAccess.EXISTING) {
+    return { text: BETA_EXISTING_TEXT, requiresPayment: false };
+  }
+
+  return { text: BETA_SAVE_TEXT, requiresPayment: false };
+};
+
 /** Text under the save button. The decision itself always comes from the server. */
-export const describeMonthAccess = (access: MonthAccessInfo, freeMonthLimit: number): AccessDescription => {
+export const describeMonthAccess = (
+  access: MonthAccessInfo,
+  freeMonthLimit: number,
+  billingMode: BillingMode,
+): AccessDescription => {
+  if (billingMode === BillingMode.BETA_FREE || access.monthAccess === MonthAccess.BETA_FREE) {
+    return describeBetaMonthAccess(access);
+  }
+
   if (access.monthAccess === MonthAccess.EXISTING) {
     return { text: '이미 등록한 달이라 추가 비용 없이 저장돼요', requiresPayment: false };
   }

@@ -1,9 +1,12 @@
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
+import { BillingMode } from '@/domain/enums/BillingMode';
 import { ExportPanel } from '@/domain/enums/ExportPanel';
 
 /** Copy for the signed-out service guide on the entry screen (Spec §17). No accuracy claims, no auto-sync promise. */
 
 export type LandingCopySource = {
+  /** `beta_free`: no price, free months or payment anywhere in the guide (Spec §20.4). */
+  billingMode: BillingMode;
   freeMonthLimit: number;
   priceKrw: number;
   sourceTtlHours: number;
@@ -38,6 +41,12 @@ export const LANDING_TEAM_TITLE = '팀 전체가 함께 쓰려면';
 /** One honest line about team sharing (TeamShareSpec §0·§12-1: beta, free; no price promised). */
 export const LANDING_TEAM_TEXT =
   '근무표 담당자가 사진을 한 번 올리면 팀원 모두가 각자 달력을 받아요. 팀 공유는 베타 기간 무료예요.';
+
+/** Beta free mode: the whole service is free, so the team line drops the price sentence. */
+export const LANDING_TEAM_TEXT_BETA = '근무표 담당자가 사진을 한 번 올리면 팀원 모두가 각자 달력을 받아요.';
+
+export const getLandingTeamText = (billingMode: BillingMode): string =>
+  billingMode === BillingMode.BETA_FREE ? LANDING_TEAM_TEXT_BETA : LANDING_TEAM_TEXT;
 
 export const LANDING_STEPS: LandingStep[] = [
   {
@@ -95,23 +104,35 @@ const describeFreeMonths = ({ freeMonthLimit, priceKrw }: LandingCopySource): st
   return `근무를 저장한 달을 기준으로 ${formatMonthCount(freeMonthLimit)}까지 무료예요. 이미 저장한 달을 고쳐 다시 저장해도 무료 달이 줄거나 비용이 생기지 않고, 무료 달을 다 쓴 뒤 새 달을 저장할 때만 한 달분 ${price}을 결제해요.`;
 };
 
-export const buildLandingFaqs = (source: LandingCopySource): LandingFaq[] => [
-  {
-    question: '무료로 몇 달 쓸 수 있나요?',
-    answer: describeFreeMonths(source),
-  },
-  {
-    question: '올린 원본 사진은 어떻게 되나요?',
-    answer: `근무를 확인하고 저장하면 원본 사진을 삭제해요. 저장하지 않아도 올린 뒤 ${formatHours(source.sourceTtlHours)}이 지나면 더 이상 열 수 없고, 이후 자동으로 삭제돼요. 공유 화면에는 원본 사진이 들어가지 않아요.`,
-  },
-  {
+const FREE_MONTHS_QUESTION = '무료로 몇 달 쓸 수 있나요?';
+
+const describeSourcePhoto = ({ sourceTtlHours }: LandingCopySource): LandingFaq => ({
+  question: '올린 원본 사진은 어떻게 되나요?',
+  answer: `근무를 확인하고 저장하면 원본 사진을 삭제해요. 저장하지 않아도 올린 뒤 ${formatHours(sourceTtlHours)}이 지나면 더 이상 열 수 없고, 이후 자동으로 삭제돼요. 공유 화면에는 원본 사진이 들어가지 않아요.`,
+});
+
+const describeScheduleChange = ({ billingMode }: LandingCopySource): LandingFaq => {
+  const costSentence = billingMode === BillingMode.BETA_FREE ? '' : '이미 저장한 달은 추가 비용이 없고, ';
+
+  return {
     question: '근무가 바뀌면 어떻게 하나요?',
-    answer:
-      '새 근무표 사진을 올리거나 달력에서 직접 고친 뒤 다시 저장하면 돼요. 이미 저장한 달은 추가 비용이 없고, 공유 중인 달이면 같은 링크에 바로 반영돼요. 캘린더에 이미 추가한 일정은 자동으로 바뀌지 않아요.',
-  },
-  {
-    question: '카카오톡으로 링크를 보내면 미리보기에 내 이름이 나오나요?',
-    answer:
-      '아니요. 미리보기에는 ‘공유받은 근무표’라는 고정 문구만 보이고, 이름이나 근무 내용은 나오지 않아요.',
-  },
-];
+    answer: `새 근무표 사진을 올리거나 달력에서 직접 고친 뒤 다시 저장하면 돼요. ${costSentence}공유 중인 달이면 같은 링크에 바로 반영돼요. 캘린더에 이미 추가한 일정은 자동으로 바뀌지 않아요.`,
+  };
+};
+
+const PREVIEW_FAQ: LandingFaq = {
+  question: '카카오톡으로 링크를 보내면 미리보기에 내 이름이 나오나요?',
+  answer:
+    '아니요. 미리보기에는 ‘공유받은 근무표’라는 고정 문구만 보이고, 이름이나 근무 내용은 나오지 않아요.',
+};
+
+/** Beta free mode drops the free-months question (no pricing to explain). */
+export const buildLandingFaqs = (source: LandingCopySource): LandingFaq[] => {
+  const commonFaqs = [describeSourcePhoto(source), describeScheduleChange(source), PREVIEW_FAQ];
+
+  if (source.billingMode === BillingMode.BETA_FREE) {
+    return commonFaqs;
+  }
+
+  return [{ question: FREE_MONTHS_QUESTION, answer: describeFreeMonths(source) }, ...commonFaqs];
+};

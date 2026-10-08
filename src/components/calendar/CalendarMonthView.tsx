@@ -10,11 +10,13 @@ import MonthHeading from '@/components/calendar/MonthHeading';
 import MonthSwitcher from '@/components/calendar/MonthSwitcher';
 import TeamMonthNotice from '@/components/calendar/TeamMonthNotice';
 import { useCalendarMonthState } from '@/components/calendar/UseCalendarMonthState';
+import { usePublicConfig } from '@/components/ConfigProvider';
 import EmptyState from '@/components/EmptyState';
 import LoadingState from '@/components/LoadingState';
 import RecoverableError from '@/components/RecoverableError';
 import { CalendarMonthSource } from '@/domain/enums/CalendarMonthSource';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
+import { isBetaFree } from '@/server/config/PricingConfig';
 
 type CalendarMonthViewProps = {
   yearMonth: string;
@@ -22,6 +24,7 @@ type CalendarMonthViewProps = {
 
 const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
   const state = useCalendarMonthState(yearMonth);
+  const isBeta = isBetaFree(usePublicConfig());
   const { summary, month } = state;
 
   if (state.loadState === ScreenLoadState.LOADING) {
@@ -151,6 +154,7 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
           yearMonth={yearMonth}
           freeRemaining={summary.freeRemaining}
           priceKrw={summary.priceKrw}
+          isBeta={isBeta}
           state={state}
         />
       )}

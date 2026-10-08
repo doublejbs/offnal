@@ -8,15 +8,20 @@ import LandingTeamView from '@/components/upload/LandingTeamView';
 type LandingGuideViewProps = LandingCopySource;
 
 /** Signed-out service guide under the upload box (Spec §17): how it works, sharing, recipients, team sharing (beta), FAQ. */
-const LandingGuideView = ({ freeMonthLimit, priceKrw, sourceTtlHours }: LandingGuideViewProps) => {
-  const faqs = buildLandingFaqs({ freeMonthLimit, priceKrw, sourceTtlHours });
+const LandingGuideView = ({
+  billingMode,
+  freeMonthLimit,
+  priceKrw,
+  sourceTtlHours,
+}: LandingGuideViewProps) => {
+  const faqs = buildLandingFaqs({ billingMode, freeMonthLimit, priceKrw, sourceTtlHours });
 
   return (
     <div className="landing-guide">
       <LandingStepsView />
       <LandingShareView />
       <LandingRecipientView />
-      <LandingTeamView />
+      <LandingTeamView billingMode={billingMode} />
       <LandingFaqView faqs={faqs} />
     </div>
   );

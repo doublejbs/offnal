@@ -11,14 +11,20 @@ import LandingGuideView from '@/components/upload/LandingGuideView';
 import { useUploadState } from '@/components/upload/UseUploadState';
 import LoginOptions from '@/components/LoginOptions';
 import { LoginEmphasis } from '@/domain/enums/LoginEmphasis';
+import { isBetaFree } from '@/server/config/PricingConfig';
 
 type UploadPanelProps = {
   isLoggedIn: boolean;
 };
 
-/** Entry screen: free months and price from server config, AI/deletion notice before choosing a photo; signed out, a service guide (Spec §17). */
+/**
+ * Entry screen: free months and price from server config, AI/deletion notice before choosing a photo; signed out,
+ * a service guide (Spec §17). Beta free mode shows no price, free months or payment (Spec §20.4).
+ */
 const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
-  const { freeMonthLimit, priceKrw, sourceTtlHours, uploadMaxBytes } = usePublicConfig();
+  const config = usePublicConfig();
+  const { billingMode, freeMonthLimit, priceKrw, sourceTtlHours, uploadMaxBytes } = config;
+  const isBeta = isBetaFree(config);
   const { isUploading, statusText, error, handleFileChange } = useUploadState(uploadMaxBytes);
   const inputId = useId();
   const loginSectionId = useId();
@@ -27,7 +33,7 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
 
   return (
     <>
-      <div className="label">처음 {freeMonths}은 무료</div>
+      {!isBeta && <div className="label">처음 {freeMonths}은 무료</div>}
       <h1>
         근무표 한 장이면
         <br />
@@ -88,16 +94,19 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
           </span>
         </div>
       )}
-      <div className="block">
-        <h2>{freeMonths} 써보고 결정하세요</h2>
-        <p>
-          그다음 달부터 한 달분 {price}.
-          <br />
-          필요한 달만 구매하고, 자동 결제는 없어요.
-        </p>
-      </div>
+      {!isBeta && (
+        <div className="block">
+          <h2>{freeMonths} 써보고 결정하세요</h2>
+          <p>
+            그다음 달부터 한 달분 {price}.
+            <br />
+            필요한 달만 구매하고, 자동 결제는 없어요.
+          </p>
+        </div>
+      )}
       {!isLoggedIn && (
         <LandingGuideView
+          billingMode={billingMode}
           freeMonthLimit={freeMonthLimit}
           priceKrw={priceKrw}
           sourceTtlHours={sourceTtlHours}
@@ -109,7 +118,7 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
             내 달력 보기
           </Link>
           <Link href="/teams" className="textbutton">
-            팀으로 함께 쓰기 (베타 기간 무료)
+            {isBeta ? '팀으로 함께 쓰기' : '팀으로 함께 쓰기 (베타 기간 무료)'}
           </Link>
         </div>
       ) : (
