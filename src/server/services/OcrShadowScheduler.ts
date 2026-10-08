@@ -3,62 +3,67 @@ import 'server-only';
 import { after } from 'next/server';
 
 import { OcrMode } from '@/domain/enums/OcrMode';
-import { OcrShadowErrorKind } from '@/domain/enums/OcrShadowErrorKind';
-import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
+import { VercelEnv } from '@/domain/enums/VercelEnv';
 import { getAppConfig } from '@/server/config/AppConfig';
-import { type Db } from '@/server/db/Database';
+import { describeError } from '@/server/errors/ErrorName';
 import { EXTRACT_MAX_DURATION_SECONDS } from '@/server/services/ExtractRouteLimits';
 import {
-  describeError,
-  type OcrShadowInput,
-  recordOcrShadowSkip,
-  runOcrShadow,
-} from '@/server/services/OcrShadowRunner';
-import { type ServiceOcr } from '@/server/vision/ocr/OcrServiceEngine';
+  OCR_SHADOW_DRAFT_PARAM,
+  OCR_SHADOW_JOB_PARAM,
+  OCR_SHADOW_ROUTE_PATH,
+  VERCEL_PROTECTION_BYPASS_HEADER,
+} from '@/server/services/OcrShadowRouteLimits';
 
 const MS_PER_SECOND = 1000;
 
-/** Kept free at the end of the invocation (insert, engine discard, platform overhead). */
-export const OCR_BUDGET_SAFETY_MS = 10_000;
-/** Below this, a run could not finish even a small table: it is recorded as skipped instead. */
-export const MIN_OCR_BUDGET_MS = 15_000;
+/** Kept free at the end of the extract invocation when waiting for the internal route. */
+export const OCR_CALL_SAFETY_MS = 5_000;
+/** The internal route answers 202 once it has read the photo and the draft: only that is awaited. */
+export const OCR_ACK_TIMEOUT_MS = 15_000;
 
-/** Shadow runs in flight per instance (the engine is shared; a second run would only queue behind). */
-const MAX_IN_FLIGHT = 1;
+type RawEnv = Record<string, string | undefined>;
 
 type ShadowGateConfig = {
   ocrMode: OcrMode;
   ocrShadowSampleRate: number;
-  /** Defaults to the app config's OCR_TIMEOUT_MS. */
-  ocrTimeoutMs?: number;
+};
+
+type ShadowCallConfig = ShadowGateConfig & {
+  /** Null: the internal route is disabled, nothing is called. */
+  ocrInternalSecret: string | null;
+  appUrl: string;
+};
+
+/** What the extract hands over: ids to look the draft up, and the photo bytes it already holds. */
+export type OcrShadowRequestInput = {
+  draftId: string;
+  jobId: string;
+  sourceBytes: Buffer;
 };
 
 export type OcrShadowScheduleOptions = {
-  config: ShadowGateConfig;
+  config: ShadowCallConfig;
   random: () => number;
   /** Runs the task after the response (`after` from next/server). */
   schedule: (task: () => Promise<void>) => void;
-  acquireOcr: () => Promise<ServiceOcr>;
+  fetch: typeof fetch;
   /** Wall clock in epoch ms (default `Date.now`), compared with `requestStartedAt`. */
   now: () => number;
+  /** Platform variables (`VERCEL`, `VERCEL_ENV`, `VERCEL_URL`, bypass secret); default `process.env`. */
+  env: RawEnv;
 };
-
-/** Loaded only when a run starts, so routes do not load tesseract.js while OCR is off. */
-const acquireDefaultOcr = async (): Promise<ServiceOcr> =>
-  (await import('@/server/vision/ocr/OcrServiceEngine')).acquireServiceOcr();
 
 const buildDefaultOptions = (): OcrShadowScheduleOptions => ({
   config: getAppConfig(),
   random: Math.random,
   schedule: after,
-  acquireOcr: acquireDefaultOcr,
+  fetch: (input, init) => fetch(input, init),
   now: Date.now,
+  env: process.env,
 });
 
 type ShadowGlobal = typeof globalThis & {
   __offnalOcrShadowOverrides?: Partial<OcrShadowScheduleOptions>;
-  /** Runs started and not finished on this instance (shared across module copies in dev). */
-  __offnalOcrShadowInFlight?: number;
 };
 
 const shadowGlobal = globalThis as ShadowGlobal;
@@ -74,90 +79,103 @@ export const setOcrShadowOverridesForTesting = (
 export const shouldRunOcrShadow = (config: ShadowGateConfig, random: () => number): boolean =>
   config.ocrMode === OcrMode.SHADOW && random() < config.ocrShadowSampleRate;
 
-/**
- * Timeout for a run starting at `now`: OCR_TIMEOUT_MS, capped by what is left of the route's maxDuration
- * (measured from the request start) minus a safety margin. Null when less than the minimum is left.
- */
-export const resolveOcrShadowTimeout = (
-  configTimeoutMs: number,
-  requestStartedAt: number,
-  now: number,
-): number | null => {
-  const elapsedMs = Math.max(0, now - requestStartedAt);
-  const remainingMs = EXTRACT_MAX_DURATION_SECONDS * MS_PER_SECOND - elapsedMs - OCR_BUDGET_SAFETY_MS;
-  const timeoutMs = Math.min(configTimeoutMs, remainingMs);
-
-  if (timeoutMs < MIN_OCR_BUDGET_MS) {
-    return null;
-  }
-
-  return timeoutMs;
+export type OcrShadowTarget = {
+  /** Origin the internal route is called on. */
+  origin: string;
+  /** Extra headers (the Deployment Protection bypass on protected Vercel URLs). */
+  headers: Record<string, string>;
 };
 
-const runScheduled = async (
-  db: Db,
-  input: OcrShadowInput,
-  resolved: OcrShadowScheduleOptions,
-  requestStartedAt: number,
-): Promise<void> => {
-  const timeoutMs = resolveOcrShadowTimeout(
-    resolved.config.ocrTimeoutMs ?? getAppConfig().ocrTimeoutMs,
-    requestStartedAt,
-    resolved.now(),
+/**
+ * Where the extract calls the internal route (Spec §22-11). On Vercel each deployment calls itself on its
+ * own deployment URL (`VERCEL_URL`), so a preview never reaches production and production runs the same
+ * build: with Deployment Protection that URL needs the automation bypass secret, which is sent when the
+ * platform provides it. Production without that secret uses APP_URL (the production domain is not
+ * protected). Elsewhere (local) APP_URL.
+ */
+export const resolveOcrShadowTarget = (env: RawEnv, appUrl: string): OcrShadowTarget => {
+  const deploymentHost = env.VERCEL ? env.VERCEL_URL?.trim() : undefined;
+  const bypassSecret = env.VERCEL_AUTOMATION_BYPASS_SECRET?.trim();
+
+  if (!deploymentHost) {
+    return { origin: appUrl, headers: {} };
+  }
+
+  if (bypassSecret) {
+    return {
+      origin: `https://${deploymentHost}`,
+      headers: { [VERCEL_PROTECTION_BYPASS_HEADER]: bypassSecret },
+    };
+  }
+
+  if (env.VERCEL_ENV === VercelEnv.PRODUCTION) {
+    return { origin: appUrl, headers: {} };
+  }
+
+  return { origin: `https://${deploymentHost}`, headers: {} };
+};
+
+/** How long `after()` waits for the 202: OCR_ACK_TIMEOUT_MS, capped by what is left of the extract. */
+export const resolveOcrCallTimeout = (requestStartedAt: number, now: number): number =>
+  Math.min(
+    OCR_ACK_TIMEOUT_MS,
+    EXTRACT_MAX_DURATION_SECONDS * MS_PER_SECOND - Math.max(0, now - requestStartedAt) - OCR_CALL_SAFETY_MS,
   );
 
-  if (timeoutMs === null) {
-    await recordOcrShadowSkip(db, input.jobId, OcrShadowStatus.SKIPPED_BUDGET);
+const buildRouteUrl = (origin: string, input: OcrShadowRequestInput): string => {
+  const url = new URL(OCR_SHADOW_ROUTE_PATH, origin);
+
+  url.searchParams.set(OCR_SHADOW_DRAFT_PARAM, input.draftId);
+  url.searchParams.set(OCR_SHADOW_JOB_PARAM, input.jobId);
+
+  return url.toString();
+};
+
+/** Calls the internal route and waits for its 202; every failure is logged by class name or status only. */
+const callInternalRoute = async (
+  input: OcrShadowRequestInput,
+  resolved: OcrShadowScheduleOptions,
+  secret: string,
+  requestStartedAt: number,
+): Promise<void> => {
+  const timeoutMs = resolveOcrCallTimeout(requestStartedAt, resolved.now());
+
+  if (timeoutMs <= 0) {
+    console.warn('[ocr-shadow] no time left to call the OCR route');
 
     return;
   }
 
-  const inFlight = shadowGlobal.__offnalOcrShadowInFlight ?? 0;
+  const target = resolveOcrShadowTarget(resolved.env, resolved.config.appUrl);
+  const response = await resolved.fetch(buildRouteUrl(target.origin, input), {
+    method: 'POST',
+    headers: {
+      ...target.headers,
+      Authorization: `Bearer ${secret}`,
+      'Content-Type': 'application/octet-stream',
+    },
+    body: new Uint8Array(input.sourceBytes),
+    cache: 'no-store',
+    redirect: 'error',
+    signal: AbortSignal.timeout(timeoutMs),
+  });
 
-  if (inFlight >= MAX_IN_FLIGHT) {
-    await recordOcrShadowSkip(db, input.jobId, OcrShadowStatus.SKIPPED_BUSY);
+  // The body is a small acknowledgement; drain it so the connection is released.
+  await response.arrayBuffer().catch(() => undefined);
 
-    return;
-  }
-
-  // Taken synchronously after the check, so two tasks starting together cannot both pass it.
-  shadowGlobal.__offnalOcrShadowInFlight = inFlight + 1;
-
-  try {
-    let engine: Awaited<ReturnType<typeof resolved.acquireOcr>>;
-
-    try {
-      engine = await resolved.acquireOcr();
-    } catch (error: unknown) {
-      // Engine module import or initialization failed; record as an error run.
-      await recordOcrShadowSkip(db, input.jobId, OcrShadowStatus.ERROR, undefined, OcrShadowErrorKind.UNKNOWN);
-      console.warn('[ocr-shadow] acquire failed', { name: describeError(error) });
-
-      return;
-    }
-
-    const status = await runOcrShadow(
-      { db, ocr: engine.provider, timeoutMs, coldStart: engine.coldStart },
-      input,
-    );
-
-    // A timed-out engine may still hold queued jobs, a failed one may be broken: start fresh next time.
-    if (status === OcrShadowStatus.TIMEOUT || status === OcrShadowStatus.ERROR) {
-      await engine.discard();
-    }
-  } finally {
-    shadowGlobal.__offnalOcrShadowInFlight = Math.max(0, (shadowGlobal.__offnalOcrShadowInFlight ?? 1) - 1);
+  if (!response.ok) {
+    console.warn('[ocr-shadow] OCR route refused', { status: response.status });
   }
 };
 
 /**
- * Queues a shadow OCR run after the response (Spec §22-2). Returns whether a run was queued. Never throws
- * and never changes the response: the run itself records failures and skips as rows. `requestStartedAt`
- * (epoch ms) is when the extract request started, for the shared maxDuration budget.
+ * After a new row draft (Spec §22-11): if shadow mode is on and this extract is sampled, queues a call to
+ * the internal OCR route after the response, sending the photo bytes already in memory. Returns whether
+ * a call was queued. Never throws and never changes the response: the call's failures and timeouts are
+ * swallowed (the OCR route records its own outcome rows). `requestStartedAt` (epoch ms) bounds the wait.
  */
 export const scheduleOcrShadow = (
-  db: Db,
-  input: OcrShadowInput,
+  input: OcrShadowRequestInput,
   requestStartedAt: number,
   options: Partial<OcrShadowScheduleOptions> = {},
 ): boolean => {
@@ -168,12 +186,19 @@ export const scheduleOcrShadow = (
       return false;
     }
 
+    const secret = resolved.config.ocrInternalSecret;
+
+    if (!secret) {
+      console.warn('[ocr-shadow] OCR_INTERNAL_SECRET is not set');
+
+      return false;
+    }
+
     resolved.schedule(async () => {
       try {
-        await runScheduled(db, input, resolved, requestStartedAt);
+        await callInternalRoute(input, resolved, secret, requestStartedAt);
       } catch (error: unknown) {
-        // Engine start-up or discard failed outside a run's own error handling.
-        console.warn('[ocr-shadow] run failed', { name: describeError(error) });
+        console.warn('[ocr-shadow] OCR route call failed', { name: describeError(error) });
       }
     });
 

@@ -76,12 +76,13 @@ describe('proxy', () => {
     expect(response.headers.get('x-middleware-request-cookie')).toContain(fake.sessionCookieFor(userId));
   });
 
-  it('excludes static assets, the payment webhook and cron from the matcher', () => {
+  it('excludes static assets, the payment webhook, cron and internal routes from the matcher', () => {
     const [matcher] = config.matcher;
 
     expect(matcher).toContain('_next/static');
     expect(matcher).toContain('_next/image');
     expect(matcher).toContain('api/payments/webhook');
     expect(matcher).toContain('api/cron');
+    expect(matcher).toContain('api/internal');
   });
 });

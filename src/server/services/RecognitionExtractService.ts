@@ -174,12 +174,9 @@ const runRowExtract = async (
   if (outcome.created) {
     trackDraftCreated(context.user.id, job.id, schedule.entries, requestStartedAt, false);
 
-    // Spec §22 shadow mode: OCR runs after the response and only records statistics.
-    scheduleOcrShadow(
-      db,
-      { jobId: job.id, sourceBytes, name: candidate.name, yearMonth, aiSchedule: schedule },
-      requestStartedAt,
-    );
+    // Spec §22-11 shadow mode: after the response, the internal OCR route (its own function) reads the
+    // photo and compares it with this draft's initial entries. Statistics only; the response is unchanged.
+    scheduleOcrShadow({ draftId: outcome.draftId, jobId: job.id, sourceBytes }, requestStartedAt);
   }
 
   return { draftId: outcome.draftId };
@@ -291,7 +288,7 @@ const extractManualDraft = async (
 
 /**
  * Second pass → personal draft. Idempotent per (job, row, month) and per (job, manual name, month).
- * `requestStartedAt` (epoch ms) bounds the shadow OCR run that shares the route's maxDuration.
+ * `requestStartedAt` (epoch ms) bounds the wait for the shadow OCR call within the route's maxDuration.
  */
 export const extractDraft = async (
   db: Db,

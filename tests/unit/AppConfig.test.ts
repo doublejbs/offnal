@@ -37,6 +37,8 @@ const VALID_PRODUCTION_ENV: Record<string, string> = {
   TOSS_SECRET_KEY: 'live_sk_test',
 };
 
+const OCR_SECRET = 'o'.repeat(32);
+
 const withOverrides = (
   overrides: Record<string, string | undefined>,
 ): Record<string, string | undefined> => ({
@@ -163,7 +165,9 @@ describe('parseAppConfig', () => {
           TOSS_SECRET_KEY: undefined,
         }),
       ),
-    ).toThrow(/PAYMENT_PROVIDER=toss \(or unset\) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY \(or BILLING_MODE=beta_free\)/);
+    ).toThrow(
+      /PAYMENT_PROVIDER=toss \(or unset\) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY \(or BILLING_MODE=beta_free\)/,
+    );
   });
 
   it('accepts beta_free production without Toss keys', () => {
@@ -329,13 +333,19 @@ describe('parseAppConfig', () => {
     expect(defaults).toMatchObject({ ocrMode: OcrMode.OFF, ocrShadowSampleRate: 0.3, ocrTimeoutMs: 60_000 });
 
     const shadow = parseAppConfig(
-      withOverrides({ OCR_MODE: 'shadow', OCR_SHADOW_SAMPLE_RATE: '0.25', OCR_TIMEOUT_MS: '30000' }),
+      withOverrides({
+        OCR_MODE: 'shadow',
+        OCR_SHADOW_SAMPLE_RATE: '0.25',
+        OCR_TIMEOUT_MS: '30000',
+        OCR_INTERNAL_SECRET: OCR_SECRET,
+      }),
     );
 
     expect(shadow).toMatchObject({
       ocrMode: OcrMode.SHADOW,
       ocrShadowSampleRate: 0.25,
       ocrTimeoutMs: 30_000,
+      ocrInternalSecret: OCR_SECRET,
     });
     expect(parseAppConfig({ OFFNAL_ENV: 'development', APP_MODE: 'demo', OCR_MODE: 'shadow' }).ocrMode).toBe(
       OcrMode.OFF,
@@ -377,6 +387,25 @@ describe('parseAppConfig', () => {
     expect(parseAppConfig({ OFFNAL_ENV: 'test', APP_MODE: 'demo', ANALYTICS_SINK: 'db' }).analyticsSink).toBe(
       AnalyticsSink.DB,
     );
+  });
+
+  it('requires a strong OCR_INTERNAL_SECRET in production when shadow OCR is on (Spec §22-11)', () => {
+    expect(() => parseAppConfig(withOverrides({ OCR_MODE: 'shadow' }))).toThrow(/OCR_INTERNAL_SECRET/u);
+    expect(() =>
+      parseAppConfig(withOverrides({ OCR_MODE: 'shadow', OCR_INTERNAL_SECRET: 's'.repeat(31) })),
+    ).toThrow(/OCR_INTERNAL_SECRET/u);
+    // A set secret must be strong even while OCR is off (the probe request uses it).
+    expect(() => parseAppConfig(withOverrides({ OCR_INTERNAL_SECRET: 'short' }))).toThrow(
+      /OCR_INTERNAL_SECRET/u,
+    );
+    expect(parseAppConfig(VALID_PRODUCTION_ENV).ocrInternalSecret).toBeNull();
+    expect(parseAppConfig(withOverrides({ OCR_INTERNAL_SECRET: OCR_SECRET })).ocrInternalSecret).toBe(
+      OCR_SECRET,
+    );
+    expect(
+      parseAppConfig({ OFFNAL_ENV: 'development', OCR_MODE: 'shadow', OCR_INTERNAL_SECRET: 'short' })
+        .ocrInternalSecret,
+    ).toBe('short');
   });
 
   it('treats an empty sample rate as the default and caps the OCR timeout', () => {

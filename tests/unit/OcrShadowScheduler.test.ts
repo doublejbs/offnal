@@ -1,55 +1,56 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { OcrMode } from '@/domain/enums/OcrMode';
-import { OcrShadowErrorKind } from '@/domain/enums/OcrShadowErrorKind';
-import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { maxDuration } from '@/app/api/recognitions/[id]/extract/route';
-import { type Db } from '@/server/db/Database';
 import { EXTRACT_MAX_DURATION_SECONDS } from '@/server/services/ExtractRouteLimits';
+import { OCR_SHADOW_ROUTE_PATH } from '@/server/services/OcrShadowRouteLimits';
 import {
-  MIN_OCR_BUDGET_MS,
-  OCR_BUDGET_SAFETY_MS,
-  resolveOcrShadowTimeout,
+  OCR_ACK_TIMEOUT_MS,
+  OCR_CALL_SAFETY_MS,
+  type OcrShadowScheduleOptions,
+  resolveOcrCallTimeout,
+  resolveOcrShadowTarget,
   scheduleOcrShadow,
   shouldRunOcrShadow,
 } from '@/server/services/OcrShadowScheduler';
-import { resolveOcrPoolSize, type ServiceOcr } from '@/server/vision/ocr/OcrServiceEngine';
+import { resolveOcrPoolSize } from '@/server/vision/ocr/OcrServiceEngine';
 
-import { buildAiSchedule, MIXED_AI_CODES, SHADOW_MONTH, SHADOW_NAME } from './support/OcrShadowFixture';
-
+const SECRET = 's'.repeat(32);
+const APP_URL = 'https://offnal.example';
 const INPUT = {
+  draftId: '00000000-0000-4000-8000-0000000000d1',
   jobId: '00000000-0000-4000-8000-000000000001',
-  sourceBytes: Buffer.from('jpeg'),
-  name: SHADOW_NAME,
-  yearMonth: SHADOW_MONTH,
-  aiSchedule: buildAiSchedule(MIXED_AI_CODES),
+  sourceBytes: Buffer.from('jpeg-bytes'),
 };
-const FAKE_DB = {} as Db;
-const SHADOW_CONFIG = { ocrMode: OcrMode.SHADOW, ocrShadowSampleRate: 1, ocrTimeoutMs: 60_000 };
+const SHADOW_CONFIG = {
+  ocrMode: OcrMode.SHADOW,
+  ocrShadowSampleRate: 1,
+  ocrInternalSecret: SECRET,
+  appUrl: APP_URL,
+};
 const STARTED_AT = 1_000_000;
-const ROUTE_BUDGET_MS = EXTRACT_MAX_DURATION_SECONDS * 1000;
 
 type Task = () => Promise<void>;
 
-/** Captures inserted rows (the runner and the skip recorder only call `insert().values()`). */
-const recordingDb = () => {
-  const rows: Record<string, unknown>[] = [];
-  const db = {
-    insert: () => ({
-      values: async (values: Record<string, unknown>) => {
-        rows.push(values);
-      },
-    }),
-  } as unknown as Db;
+const okFetch = () => vi.fn<typeof fetch>(async () => new Response('{"accepted":true}', { status: 202 }));
 
-  return { db, rows };
+const buildOptions = (overrides: Partial<OcrShadowScheduleOptions> = {}) => {
+  const tasks: Task[] = [];
+  const options: Partial<OcrShadowScheduleOptions> = {
+    config: SHADOW_CONFIG,
+    random: () => 0,
+    schedule: (task) => tasks.push(task),
+    fetch: okFetch(),
+    now: () => STARTED_AT,
+    env: {},
+    ...overrides,
+  };
+
+  return { tasks, options };
 };
 
-const fakeEngine = (overrides: Partial<ServiceOcr> = {}): ServiceOcr => ({
-  provider: { recognize: async () => ({ text: '', confidence: 0 }), terminate: async () => undefined },
-  coldStart: false,
-  discard: vi.fn(async () => undefined),
-  ...overrides,
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('shadow OCR gate', () => {
@@ -61,45 +62,37 @@ describe('shadow OCR gate', () => {
     expect(shouldRunOcrShadow({ ocrMode: OcrMode.SHADOW, ocrShadowSampleRate: 0.3 }, () => 0.3)).toBe(false);
   });
 
-  it('schedules nothing when off or not sampled, and never throws when scheduling fails', () => {
-    const schedule = vi.fn();
-
+  it('queues nothing when off, not sampled or without a secret, and never throws when scheduling fails', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    expect(
-      scheduleOcrShadow(FAKE_DB, INPUT, STARTED_AT, {
-        config: { ocrMode: OcrMode.OFF, ocrShadowSampleRate: 1 },
-        schedule,
-      }),
-    ).toBe(false);
-    expect(
-      scheduleOcrShadow(FAKE_DB, INPUT, STARTED_AT, {
-        config: { ocrMode: OcrMode.SHADOW, ocrShadowSampleRate: 0.5 },
-        random: () => 0.9,
-        schedule,
-      }),
-    ).toBe(false);
-    expect(schedule).not.toHaveBeenCalled();
+
+    const off = buildOptions({ config: { ...SHADOW_CONFIG, ocrMode: OcrMode.OFF } });
+    const unsampled = buildOptions({
+      config: { ...SHADOW_CONFIG, ocrShadowSampleRate: 0.5 },
+      random: () => 0.9,
+    });
+    const noSecret = buildOptions({ config: { ...SHADOW_CONFIG, ocrInternalSecret: null } });
+
+    expect(scheduleOcrShadow(INPUT, STARTED_AT, off.options)).toBe(false);
+    expect(scheduleOcrShadow(INPUT, STARTED_AT, unsampled.options)).toBe(false);
+    expect(scheduleOcrShadow(INPUT, STARTED_AT, noSecret.options)).toBe(false);
+    expect([...off.tasks, ...unsampled.tasks, ...noSecret.tasks]).toEqual([]);
 
     expect(
-      scheduleOcrShadow(FAKE_DB, INPUT, STARTED_AT, {
-        config: SHADOW_CONFIG,
+      scheduleOcrShadow(INPUT, STARTED_AT, {
+        ...buildOptions().options,
         schedule: () => {
           throw new Error('outside a request scope');
         },
       }),
     ).toBe(false);
     expect(
-      scheduleOcrShadow(FAKE_DB, INPUT, STARTED_AT, {
-        config: SHADOW_CONFIG,
+      scheduleOcrShadow(INPUT, STARTED_AT, {
+        ...buildOptions().options,
         random: () => {
           throw new Error('broken random');
         },
-        schedule,
       }),
     ).toBe(false);
-    expect(scheduleOcrShadow(FAKE_DB, INPUT, STARTED_AT, { config: SHADOW_CONFIG, schedule })).toBe(true);
-    expect(schedule).toHaveBeenCalledTimes(1);
-    vi.restoreAllMocks();
   });
 
   it('uses one worker per language on Vercel', () => {
@@ -108,134 +101,120 @@ describe('shadow OCR gate', () => {
   });
 });
 
-describe('shadow OCR time budget', () => {
-  it('shares the extract route maxDuration', () => {
-    expect(maxDuration).toBe(EXTRACT_MAX_DURATION_SECONDS);
-  });
+describe('shadow OCR call to the internal route', () => {
+  it('posts the photo bytes with the secret and the draft and job ids, after the response', async () => {
+    const fetchMock = okFetch();
+    const { tasks, options } = buildOptions({ fetch: fetchMock });
 
-  it('caps the timeout by what is left of maxDuration minus the safety margin', () => {
-    expect(resolveOcrShadowTimeout(60_000, STARTED_AT, STARTED_AT + 5_000)).toBe(60_000);
+    expect(scheduleOcrShadow(INPUT, STARTED_AT, options)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
 
-    const lateStart = STARTED_AT + ROUTE_BUDGET_MS - OCR_BUDGET_SAFETY_MS - 40_000;
-
-    expect(resolveOcrShadowTimeout(60_000, STARTED_AT, lateStart)).toBe(40_000);
-    expect(
-      resolveOcrShadowTimeout(
-        60_000,
-        STARTED_AT,
-        STARTED_AT + ROUTE_BUDGET_MS - OCR_BUDGET_SAFETY_MS - MIN_OCR_BUDGET_MS,
-      ),
-    ).toBe(MIN_OCR_BUDGET_MS);
-    expect(
-      resolveOcrShadowTimeout(
-        60_000,
-        STARTED_AT,
-        STARTED_AT + ROUTE_BUDGET_MS - OCR_BUDGET_SAFETY_MS - MIN_OCR_BUDGET_MS + 1,
-      ),
-    ).toBeNull();
-  });
-
-  it('records skipped_budget without starting the engine when too little time is left', async () => {
-    const { db, rows } = recordingDb();
-    const tasks: Task[] = [];
-    const acquireOcr = vi.fn(async () => fakeEngine());
-
-    scheduleOcrShadow(db, INPUT, STARTED_AT, {
-      config: SHADOW_CONFIG,
-      schedule: (task) => tasks.push(task),
-      acquireOcr,
-      now: () => STARTED_AT + 280_000,
-    });
     await tasks[0]!();
 
-    expect(acquireOcr).not.toHaveBeenCalled();
-    expect(rows).toEqual([
-      expect.objectContaining({
-        jobId: INPUT.jobId,
-        status: OcrShadowStatus.SKIPPED_BUDGET,
-        errorName: null,
-        wouldFallback: true,
-        ocrMs: 0,
-        agreeCells: null,
-      }),
-    ]);
-  });
-});
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-describe('shadow OCR concurrency', () => {
-  it('records skipped_busy while another run is in flight, then runs again once it is done', async () => {
-    const { db, rows } = recordingDb();
-    const tasks: Task[] = [];
-    let releaseFirst: (engine: ServiceOcr) => void = () => undefined;
-    const firstEngine = fakeEngine();
-    const acquireOcr = vi
-      .fn<() => Promise<ServiceOcr>>()
-      .mockImplementationOnce(() => new Promise((resolve) => (releaseFirst = resolve)))
-      .mockImplementation(async () => fakeEngine());
-    const options = {
-      config: SHADOW_CONFIG,
-      schedule: (task: Task) => tasks.push(task),
-      acquireOcr,
-      now: () => STARTED_AT,
-    };
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const parsed = new URL(String(url));
+    const headers = new Headers(init?.headers);
 
-    scheduleOcrShadow(db, INPUT, STARTED_AT, options);
-    scheduleOcrShadow(db, { ...INPUT, jobId: '00000000-0000-4000-8000-000000000002' }, STARTED_AT, options);
-
-    const first = tasks[0]!();
-
-    await tasks[1]!();
-
-    expect(rows).toEqual([expect.objectContaining({ status: OcrShadowStatus.SKIPPED_BUSY })]);
-    expect(acquireOcr).toHaveBeenCalledTimes(1);
-
-    releaseFirst(firstEngine);
-    await first;
-
-    // 'jpeg' is not an image: the first run fails while decoding.
-    expect(rows[1]).toMatchObject({
-      jobId: INPUT.jobId,
-      status: OcrShadowStatus.ERROR,
-      errorName: OcrShadowErrorKind.DECODE,
-    });
-
-    scheduleOcrShadow(db, INPUT, STARTED_AT, options);
-    await tasks[2]!();
-
-    expect(acquireOcr).toHaveBeenCalledTimes(2);
-    expect(rows[2]).toMatchObject({ status: OcrShadowStatus.ERROR });
+    expect(parsed.origin).toBe(APP_URL);
+    expect(parsed.pathname).toBe(OCR_SHADOW_ROUTE_PATH);
+    expect(parsed.searchParams.get('draftId')).toBe(INPUT.draftId);
+    expect(parsed.searchParams.get('jobId')).toBe(INPUT.jobId);
+    expect(init?.method).toBe('POST');
+    expect(headers.get('authorization')).toBe(`Bearer ${SECRET}`);
+    expect(headers.get('content-type')).toBe('application/octet-stream');
+    expect(Buffer.from(init?.body as Uint8Array).equals(INPUT.sourceBytes)).toBe(true);
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
-  it('discards the engine after an error and releases the slot when start-up throws', async () => {
-    const { db, rows } = recordingDb();
-    const tasks: Task[] = [];
-    const engine = fakeEngine();
+  it('swallows a failed call, a refused call and a hanging call', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const acquireOcr = vi
-      .fn<() => Promise<ServiceOcr>>()
-      .mockResolvedValueOnce(engine)
-      .mockRejectedValueOnce(new Error('start failed'))
-      .mockResolvedValue(fakeEngine());
-    const options = {
-      config: SHADOW_CONFIG,
-      schedule: (task: Task) => tasks.push(task),
-      acquireOcr,
-      now: () => STARTED_AT,
-    };
-
-    for (let index = 0; index < 3; index += 1) {
-      scheduleOcrShadow(db, INPUT, STARTED_AT, options);
-      await tasks[index]!();
-    }
-
-    expect(engine.discard).toHaveBeenCalledTimes(1);
-    expect(warn).toHaveBeenCalledTimes(1); // once for acquire failure
-    expect(acquireOcr).toHaveBeenCalledTimes(3);
-    // Second row is the error from acquireOcr failure.
-    expect(rows[1]).toMatchObject({
-      status: OcrShadowStatus.ERROR,
-      errorName: OcrShadowErrorKind.UNKNOWN,
+    const rejecting = buildOptions({
+      fetch: vi.fn<typeof fetch>(async () => Promise.reject(new TypeError('x'))),
     });
-    vi.restoreAllMocks();
+    const refused = buildOptions({
+      fetch: vi.fn<typeof fetch>(async () => new Response(null, { status: 404 })),
+    });
+
+    scheduleOcrShadow(INPUT, STARTED_AT, rejecting.options);
+    scheduleOcrShadow(INPUT, STARTED_AT, refused.options);
+
+    await expect(rejecting.tasks[0]!()).resolves.toBeUndefined();
+    await expect(refused.tasks[0]!()).resolves.toBeUndefined();
+
+    // A call that never answers is aborted by its signal once the extract budget is spent.
+    const hanging = buildOptions({
+      fetch: vi.fn<typeof fetch>(
+        (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+          }),
+      ),
+      now: () => STARTED_AT + EXTRACT_MAX_DURATION_SECONDS * 1000 - OCR_CALL_SAFETY_MS - 20,
+    });
+
+    scheduleOcrShadow(INPUT, STARTED_AT, hanging.options);
+    await expect(hanging.tasks[0]!()).resolves.toBeUndefined();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(SECRET);
+  });
+
+  it('skips the call when the extract budget is already spent', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const fetchMock = okFetch();
+    const { tasks, options } = buildOptions({
+      fetch: fetchMock,
+      now: () => STARTED_AT + EXTRACT_MAX_DURATION_SECONDS * 1000,
+    });
+
+    scheduleOcrShadow(INPUT, STARTED_AT, options);
+    await tasks[0]!();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('waits only for the acknowledgement, and never past the extract maxDuration', () => {
+    expect(maxDuration).toBe(EXTRACT_MAX_DURATION_SECONDS);
+    expect(resolveOcrCallTimeout(STARTED_AT, STARTED_AT + 40_000)).toBe(OCR_ACK_TIMEOUT_MS);
+
+    const lateStart = STARTED_AT + EXTRACT_MAX_DURATION_SECONDS * 1000 - OCR_CALL_SAFETY_MS - 3_000;
+
+    expect(resolveOcrCallTimeout(STARTED_AT, lateStart)).toBe(3_000);
+  });
+
+  it('calls its own deployment on Vercel and APP_URL elsewhere', () => {
+    expect(resolveOcrShadowTarget({}, APP_URL)).toEqual({ origin: APP_URL, headers: {} });
+    expect(resolveOcrShadowTarget({ VERCEL_URL: 'ignored.vercel.app' }, APP_URL)).toEqual({
+      origin: APP_URL,
+      headers: {},
+    });
+    expect(
+      resolveOcrShadowTarget(
+        { VERCEL: '1', VERCEL_ENV: 'preview', VERCEL_URL: 'offnal-abc.vercel.app' },
+        APP_URL,
+      ),
+    ).toEqual({ origin: 'https://offnal-abc.vercel.app', headers: {} });
+    expect(
+      resolveOcrShadowTarget(
+        {
+          VERCEL: '1',
+          VERCEL_ENV: 'production',
+          VERCEL_URL: 'offnal-abc.vercel.app',
+          VERCEL_AUTOMATION_BYPASS_SECRET: 'bypass',
+        },
+        APP_URL,
+      ),
+    ).toEqual({
+      origin: 'https://offnal-abc.vercel.app',
+      headers: { 'x-vercel-protection-bypass': 'bypass' },
+    });
+    // Production deployment URLs are protected; without a bypass secret the production domain is used.
+    expect(
+      resolveOcrShadowTarget(
+        { VERCEL: '1', VERCEL_ENV: 'production', VERCEL_URL: 'offnal-abc.vercel.app' },
+        APP_URL,
+      ),
+    ).toEqual({ origin: APP_URL, headers: {} });
   });
 });

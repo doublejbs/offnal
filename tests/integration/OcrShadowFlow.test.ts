@@ -2,16 +2,25 @@ import { randomUUID } from 'node:crypto';
 
 import { eq } from 'drizzle-orm';
 import sharp from 'sharp';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { NextRequest } from 'next/server';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MS_PER_DAY } from '@/domain/DomainLimits';
 import { OcrMode } from '@/domain/enums/OcrMode';
 import { OcrShadowErrorKind } from '@/domain/enums/OcrShadowErrorKind';
 import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { currentYearMonthInSeoul } from '@/domain/YearMonth';
+import { POST as internalRoute } from '@/app/api/internal/ocr-shadow/route';
+import { resetAppConfigForTesting } from '@/server/config/AppConfig';
 import { type Db } from '@/server/db/Database';
-import { ocrShadowRuns, type OcrShadowRunRow } from '@/server/db/Schema';
+import { drafts, ocrShadowRuns, type OcrShadowRunRow } from '@/server/db/Schema';
 import { runCleanup } from '@/server/services/CleanupService';
+import {
+  type OcrShadowExecutorOptions,
+  setOcrShadowExecutorOverridesForTesting,
+} from '@/server/services/OcrShadowExecutor';
+import { setOcrShadowRouteScheduleForTesting } from '@/server/services/OcrShadowInternalService';
+import { OCR_SHADOW_ROUTE_PATH } from '@/server/services/OcrShadowRouteLimits';
 import {
   type OcrShadowDeps,
   type OcrShadowInput,
@@ -22,12 +31,15 @@ import { setOcrShadowOverridesForTesting } from '@/server/services/OcrShadowSche
 import { MOCK_CANDIDATE_NAMES } from '@/server/vision/MockVisionProvider';
 import { OcrEngineError } from '@/server/vision/ocr/OcrEngineError';
 import { type OcrProvider } from '@/server/vision/ocr/OcrProvider';
+import { measureOcrTable } from '@/server/vision/ocr/OcrShadowComparison';
 import { type OcrTableResult } from '@/server/vision/ocr/OcrTableTypes';
 
 import {
   createApiTestClient,
   type IntegrationEnvironment,
+  readJson,
   setupIntegrationEnvironment,
+  TEST_APP_URL,
 } from '../helpers/ApiTestClient';
 import { createLoggedInJob, extractRow } from '../helpers/OffnalFlows';
 import {
@@ -270,45 +282,286 @@ describe('shadow OCR runner', () => {
   });
 });
 
-describe('shadow OCR in the extract route', () => {
+const INTERNAL_SECRET = 'internal-secret-internal-secret-0123';
+
+/** Shadow mode on, every extract sampled; `fetch` hands the call straight to the internal route. */
+const routeShadowCalls = (fetchImpl?: typeof fetch) => {
+  const tasks: (() => Promise<void>)[] = [];
+  const calls: { url: string; init: RequestInit | undefined }[] = [];
+  const forward: typeof fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+
+    return internalRoute(new NextRequest(String(url), init as ConstructorParameters<typeof NextRequest>[1]));
+  };
+
+  setOcrShadowOverridesForTesting({
+    config: {
+      ocrMode: OcrMode.SHADOW,
+      ocrShadowSampleRate: 1,
+      ocrInternalSecret: INTERNAL_SECRET,
+      appUrl: TEST_APP_URL,
+    },
+    schedule: (task) => {
+      tasks.push(task);
+    },
+    fetch: fetchImpl ?? forward,
+    env: {},
+  });
+
+  return { tasks, calls };
+};
+
+const useFakeEngine = (overrides: Partial<OcrShadowExecutorOptions> = {}) => {
+  setOcrShadowExecutorOverridesForTesting({
+    acquireOcr: async () => ({ provider: fakeOcr(), coldStart: true, discard: async () => undefined }),
+    readRssMb: () => 512,
+    ...overrides,
+  });
+};
+
+/** Runs started by the internal route after its 202 (its `after()`), run by the test. */
+let routeTasks: (() => Promise<void>)[] = [];
+
+const captureRouteRuns = (): void => {
+  routeTasks = [];
+  setOcrShadowRouteScheduleForTesting((task) => {
+    routeTasks.push(task);
+  });
+};
+
+const runRouteTasks = async (): Promise<void> => {
+  for (const task of routeTasks.splice(0)) {
+    await task();
+  }
+};
+
+const setInternalSecret = (secret: string | undefined): void => {
+  if (secret === undefined) {
+    delete process.env.OCR_INTERNAL_SECRET;
+  } else {
+    process.env.OCR_INTERNAL_SECRET = secret;
+  }
+
+  resetAppConfigForTesting();
+};
+
+const findDraft = async (draftId: string) => {
+  const [draft] = await env.db.select().from(drafts).where(eq(drafts.id, draftId));
+
+  return draft!;
+};
+
+const postInternal = (query: string, body: Uint8Array, secret = INTERNAL_SECRET): Promise<Response> =>
+  internalRoute(
+    new NextRequest(`${TEST_APP_URL}${OCR_SHADOW_ROUTE_PATH}?${query}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/octet-stream' },
+      body: new Uint8Array(body),
+    }),
+  );
+
+describe('shadow OCR from the extract route', () => {
+  beforeEach(() => {
+    setInternalSecret(INTERNAL_SECRET);
+    captureRouteRuns();
+  });
+
+  afterEach(() => {
+    setInternalSecret(undefined);
+    setOcrShadowExecutorOverridesForTesting(null);
+    setOcrShadowRouteScheduleForTesting(null);
+  });
+
   it('does nothing while OCR is off (tests and demo mode)', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+
+    setOcrShadowOverridesForTesting({ fetch: fetchMock });
+
     const client = createApiTestClient();
     const jobId = await createLoggedInJob(client, MOCK_CANDIDATE_NAMES[0]!);
 
     await extractRow(client, jobId, currentYearMonthInSeoul(new Date()));
 
+    expect(fetchMock).not.toHaveBeenCalled();
     expect(await findRuns(jobId)).toEqual([]);
   });
 
-  it('schedules one run after a new draft, with the chosen name and month, and leaves the response alone', async () => {
-    const tasks: (() => Promise<void>)[] = [];
-    const recognize = vi.fn(async () => ({ text: '', confidence: 0 }));
+  it('calls the internal route once per new draft, which compares with the initial entries', async () => {
+    const { tasks, calls } = routeShadowCalls();
+    const yearMonth = currentYearMonthInSeoul(new Date());
+    const client = createApiTestClient();
+    const jobId = await createLoggedInJob(client, MOCK_CANDIDATE_NAMES[0]!);
+    const draftId = await extractRow(client, jobId, yearMonth);
 
-    setOcrShadowOverridesForTesting({
-      config: { ocrMode: OcrMode.SHADOW, ocrShadowSampleRate: 1 },
-      schedule: (task) => {
-        tasks.push(task);
+    // The same draft again: no second call (no duplicate statistics for one photo and person).
+    expect(await extractRow(client, jobId, yearMonth)).toBe(draftId);
+    expect(tasks).toHaveLength(1);
+    expect(calls).toEqual([]);
+
+    const draft = await findDraft(draftId);
+    const initialEntries = draft.initialEntries!;
+    const dayCount = initialEntries.length;
+    // OCR "reads" the AI codes, then the user edits every day: the comparison must use initial_entries.
+    const table: OcrTableResult = {
+      ok: true,
+      table: {
+        ...buildOcrTable([
+          buildOcrRow(
+            0,
+            draft.displayName,
+            initialEntries.map((entry) => entry.code),
+          ),
+        ]),
+        yearMonth,
+        dayCount,
       },
-      acquireOcr: async () => ({
-        provider: fakeOcr(recognize),
-        coldStart: true,
-        discard: async () => undefined,
-      }),
-    });
+      geometry: GEOMETRY,
+      latencyMs: 10,
+    };
 
+    useFakeEngine({ readTable: async () => table });
+    await env.db
+      .update(drafts)
+      .set({ entries: initialEntries.map((entry) => ({ ...entry, code: 'EDITED' })) })
+      .where(eq(drafts.id, draftId));
+    await tasks[0]!();
+
+    // Acknowledged before the run: nothing recorded until the route's own after() runs.
+    expect(calls).toHaveLength(1);
+    expect(await findRuns(jobId)).toEqual([]);
+    await runRouteTasks();
+    expect(new URL(calls[0]!.url).searchParams.get('draftId')).toBe(draftId);
+    expect(Buffer.from(calls[0]!.init?.body as Uint8Array).length).toBeGreaterThan(0);
+
+    const expected = measureOcrTable(table, draft.displayName, yearMonth, {
+      entries: initialEntries,
+      definitions: draft.definitions,
+      sourceCells: [],
+    });
+    const [row] = await findRuns(jobId);
+
+    expect(expected.status).toBe(OcrShadowStatus.OK);
+    expect(row).toMatchObject({
+      status: OcrShadowStatus.OK,
+      dayCount,
+      agreeCells: expected.counts!.agreeCells,
+      disagreeCells: 0,
+      coldStart: true,
+      rssMb: 512,
+    });
+    expect(JSON.stringify(row)).not.toContain(draft.displayName);
+  });
+
+  it('keeps the extract response when the call fails, and the route records an engine load failure', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const failing = routeShadowCalls(async () => Promise.reject(new TypeError('fetch failed')));
+    const client = createApiTestClient();
+    const jobId = await createLoggedInJob(client, MOCK_CANDIDATE_NAMES[0]!);
+
+    await extractRow(client, jobId, currentYearMonthInSeoul(new Date()));
+    await expect(failing.tasks[0]!()).resolves.toBeUndefined();
+    expect(await findRuns(jobId)).toEqual([]);
+
+    const forwarded = routeShadowCalls();
+    const other = createApiTestClient();
+    const otherJob = await createLoggedInJob(other, MOCK_CANDIDATE_NAMES[0]!);
+
+    useFakeEngine({ acquireOcr: async () => Promise.reject(new Error('engine files missing')) });
+    await extractRow(other, otherJob, currentYearMonthInSeoul(new Date()));
+    await forwarded.tasks[0]!();
+    await runRouteTasks();
+
+    expect(await findRuns(otherJob)).toEqual([
+      expect.objectContaining({ status: OcrShadowStatus.ERROR, errorName: OcrShadowErrorKind.UNKNOWN }),
+    ]);
+  });
+});
+
+describe('internal shadow OCR route', () => {
+  beforeEach(() => {
+    setInternalSecret(INTERNAL_SECRET);
+    useFakeEngine();
+    captureRouteRuns();
+  });
+
+  afterEach(() => {
+    setInternalSecret(undefined);
+    setOcrShadowExecutorOverridesForTesting(null);
+    setOcrShadowRouteScheduleForTesting(null);
+  });
+
+  it('answers 404 without the secret and writes nothing', async () => {
+    const jobId = randomUUID();
+    const response = await postInternal(
+      `draftId=${randomUUID()}&jobId=${jobId}`,
+      await whitePng(),
+      'wrong-secret-wrong-secret-wrong-secret',
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('');
+    expect(await findRuns(jobId)).toEqual([]);
+  });
+
+  it('refuses an unknown draft, a draft of another job and an oversized body', async () => {
     const client = createApiTestClient();
     const jobId = await createLoggedInJob(client, MOCK_CANDIDATE_NAMES[0]!);
     const draftId = await extractRow(client, jobId, currentYearMonthInSeoul(new Date()));
+    const png = await whitePng();
 
-    expect(await extractRow(client, jobId, currentYearMonthInSeoul(new Date()))).toBe(draftId);
-    expect(tasks).toHaveLength(1);
+    expect((await postInternal(`draftId=${randomUUID()}&jobId=${jobId}`, png)).status).toBe(404);
+    expect((await postInternal(`draftId=${draftId}&jobId=${randomUUID()}`, png)).status).toBe(404);
+    expect((await postInternal(`draftId=not-a-uuid&jobId=${jobId}`, png)).status).toBe(400);
+    expect(
+      (await postInternal(`draftId=${draftId}&jobId=${jobId}`, new Uint8Array(4 * 1024 * 1024 + 1))).status,
+    ).toBe(413);
     expect(await findRuns(jobId)).toEqual([]);
 
-    await tasks[0]!();
+    expect(routeTasks).toEqual([]);
 
+    const accepted = await postInternal(`draftId=${draftId}&jobId=${jobId}`, png);
+
+    expect(accepted.status).toBe(202);
+    expect(await readJson(accepted)).toEqual({ accepted: true });
+    expect(await findRuns(jobId)).toEqual([]);
+    await runRouteTasks();
     expect(await findRuns(jobId)).toEqual([
-      expect.objectContaining({ status: OcrShadowStatus.TABLE_FAILED, coldStart: true }),
+      expect.objectContaining({ status: OcrShadowStatus.TABLE_FAILED }),
     ]);
+  });
+
+  it('answers a probe with numbers only and stores nothing', async () => {
+    const before = await env.db.select().from(ocrShadowRuns);
+    const response = await postInternal('probe=1', await whitePng());
+
+    // Synchronous: the numbers are in the response, nothing is left to run.
+    expect(routeTasks).toEqual([]);
+
+    const body = await readJson<Record<string, unknown>>(response);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toContain('no-store');
+    expect(body).toMatchObject({
+      status: OcrShadowStatus.TABLE_FAILED,
+      tableFound: false,
+      rowCount: 0,
+      coldStart: true,
+      rssBeforeMb: 512,
+      rssAfterMb: 512,
+    });
+    expect(Object.keys(body).sort()).toEqual([
+      'coldStart',
+      'errorName',
+      'ms',
+      'rowCount',
+      'rssAfterMb',
+      'rssBeforeMb',
+      'rssPeakMb',
+      'status',
+      'tableFound',
+    ]);
+    expect(await env.db.select().from(ocrShadowRuns)).toHaveLength(before.length);
   });
 });
 

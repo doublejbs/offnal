@@ -54,8 +54,10 @@ export const proxy = async (request: NextRequest): Promise<NextResponse> => {
   return response;
 };
 
+// Server-to-server routes (webhook, cron, internal OCR) carry no session cookies: skipped, which also keeps
+// the proxy from buffering the internal route's photo body.
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/payments/webhook|api/cron|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/payments/webhook|api/cron|api/internal|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };

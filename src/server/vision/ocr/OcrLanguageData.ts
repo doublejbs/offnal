@@ -11,8 +11,8 @@ export const OCR_LANGUAGE_DATA_VARIANT = '4.0.0_best_int';
 
 /**
  * Folder holding `<lang>.traineddata.gz`, resolved at runtime from the app root like the migrations
- * (`process.cwd()` is the deployment root on Vercel and the project root locally). The extract route
- * traces these files into its bundle (next.config.ts).
+ * (`process.cwd()` is the deployment root on Vercel and the project root locally). The internal shadow
+ * OCR route traces these files into its bundle (next.config.ts).
  */
 export const resolveOcrLanguageDir = (language: OcrLanguage, root: string = process.cwd()): string =>
   path.join(

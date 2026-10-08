@@ -7,6 +7,7 @@ import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { type NormalizedSchedule } from '@/domain/types/NormalizedSchedule';
 import { type DbExecutor } from '@/server/db/Database';
 import { ocrShadowRuns } from '@/server/db/Schema';
+import { describeError } from '@/server/errors/ErrorName';
 import { OcrEngineError } from '@/server/vision/ocr/OcrEngineError';
 import { type OcrProvider } from '@/server/vision/ocr/OcrProvider';
 import {
@@ -20,8 +21,6 @@ import { decodeRaw } from '@/server/vision/RawImageCodec';
 import { type RawImage } from '@/server/vision/VisionGeometry';
 
 const BYTES_PER_MB = 1024 * 1024;
-/** Error class names are short identifiers; anything longer is cut (never a message). */
-const MAX_ERROR_NAME_LENGTH = 64;
 
 export type OcrShadowInput = {
   jobId: string;
@@ -57,11 +56,7 @@ class OcrShadowTimeoutError extends Error {
 }
 
 /** Process RSS right after the run (a snapshot, not the peak: workers and buffers may already be freed). */
-const readProcessRssMb = (): number => Math.round(process.memoryUsage().rss / BYTES_PER_MB);
-
-/** Error class name for logs (never the message, which may quote user data). */
-export const describeError = (error: unknown): string =>
-  (error instanceof Error ? error.name : typeof error).slice(0, MAX_ERROR_NAME_LENGTH);
+export const readProcessRssMb = (): number => Math.round(process.memoryUsage().rss / BYTES_PER_MB);
 
 /** The engine's own classification, otherwise the kind of the step that was running. */
 const classifyError = (error: unknown, stepKind: OcrShadowErrorKind): OcrShadowErrorKind =>
@@ -113,22 +108,35 @@ export const recordOcrShadowSkip = async (
   });
 };
 
+type TableReadDeps = {
+  ocr: OcrProvider;
+  timeoutMs: number;
+  readTable?: OcrShadowDeps['readTable'];
+};
+
+/** Outcome of one bounded table read: the value built from the table, or how it failed. */
+type TimedTableRead<T> =
+  | { ok: true; value: T }
+  | {
+      ok: false;
+      status: OcrShadowStatus.TIMEOUT | OcrShadowStatus.ERROR;
+      errorKind: OcrShadowErrorKind | null;
+    };
+
 /**
- * One shadow OCR run (Spec §22): reads the photo without AI, compares the chosen person with the AI result
- * and stores numbers only. Never throws — every failure becomes a row (or, if even the insert fails, a
- * warning with the error class name). On timeout the table reader is aborted, so it stops queueing and
- * running OCR jobs.
+ * Decodes the photo and reads its table within `timeoutMs`, then maps the table with `finish` (inside the
+ * same budget). Never throws. On timeout the table reader is aborted, so it stops queueing and running OCR
+ * jobs; an error carries the engine classification or the kind of the step that was running.
  */
-export const runOcrShadow = async (deps: OcrShadowDeps, input: OcrShadowInput): Promise<OcrShadowStatus> => {
-  const now = deps.now ?? (() => performance.now());
+const readTableWithin = async <T>(
+  deps: TableReadDeps,
+  sourceBytes: Buffer,
+  finish: (result: OcrTableResult) => T,
+): Promise<TimedTableRead<T>> => {
   const readTable = deps.readTable ?? readOcrTable;
   const controller = new AbortController();
-  // Includes waiting for the shared workers (and starting them on a cold start), not only recognition.
-  const startedAt = now();
   // Kind recorded for a failure without an engine classification, advanced as the run moves on.
   let stepKind = OcrShadowErrorKind.DECODE;
-  let measurement: ShadowMeasurement;
-  let errorKind: OcrShadowErrorKind | null = null;
   let timer: NodeJS.Timeout | undefined;
 
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -142,7 +150,7 @@ export const runOcrShadow = async (deps: OcrShadowDeps, input: OcrShadowInput): 
   });
 
   const work = (async () => {
-    const source = await decodeSource(input.sourceBytes);
+    const source = await decodeSource(sourceBytes);
 
     stepKind = OcrShadowErrorKind.TABLE;
 
@@ -150,33 +158,74 @@ export const runOcrShadow = async (deps: OcrShadowDeps, input: OcrShadowInput): 
 
     stepKind = OcrShadowErrorKind.UNKNOWN;
 
-    return measureOcrTable(result, input.name, input.yearMonth, input.aiSchedule);
+    return finish(result);
   })();
 
   // The losing side of the race must not become an unhandled rejection.
   work.catch(() => undefined);
 
   try {
-    measurement = await Promise.race([work, timeout]);
+    return { ok: true, value: await Promise.race([work, timeout]) };
   } catch (error: unknown) {
-    const timedOut = error instanceof OcrShadowTimeoutError;
+    if (error instanceof OcrShadowTimeoutError) {
+      return { ok: false, status: OcrShadowStatus.TIMEOUT, errorKind: null };
+    }
 
-    measurement = {
-      status: timedOut ? OcrShadowStatus.TIMEOUT : OcrShadowStatus.ERROR,
-      ...FAILED_MEASUREMENT,
-    };
-    errorKind = timedOut ? null : classifyError(error, stepKind);
+    return { ok: false, status: OcrShadowStatus.ERROR, errorKind: classifyError(error, stepKind) };
   } finally {
     clearTimeout(timer);
   }
+};
+
+/**
+ * One shadow OCR run (Spec §22): reads the photo without AI, compares the chosen person with the AI result
+ * and stores numbers only. Never throws — every failure becomes a row (or, if even the insert fails, a
+ * warning with the error class name). On timeout the table reader is aborted.
+ */
+export const runOcrShadow = async (deps: OcrShadowDeps, input: OcrShadowInput): Promise<OcrShadowStatus> => {
+  const now = deps.now ?? (() => performance.now());
+  // Includes waiting for the shared workers (and starting them on a cold start), not only recognition.
+  const startedAt = now();
+  const read = await readTableWithin(deps, input.sourceBytes, (result) =>
+    measureOcrTable(result, input.name, input.yearMonth, input.aiSchedule),
+  );
+  const measurement: ShadowMeasurement = read.ok
+    ? read.value
+    : { status: read.status, ...FAILED_MEASUREMENT };
 
   await insertRun(deps.db, {
     ...toRunValues(input.jobId, measurement),
-    errorName: errorKind,
+    errorName: read.ok ? null : read.errorKind,
     ocrMs: Math.max(0, Math.round(now() - startedAt)),
     coldStart: deps.coldStart,
     rssMb: (deps.readRssMb ?? readProcessRssMb)(),
   });
 
   return measurement.status;
+};
+
+/** Numbers of a probe table read (Spec §22-11): never any text, name or code. */
+export type OcrTableProbe = {
+  status: OcrShadowStatus;
+  errorName: OcrShadowErrorKind | null;
+  tableFound: boolean;
+  rowCount: number;
+};
+
+/** Table reading only on a posted photo (the probe request): nothing is stored. Never throws. */
+export const probeOcrTable = async (deps: TableReadDeps, sourceBytes: Buffer): Promise<OcrTableProbe> => {
+  const read = await readTableWithin(deps, sourceBytes, (result) => ({
+    tableFound: result.ok,
+    rowCount: result.ok ? result.table.rows.length : 0,
+  }));
+
+  if (!read.ok) {
+    return { status: read.status, errorName: read.errorKind, tableFound: false, rowCount: 0 };
+  }
+
+  return {
+    status: read.value.tableFound ? OcrShadowStatus.OK : OcrShadowStatus.TABLE_FAILED,
+    errorName: null,
+    ...read.value,
+  };
 };
