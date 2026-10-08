@@ -1,21 +1,13 @@
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-
 import { type OcrProvider } from '@/server/vision/ocr/OcrProvider';
-import { createTesseractOcrProvider, OCR_CACHE_DIR } from '@/server/vision/ocr/TesseractOcrProvider';
+import { createTesseractOcrProvider } from '@/server/vision/ocr/TesseractOcrProvider';
 
 type RawEnv = Record<string, string | undefined>;
 
 /** Serverless functions: one worker per language (memory), reused by every invocation of the instance. */
 const SERVERLESS_POOL_SIZE = 1;
 const LOCAL_POOL_SIZE = 2;
-const SERVERLESS_CACHE_DIR_NAME = 'offnal-ocr';
 
 const isServerless = (env: RawEnv): boolean => Boolean(env.VERCEL);
-
-/** Writable language-data cache: the function's temp dir on Vercel (read-only bundle), `.data/ocr` locally. */
-export const resolveOcrCacheDir = (env: RawEnv = process.env): string =>
-  isServerless(env) ? path.join(tmpdir(), SERVERLESS_CACHE_DIR_NAME) : OCR_CACHE_DIR;
 
 export const resolveOcrPoolSize = (env: RawEnv = process.env): number =>
   isServerless(env) ? SERVERLESS_POOL_SIZE : LOCAL_POOL_SIZE;
@@ -24,7 +16,10 @@ export const resolveOcrPoolSize = (env: RawEnv = process.env): number =>
 export type ServiceOcr = {
   provider: OcrProvider;
   coldStart: boolean;
-  /** Terminates and forgets this engine (after a timeout, so queued jobs do not pile up on the workers). */
+  /**
+   * Terminates and forgets this engine (after a timeout or an error, so queued jobs or a broken worker do
+   * not reach the next run). The terminated provider rejects every later call and starts no workers.
+   */
   discard: () => Promise<void>;
 };
 
@@ -32,12 +27,13 @@ type EngineGlobal = typeof globalThis & { __offnalServiceOcr?: OcrProvider };
 
 const engineGlobal = globalThis as EngineGlobal;
 
-/** Shared engine of this server instance, created on first use and never terminated between requests. */
+/**
+ * Shared engine of this server instance, created on first use and never terminated between requests.
+ * Language data comes from the bundled `@tesseract.js-data` packages (nothing is downloaded or written).
+ */
 export const acquireServiceOcr = (): ServiceOcr => {
   const existing = engineGlobal.__offnalServiceOcr;
-  const provider =
-    existing ??
-    createTesseractOcrProvider({ cacheDir: resolveOcrCacheDir(), poolSize: resolveOcrPoolSize() });
+  const provider = existing ?? createTesseractOcrProvider({ poolSize: resolveOcrPoolSize() });
 
   engineGlobal.__offnalServiceOcr = provider;
 

@@ -7,4 +7,8 @@ export enum OcrShadowStatus {
   ROW_NOT_FOUND = 'row_not_found',
   TIMEOUT = 'timeout',
   ERROR = 'error',
+  /** Sampled, but another shadow run was already in flight on this instance (not run). */
+  SKIPPED_BUSY = 'skipped_busy',
+  /** Sampled, but too little of the route's maxDuration was left after the response (not run). */
+  SKIPPED_BUDGET = 'skipped_budget',
 }

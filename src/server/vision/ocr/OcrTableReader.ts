@@ -3,12 +3,13 @@ import { OcrPageSegMode } from '@/domain/enums/OcrPageSegMode';
 import { OcrTableFailure } from '@/domain/enums/OcrTableFailure';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { daysInMonth } from '@/domain/YearMonth';
+import { bindOcrSignal } from '@/server/vision/ocr/AbortableOcr';
 import { OFF_CODE } from '@/server/vision/ocr/CodeDictionary';
 import { renderGrayPng } from '@/server/vision/ocr/GlyphImage';
 import { cropGray, type GrayImage } from '@/server/vision/ocr/GrayRaster';
 import { detectGrid, type TableGrid } from '@/server/vision/ocr/GridDetector';
-import { eraseGridLines } from '@/server/vision/ocr/LineEraser';
 import { extendDayCount } from '@/server/vision/ocr/HeaderValidator';
+import { eraseGridLines } from '@/server/vision/ocr/LineEraser';
 import { median } from '@/server/vision/ocr/LineProfile';
 import { readPersonCells } from '@/server/vision/ocr/OcrCellReader';
 import { getCellRect, prepareCell, readPreparedCell } from '@/server/vision/ocr/OcrCellText';
@@ -164,10 +165,20 @@ const resolveDayCount = (layout: HeaderLayout, grid: TableGrid, yearMonth: strin
 /**
  * AI-free table reading (Spec §20): table border → perspective flattening → grid lines → day header →
  * title month, legend, names and every person cell by OCR. Fails (for the hybrid to hand over to AI) when
- * no table, grid or day header is found.
+ * no table, grid or day header is found. Once `signal` aborts, it rejects with the abort reason between
+ * stages and before every OCR job (queued jobs included), so a timed-out run stops using the CPU.
  */
-export const readOcrTable = async (source: RawImage, ocr: OcrProvider): Promise<OcrTableResult> => {
+export const readOcrTable = async (
+  source: RawImage,
+  engine: OcrProvider,
+  signal?: AbortSignal,
+): Promise<OcrTableResult> => {
   const startedAt = performance.now();
+  const ocr = bindOcrSignal(engine, signal);
+  const checkpoint = (): void => signal?.throwIfAborted();
+
+  checkpoint();
+
   const geometry: OcrGeometry = { quad: null, warped: null, grid: null, headerRow: null };
   const fail = (failure: OcrTableFailure): OcrTableResult => ({
     ok: false,
@@ -181,8 +192,10 @@ export const readOcrTable = async (source: RawImage, ocr: OcrProvider): Promise<
     return fail(OcrTableFailure.NO_TABLE);
   }
 
+  checkpoint();
   geometry.quad = detection.quad;
   geometry.warped = warpTable(source, detection.quad);
+  checkpoint();
 
   if (!geometry.warped) {
     return fail(OcrTableFailure.NO_TABLE);
@@ -193,12 +206,17 @@ export const readOcrTable = async (source: RawImage, ocr: OcrProvider): Promise<
 
   geometry.grid = detectGrid(warped);
 
+  checkpoint();
+
   if (!geometry.grid) {
     return fail(OcrTableFailure.NO_GRID);
   }
 
   const { grid } = geometry;
   const cellGray = eraseLinesOf(gray, grid);
+
+  checkpoint();
+
   const layout = await readHeaderLayout(ocr, cellGray, grid);
 
   if (!layout) {
@@ -236,6 +254,9 @@ export const readOcrTable = async (source: RawImage, ocr: OcrProvider): Promise<
       return parsed.length > 0 ? parsed : null;
     }),
   ]);
+
+  checkpoint();
+
   const legend = legendDefinitions ?? [];
   const dayCount = resolveDayCount(layout, grid, yearMonth);
   const [names, cellResult] = await Promise.all([
@@ -250,6 +271,9 @@ export const readOcrTable = async (source: RawImage, ocr: OcrProvider): Promise<
       legend.map((definition) => definition.code),
     ),
   ]);
+
+  checkpoint();
+
   const rows: OcrRow[] = personRows.map((row, index) => ({
     index,
     rect: { left: table.left, right: table.right, top: grid.rowLines[row]!, bottom: grid.rowLines[row + 1]! },

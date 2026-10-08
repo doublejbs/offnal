@@ -46,7 +46,16 @@ describe('shadow OCR report', () => {
 
     expect(summary).toEqual({
       total: 5,
-      byStatus: { ok: 3, table_failed: 1, row_not_found: 0, timeout: 1, error: 0 },
+      byStatus: {
+        ok: 3,
+        table_failed: 1,
+        row_not_found: 0,
+        timeout: 1,
+        error: 0,
+        skipped_busy: 0,
+        skipped_budget: 0,
+      },
+      skipped: 0,
       aiFreeRate: 0.2,
       fallbackRate: 0.6,
       disagreeCells: 2,
@@ -59,6 +68,30 @@ describe('shadow OCR report', () => {
 
     expect(text).toContain('최근 7일');
     expect(text).toContain('20.0%');
+  });
+
+  it('counts skipped runs but leaves them out of every rate and percentile', () => {
+    const skippedRun = { wouldFallback: true, reviewCells: null, disagreeCells: null, ocrMs: 0, rssMb: 900 };
+    const summary = summarizeShadowRuns([
+      run({ ocrMs: 2000, rssMb: 300 }),
+      run({ ocrMs: 4000, rssMb: 320, wouldFallback: true, coldStart: true }),
+      run({ status: OcrShadowStatus.SKIPPED_BUSY, ...skippedRun }),
+      run({ status: OcrShadowStatus.SKIPPED_BUDGET, ...skippedRun }),
+    ]);
+
+    expect(summary).toMatchObject({
+      total: 4,
+      skipped: 2,
+      byStatus: expect.objectContaining({ skipped_busy: 1, skipped_budget: 1 }),
+      aiFreeRate: 0.5,
+      fallbackRate: 0.5,
+      ocrMs: { p50: 2000, p95: 4000 },
+      rssMb: { p50: 300, p95: 320 },
+      coldStartRate: 0.5,
+    });
+    expect(formatShadowSummary(summary, 7)).toContain(
+      '건너뜀(동시 실행·시간 예산 부족, 아래 비율에서 제외): 2건',
+    );
   });
 
   it('handles an empty period and nearest-rank percentiles', () => {

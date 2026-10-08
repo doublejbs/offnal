@@ -18,8 +18,9 @@ import {
 import { AuthIdentityProvider } from '@/domain/enums/AuthIdentityProvider';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
 import { EntitlementSource } from '@/domain/enums/EntitlementSource';
-import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { type ImageMimeType } from '@/domain/enums/ImageMimeType';
+import { OcrShadowErrorKind } from '@/domain/enums/OcrShadowErrorKind';
+import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { PaymentStatus } from '@/domain/enums/PaymentStatus';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
@@ -482,8 +483,8 @@ export const ocrShadowRuns = pgTable(
     jobId: uuid('job_id').notNull(),
     createdAt: buildCreatedAtColumn(),
     status: text('status').$type<OcrShadowStatus>().notNull(),
-    /** Error class name only (never the message). */
-    errorName: text('error_name'),
+    /** Fixed error classification (`OcrShadowErrorKind`) for `error` rows, never a class name or message. */
+    errorName: text('error_name').$type<OcrShadowErrorKind>(),
     dayCount: integer('day_count'),
     agreeCells: integer('agree_cells'),
     disagreeCells: integer('disagree_cells'),
@@ -492,13 +493,16 @@ export const ocrShadowRuns = pgTable(
     unresolvedCells: integer('unresolved_cells'),
     reviewCells: integer('review_cells'),
     wouldFallback: boolean('would_fallback').notNull(),
+    /** Wall time from the run start: includes waiting for the shared workers and starting them. */
     ocrMs: integer('ocr_ms').notNull(),
     coldStart: boolean('cold_start').notNull(),
+    /** Process RSS right after the run: a snapshot, not the peak (Spec §21-9). */
     rssMb: integer('rss_mb').notNull(),
   },
   (table) => [
     index('ocr_shadow_runs_created_at_idx').on(table.createdAt),
     buildEnumCheck('ocr_shadow_runs_status_check', table.status, OcrShadowStatus),
+    buildEnumCheck('ocr_shadow_runs_error_name_check', table.errorName, OcrShadowErrorKind),
   ],
 );
 

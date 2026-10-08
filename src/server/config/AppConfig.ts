@@ -83,6 +83,8 @@ const DEFAULT_VISION_MODEL = 'claude-opus-5-5';
 const DEFAULT_GEMINI_VISION_MODEL = 'gemini-3.7-flash';
 
 export const DEFAULT_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+export const DEFAULT_OCR_SHADOW_SAMPLE_RATE = 0.3;
+export const MAX_OCR_TIMEOUT_MS = 120_000;
 
 const optionalText = z.string().optional();
 const positiveInt = (defaultValue: number) => z.coerce.number().int().positive().default(defaultValue);
@@ -127,8 +129,13 @@ const envSchema = z.object({
   VISION_PIPELINE: z.enum(VisionPipelineMode).default(VisionPipelineMode.WARP_STRIP),
   MOCK_VISION_DELAY_MS: nonNegativeInt(1200),
   OCR_MODE: z.enum(OcrMode).default(OcrMode.OFF),
-  OCR_SHADOW_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(1),
-  OCR_TIMEOUT_MS: positiveInt(60_000),
+  // An empty value (`OCR_SHADOW_SAMPLE_RATE=`) means the default, not 0 (coercion would turn '' into 0).
+  OCR_SHADOW_SAMPLE_RATE: z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    z.coerce.number().min(0).max(1).default(DEFAULT_OCR_SHADOW_SAMPLE_RATE),
+  ),
+  // Also capped by the extract route's remaining maxDuration at run time (Spec §21-9).
+  OCR_TIMEOUT_MS: z.coerce.number().int().positive().max(MAX_OCR_TIMEOUT_MS).default(60_000),
   PAYMENT_PROVIDER: z.enum(PaymentProviderType).optional(),
   TOSS_CLIENT_KEY: optionalText,
   TOSS_SECRET_KEY: optionalText,

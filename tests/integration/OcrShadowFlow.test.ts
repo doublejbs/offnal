@@ -6,14 +6,21 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 
 import { MS_PER_DAY } from '@/domain/DomainLimits';
 import { OcrMode } from '@/domain/enums/OcrMode';
+import { OcrShadowErrorKind } from '@/domain/enums/OcrShadowErrorKind';
 import { OcrShadowStatus } from '@/domain/enums/OcrShadowStatus';
 import { currentYearMonthInSeoul } from '@/domain/YearMonth';
 import { type Db } from '@/server/db/Database';
 import { ocrShadowRuns, type OcrShadowRunRow } from '@/server/db/Schema';
 import { runCleanup } from '@/server/services/CleanupService';
-import { runOcrShadow, type OcrShadowDeps, type OcrShadowInput } from '@/server/services/OcrShadowRunner';
+import {
+  type OcrShadowDeps,
+  type OcrShadowInput,
+  recordOcrShadowSkip,
+  runOcrShadow,
+} from '@/server/services/OcrShadowRunner';
 import { setOcrShadowOverridesForTesting } from '@/server/services/OcrShadowScheduler';
 import { MOCK_CANDIDATE_NAMES } from '@/server/vision/MockVisionProvider';
+import { OcrEngineError } from '@/server/vision/ocr/OcrEngineError';
 import { type OcrProvider } from '@/server/vision/ocr/OcrProvider';
 import { type OcrTableResult } from '@/server/vision/ocr/OcrTableTypes';
 
@@ -36,7 +43,7 @@ import {
 } from '../unit/support/OcrShadowFixture';
 
 const GEOMETRY = { quad: null, warped: null, grid: null, headerRow: null };
-/** Columns that may hold text: generated ids, the enum status and the error class name. */
+/** Columns that may hold text: generated ids, the enum status and the enum error kind. */
 const TEXT_COLUMNS = new Set(['id', 'jobId', 'status', 'errorName']);
 
 let env: IntegrationEnvironment;
@@ -170,19 +177,35 @@ describe('shadow OCR runner', () => {
     ]);
   });
 
-  it('records a timeout instead of waiting for the engine', async () => {
+  it('records a timeout instead of waiting for the engine and aborts the table reader', async () => {
     const input = await buildInput();
-    const hanging = () => new Promise<OcrTableResult>(() => undefined);
+    let seenSignal: AbortSignal | null = null;
+    const hanging = (_source: unknown, _ocr: OcrProvider, signal: AbortSignal) => {
+      seenSignal = signal;
+
+      return new Promise<OcrTableResult>(() => undefined);
+    };
 
     expect(await runOcrShadow(buildDeps({ timeoutMs: 20, readTable: hanging }), input)).toBe(
       OcrShadowStatus.TIMEOUT,
     );
+    expect(seenSignal!.aborted).toBe(true);
     expect(await findRuns(input.jobId)).toEqual([
       expect.objectContaining({ status: OcrShadowStatus.TIMEOUT, errorName: null, wouldFallback: true }),
     ]);
   });
 
-  it('records only the error class name and never throws or logs the message', async () => {
+  it('records the engine classification of an OCR failure', async () => {
+    const input = await buildInput();
+    const failing = async (): Promise<OcrTableResult> => {
+      throw new OcrEngineError(OcrShadowErrorKind.WORKER_INIT);
+    };
+
+    expect(await runOcrShadow(buildDeps({ readTable: failing }), input)).toBe(OcrShadowStatus.ERROR);
+    expect((await findRuns(input.jobId))[0]?.errorName).toBe(OcrShadowErrorKind.WORKER_INIT);
+  });
+
+  it('records only a fixed error kind and never throws or logs the message', async () => {
     class EngineCrash extends Error {
       override name = 'EngineCrash';
     }
@@ -201,12 +224,35 @@ describe('shadow OCR runner', () => {
     expect(await findRuns(input.jobId)).toEqual([
       expect.objectContaining({
         status: OcrShadowStatus.ERROR,
-        errorName: 'EngineCrash',
+        errorName: OcrShadowErrorKind.TABLE,
         wouldFallback: true,
       }),
     ]);
-    expect((await findRuns(garbage.jobId))[0]?.errorName).toBe('Error');
+    expect((await findRuns(garbage.jobId))[0]?.errorName).toBe(OcrShadowErrorKind.DECODE);
     expect(JSON.stringify(warn.mock.calls)).not.toContain(SHADOW_NAME);
+  });
+
+  it('stores skipped runs and rejects an error name outside the fixed kinds', async () => {
+    const jobId = randomUUID();
+
+    await recordOcrShadowSkip(env.db, jobId, OcrShadowStatus.SKIPPED_BUSY, () => 1);
+    await recordOcrShadowSkip(env.db, jobId, OcrShadowStatus.SKIPPED_BUDGET, () => 1);
+
+    expect((await findRuns(jobId)).map((row) => row.status).sort()).toEqual([
+      OcrShadowStatus.SKIPPED_BUDGET,
+      OcrShadowStatus.SKIPPED_BUSY,
+    ]);
+    await expect(
+      env.db.insert(ocrShadowRuns).values({
+        jobId,
+        status: OcrShadowStatus.ERROR,
+        errorName: 'TypeError' as OcrShadowErrorKind,
+        wouldFallback: true,
+        ocrMs: 1,
+        coldStart: false,
+        rssMb: 1,
+      }),
+    ).rejects.toThrow();
   });
 
   it('swallows a failing insert', async () => {

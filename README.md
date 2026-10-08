@@ -170,11 +170,11 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 | 변수 | 값 |
 |---|---|
 | `OCR_MODE` | `off`(기본) \| `shadow` — 데모 모드·테스트에서는 항상 `off` |
-| `OCR_SHADOW_SAMPLE_RATE` | `0`~`1`, 기본 `1` — 2차 인식 중 그림자 실행할 비율 |
-| `OCR_TIMEOUT_MS` | 기본 `60000` — 넘으면 `timeout`으로 기록 |
+| `OCR_SHADOW_SAMPLE_RATE` | `0`~`1`, 기본 `0.3` — 2차 인식 중 그림자 실행할 비율. 빈 값은 기본값(0이 아님) |
+| `OCR_TIMEOUT_MS` | 기본 `60000`, 최대 `120000` — 넘으면 `timeout`으로 기록. 실행 때 2차 인식 함수의 남은 시간(maxDuration 300초 − 경과 − 10초)으로 다시 줄이고, 15초 미만이면 실행하지 않고 `skipped_budget`으로 기록 |
 
 - `shadow`면 개인 2차 인식(`/api/recognitions/[id]/extract`)이 새 초안을 만든 뒤 `after()`로 **응답 이후에** AI 없는 OCR(`tesseract.js`)을 돌려 AI 결과와 날짜별로 비교하고 `ocr_shadow_runs`에 **수치만** 저장합니다(이름·코드·사진 키 없음). 화면·API 응답·저장되는 근무는 바뀌지 않고, OCR 오류·시간 초과는 상태 값으로만 남습니다.
-- 학습 데이터(kor, eng)는 첫 실행 때 내려받아 캐시합니다(Vercel: `os.tmpdir()/offnal-ocr`, 로컬: `.data/ocr`). Vercel에서는 언어별 워커 1개를 인스턴스 안에서 재사용합니다. 워커 스크립트·WASM 코어는 `next.config.ts`의 `outputFileTracingIncludes`로 2차 인식 함수에만 포함됩니다.
+- 학습 데이터(kor, eng, `4.0.0_best_int`)는 npm 패키지 `@tesseract.js-data/kor`·`@tesseract.js-data/eng`에서 읽습니다(내려받기·캐시 쓰기 없음, 평가도 같음). 워커 스크립트·WASM 코어·학습 데이터는 `next.config.ts`의 `outputFileTracingIncludes`로 2차 인식 함수에만 포함됩니다(함수 번들 약 96MB, 압축 전). Vercel에서는 언어별 워커 1개를 인스턴스 안에서 재사용하고, 인스턴스당 그림자 실행은 한 번에 1개만 돕니다(겹치면 `skipped_busy`).
 - 로컬 측정(샘플 1장, 언어별 워커 1개)에서 OCR 한 번에 약 2~3초, 프로세스 RSS 약 1.1GB였습니다. 함수 메모리 한도를 확인한 뒤 켭니다.
 - 결과 확인: `pnpm ocr:shadow-report -- --days 7`(상태별 건수, AI 없이 처리 가능 비율, AI 대체 비율, 불일치 칸 합계, 처리 시간·메모리 p50/p95, 콜드 스타트 비율). 행은 정리 cron이 90일 뒤 삭제합니다.
 

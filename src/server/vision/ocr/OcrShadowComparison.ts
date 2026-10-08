@@ -69,7 +69,13 @@ export const compareSchedules = (ai: NormalizedSchedule, ocr: NormalizedSchedule
   return counts;
 };
 
-const FAILED_MEASUREMENT = { counts: null, unresolvedCells: null, reviewCells: null, wouldFallback: true };
+/** No comparison (table/row failure, error, timeout or skip): stage 2 would hand the person to AI. */
+export const FAILED_MEASUREMENT: Omit<ShadowMeasurement, 'status'> = {
+  counts: null,
+  unresolvedCells: null,
+  reviewCells: null,
+  wouldFallback: true,
+};
 
 /**
  * Compares what OCR read for `name` with the AI schedule of the same month. Pure: no names or codes leave

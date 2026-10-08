@@ -8,6 +8,8 @@ export type OcrRequest = {
   /** Allowed characters, null = the language's full set. */
   whitelist: string | null;
   pageSegMode: OcrPageSegMode;
+  /** Once aborted, the job is skipped (also when it is still queued) and rejects with the abort reason. */
+  signal?: AbortSignal;
 };
 
 export type OcrText = {

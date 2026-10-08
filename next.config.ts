@@ -38,6 +38,15 @@ const TESSERACT_TRACE_INCLUDES = [
   `${TESSERACT_PACKAGE_DIR}/{wasm-feature-detect,regenerator-runtime,is-url,bmp-js,zlibjs,idb-keyval}/**/*`,
 ];
 
+/**
+ * Bundled LSTM language data (Spec §21-9): read at runtime from `node_modules/@tesseract.js-data/<lang>`
+ * (a path the trace cannot see), so the instance never downloads it or writes a cache.
+ */
+const OCR_LANGUAGE_DATA_INCLUDES = [
+  './node_modules/@tesseract.js-data/{kor,eng}/package.json',
+  './node_modules/@tesseract.js-data/{kor,eng}/4.0.0_best_int/*.traineddata.gz',
+];
+
 const nextConfig: NextConfig = {
   // tesseract.js starts its worker thread from a path computed at runtime and loads its WASM core via fs,
   // so it must stay a plain node_modules package (not bundled).
@@ -49,9 +58,9 @@ const nextConfig: NextConfig = {
     // Shadow OCR (Spec §21) runs after the personal extract: the worker script (not statically required)
     // and the LSTM-only WASM cores it picks by CPU features (relaxed SIMD, SIMD, plain). Keys are globs,
     // so `[id]` would be a character class: `*` stands for the dynamic segment.
-    '/api/recognitions/*/extract': TESSERACT_TRACE_INCLUDES,
+    '/api/recognitions/*/extract': [...TESSERACT_TRACE_INCLUDES, ...OCR_LANGUAGE_DATA_INCLUDES],
   },
-  // The local OCR language cache (`.data/ocr`) is referenced by path in the OCR code; never ship it.
+  // Local data (PGlite, storage, an old OCR cache) must never ship with the OCR function.
   outputFileTracingExcludes: {
     '/api/recognitions/*/extract': ['./.data/**/*'],
   },
