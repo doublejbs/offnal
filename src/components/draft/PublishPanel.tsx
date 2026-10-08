@@ -5,6 +5,7 @@ import { useId } from 'react';
 import { describeBlocker, describeMonthAccess, formatMonthCount } from '@/client/DisplayText';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import { type DraftPublish } from '@/components/draft/UseDraftPublish';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
 import { type MonthAccessInfo } from '@/domain/types/api/MonthAccessInfo';
 import { type PublishBlocker } from '@/domain/types/PublishBlocker';
@@ -19,7 +20,11 @@ type PublishPanelProps = {
   onSelectTimeConfirmation: () => void;
 };
 
-const getButtonLabel = (access: MonthAccessInfo, paymentText: string): string => {
+const getButtonLabel = (access: MonthAccessInfo, paymentText: string, isBeta: boolean): string => {
+  if (isBeta) {
+    return '확인하고 저장';
+  }
+
   if (access.monthAccess === MonthAccess.PAYMENT_REQUIRED) {
     return paymentText;
   }
@@ -27,7 +32,7 @@ const getButtonLabel = (access: MonthAccessInfo, paymentText: string): string =>
   return access.monthAccess === MonthAccess.TRIAL_AVAILABLE ? '확인하고 무료로 저장' : '확인하고 저장';
 };
 
-/** Save button, the reasons it is disabled (each one jumps to what needs fixing) and the access text. */
+/** Save button, the reasons it is disabled (each one jumps to what needs fixing) and the access text (no price in beta free mode). */
 const PublishPanel = ({
   access,
   blockers,
@@ -37,9 +42,11 @@ const PublishPanel = ({
   onSelectBlocker,
   onSelectTimeConfirmation,
 }: PublishPanelProps) => {
-  const { freeMonthLimit } = usePublicConfig();
+  const config = usePublicConfig();
+  const { billingMode, freeMonthLimit } = config;
+  const isBeta = isBetaFree(config);
   const blockersId = useId();
-  const description = describeMonthAccess(access, freeMonthLimit);
+  const description = describeMonthAccess(access, freeMonthLimit, billingMode);
   const hasReasons = blockers.length > 0 || needsTimeConfirmation;
 
   return (
@@ -82,7 +89,7 @@ const PublishPanel = ({
         aria-describedby={hasReasons ? blockersId : undefined}
         onClick={publish.handlePublish}
       >
-        {publish.isPublishing ? '저장하는 중…' : getButtonLabel(access, description.text)}
+        {publish.isPublishing ? '저장하는 중…' : getButtonLabel(access, description.text, isBeta)}
       </button>
       <div className="hint">
         {description.requiresPayment

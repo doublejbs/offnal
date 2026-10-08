@@ -6,11 +6,13 @@ import Link from 'next/link';
 import { describeMembershipBadge } from '@/client/TeamDisplayText';
 import { listTeams } from '@/client/TeamApiClient';
 import AuthRequired from '@/components/AuthRequired';
+import { usePublicConfig } from '@/components/ConfigProvider';
 import LoadingState from '@/components/LoadingState';
 import RecoverableError from '@/components/RecoverableError';
 import TeamCreateForm from '@/components/team/TeamCreateForm';
 import TeamIntroView from '@/components/team/TeamIntroView';
 import { useLoad } from '@/components/UseLoad';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
 import { TeamMemberStatus } from '@/domain/enums/TeamMemberStatus';
 import { TeamRole } from '@/domain/enums/TeamRole';
@@ -56,6 +58,7 @@ const TeamItem = ({ team }: { team: TeamMembershipSummary }) => {
 /** `/teams`: my teams (PENDING shows "승인 대기"), team sharing explained when empty, and "팀 만들기". */
 const TeamListView = () => {
   const load = useLoad('teams', (signal) => listTeams(signal));
+  const isBeta = isBetaFree(usePublicConfig());
 
   if (load.state === ScreenLoadState.LOADING) {
     return <LoadingState text="내 팀을 불러오는 중이에요…" />;
@@ -84,7 +87,7 @@ const TeamListView = () => {
       {teams.length === 0 ? (
         <>
           <p>근무표 담당자가 한 번 올리면, 팀원은 각자 로그인해서 자기 근무 달력을 받아요.</p>
-          <TeamIntroView />
+          <TeamIntroView isBeta={isBeta} />
           <div className="notice">초대 링크를 받았다면 그 링크를 열어 참여해 주세요.</div>
         </>
       ) : (

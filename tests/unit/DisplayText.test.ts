@@ -15,10 +15,14 @@ import {
   formatUndefinedCodesWarning,
   recognitionErrorMessage,
 } from '@/client/DisplayText';
+import { BillingMode } from '@/domain/enums/BillingMode';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
 import { PublishBlockReason } from '@/domain/enums/PublishBlockReason';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
+
+/** Beta copy must not mention price, free months, payment or passes (Spec §20.4). */
+const BILLING_WORDS = /무료|결제|\d[\d,]*원|이용권|구매|비용/;
 
 const NIGHT: ShiftDefinition = {
   code: 'N',
@@ -49,17 +53,62 @@ describe('DisplayText', () => {
 
   it('describes month access from the server decision', () => {
     expect(
-      describeMonthAccess({ monthAccess: MonthAccess.TRIAL_AVAILABLE, freeRemaining: 2, priceKrw: 1900 }, 2),
+      describeMonthAccess(
+        { monthAccess: MonthAccess.TRIAL_AVAILABLE, freeRemaining: 2, priceKrw: 1900 },
+        2,
+        BillingMode.PAID,
+      ),
     ).toEqual({ text: '첫 번째 무료 월로 저장돼요', requiresPayment: false });
     expect(
-      describeMonthAccess({ monthAccess: MonthAccess.TRIAL_AVAILABLE, freeRemaining: 1, priceKrw: 1900 }, 2),
+      describeMonthAccess(
+        { monthAccess: MonthAccess.TRIAL_AVAILABLE, freeRemaining: 1, priceKrw: 1900 },
+        2,
+        BillingMode.PAID,
+      ),
     ).toEqual({ text: '두 번째 무료 월로 저장돼요', requiresPayment: false });
     expect(
-      describeMonthAccess({ monthAccess: MonthAccess.EXISTING, freeRemaining: 0, priceKrw: 1900 }, 2),
+      describeMonthAccess(
+        { monthAccess: MonthAccess.EXISTING, freeRemaining: 0, priceKrw: 1900 },
+        2,
+        BillingMode.PAID,
+      ),
     ).toEqual({ text: '이미 등록한 달이라 추가 비용 없이 저장돼요', requiresPayment: false });
     expect(
-      describeMonthAccess({ monthAccess: MonthAccess.PAYMENT_REQUIRED, freeRemaining: 0, priceKrw: 2500 }, 3),
+      describeMonthAccess(
+        { monthAccess: MonthAccess.PAYMENT_REQUIRED, freeRemaining: 0, priceKrw: 2500 },
+        3,
+        BillingMode.PAID,
+      ),
     ).toEqual({ text: '2,500원 구매 후 저장', requiresPayment: true });
+  });
+
+  it('beta free: saves without any price, free-month or payment wording', () => {
+    const beta = describeMonthAccess(
+      { monthAccess: MonthAccess.BETA_FREE, freeRemaining: 2, priceKrw: 990 },
+      2,
+      BillingMode.BETA_FREE,
+    );
+    const existing = describeMonthAccess(
+      { monthAccess: MonthAccess.EXISTING, freeRemaining: 2, priceKrw: 990 },
+      2,
+      BillingMode.BETA_FREE,
+    );
+
+    expect(beta).toEqual({ text: '저장하면 바로 달력에 반영돼요', requiresPayment: false });
+    expect(existing).toEqual({
+      text: '이미 등록한 달이에요. 고친 내용으로 다시 저장돼요',
+      requiresPayment: false,
+    });
+
+    // Unreachable server decisions in beta still never surface payment copy.
+    for (const monthAccess of [MonthAccess.TRIAL_AVAILABLE, MonthAccess.PAYMENT_REQUIRED]) {
+      expect(
+        describeMonthAccess({ monthAccess, freeRemaining: 0, priceKrw: 990 }, 2, BillingMode.BETA_FREE),
+      ).toEqual({ text: '저장하면 바로 달력에 반영돼요', requiresPayment: false });
+    }
+
+    expect(beta.text).not.toMatch(BILLING_WORDS);
+    expect(existing.text).not.toMatch(BILLING_WORDS);
   });
 
   it('lists the dates that need review', () => {

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import { BillingMode } from '@/domain/enums/BillingMode';
 import { GeminiTier } from '@/domain/enums/GeminiTier';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
@@ -29,6 +31,8 @@ const VALID_PRODUCTION_ENV: Record<string, string> = {
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test',
   VISION_PROVIDER: 'anthropic',
   PAYMENT_PROVIDER: 'toss',
+  TOSS_CLIENT_KEY: 'live_ck_test',
+  TOSS_SECRET_KEY: 'live_sk_test',
 };
 
 const withOverrides = (
@@ -51,6 +55,7 @@ describe('parseAppConfig', () => {
       supabasePublishableKey: 'sb_publishable_test',
       visionProvider: VisionProviderType.ANTHROPIC,
       paymentProvider: PaymentProviderType.TOSS,
+      billingMode: BillingMode.PAID,
       visionModel: 'claude-opus-5-5',
       visionEffort: VisionEffort.MEDIUM,
       priceKrw: DEFAULT_PRICE_KRW,
@@ -126,6 +131,64 @@ describe('parseAppConfig', () => {
     expect(() => parseAppConfig({ OFFNAL_ENV: 'development', PRICE_KRW: '-1' })).toThrow();
     expect(() => parseAppConfig({ OFFNAL_ENV: 'development', AUTH_PROVIDERS: 'kakao,apple' })).toThrow();
     expect(() => parseAppConfig({ OFFNAL_ENV: 'development', AUTH_PROVIDERS: 'google' })).toThrow();
+    expect(() => parseAppConfig({ OFFNAL_ENV: 'development', BILLING_MODE: 'free' })).toThrow(/BILLING_MODE/);
+  });
+
+  it('defaults BILLING_MODE to paid and reads beta_free', () => {
+    const paid = parseAppConfig({ OFFNAL_ENV: 'development' });
+    const betaFree = parseAppConfig({ OFFNAL_ENV: 'development', BILLING_MODE: 'beta_free' });
+
+    expect(paid.billingMode).toBe(BillingMode.PAID);
+    expect(isBetaFree(paid)).toBe(false);
+    expect(betaFree.billingMode).toBe(BillingMode.BETA_FREE);
+    expect(isBetaFree(betaFree)).toBe(true);
+  });
+
+  it('blocks paid production with Toss but without Toss keys', () => {
+    expect(() => parseAppConfig(withOverrides({ TOSS_CLIENT_KEY: undefined }))).toThrow(
+      /PAYMENT_PROVIDER=toss \(or unset\) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY \(or BILLING_MODE=beta_free\)/,
+    );
+    expect(() => parseAppConfig(withOverrides({ TOSS_SECRET_KEY: undefined }))).toThrow(
+      /PAYMENT_PROVIDER=toss \(or unset\) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY \(or BILLING_MODE=beta_free\)/,
+    );
+    // Unset PAYMENT_PROVIDER resolves to toss in live mode.
+    expect(() =>
+      parseAppConfig(
+        withOverrides({
+          BILLING_MODE: 'paid',
+          PAYMENT_PROVIDER: undefined,
+          TOSS_CLIENT_KEY: undefined,
+          TOSS_SECRET_KEY: undefined,
+        }),
+      ),
+    ).toThrow(/PAYMENT_PROVIDER=toss \(or unset\) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY \(or BILLING_MODE=beta_free\)/);
+  });
+
+  it('accepts beta_free production without Toss keys', () => {
+    const config = parseAppConfig(
+      withOverrides({
+        BILLING_MODE: 'beta_free',
+        PAYMENT_PROVIDER: undefined,
+        TOSS_CLIENT_KEY: undefined,
+        TOSS_SECRET_KEY: undefined,
+      }),
+    );
+
+    expect(config.billingMode).toBe(BillingMode.BETA_FREE);
+    expect(config.tossClientKey).toBeNull();
+  });
+
+  it('still blocks PAYMENT_PROVIDER=mock in beta_free production', () => {
+    expect(() =>
+      parseAppConfig(
+        withOverrides({
+          BILLING_MODE: 'beta_free',
+          PAYMENT_PROVIDER: 'mock',
+          TOSS_CLIENT_KEY: undefined,
+          TOSS_SECRET_KEY: undefined,
+        }),
+      ),
+    ).toThrow(/PAYMENT_PROVIDER=mock/);
   });
 
   it('reads price and free month limit overrides', () => {

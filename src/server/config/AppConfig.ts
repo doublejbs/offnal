@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import { BillingMode } from '@/domain/enums/BillingMode';
 import { GeminiTier } from '@/domain/enums/GeminiTier';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
@@ -47,6 +48,8 @@ export type AppConfig = {
   paymentProvider: PaymentProviderType;
   tossClientKey: string | null;
   tossSecretKey: string | null;
+  /** `beta_free` opens every month without payment and hides pricing (Spec §20). */
+  billingMode: BillingMode;
   priceKrw: number;
   freeMonthLimit: number;
   uploadMaxBytes: number;
@@ -123,6 +126,7 @@ const envSchema = z.object({
   PAYMENT_PROVIDER: z.enum(PaymentProviderType).optional(),
   TOSS_CLIENT_KEY: optionalText,
   TOSS_SECRET_KEY: optionalText,
+  BILLING_MODE: z.enum(BillingMode).default(BillingMode.PAID),
   PRICE_KRW: positiveInt(DEFAULT_PRICE_KRW),
   FREE_MONTH_LIMIT: nonNegativeInt(DEFAULT_FREE_MONTH_LIMIT),
   // Vercel function request bodies are limited to ~4.5MB; the UI downscales photos before upload.
@@ -186,7 +190,8 @@ const collectProductionViolations = (
   const visionProvider =
     parsed.VISION_PROVIDER ?? (appMode === AppMode.DEMO ? VisionProviderType.MOCK : null);
   const paymentProvider =
-    parsed.PAYMENT_PROVIDER ?? (appMode === AppMode.DEMO ? PaymentProviderType.MOCK : null);
+    parsed.PAYMENT_PROVIDER ??
+    (appMode === AppMode.DEMO ? PaymentProviderType.MOCK : PaymentProviderType.TOSS);
 
   if (appMode === AppMode.DEMO) {
     violations.push('APP_MODE=demo');
@@ -203,6 +208,17 @@ const collectProductionViolations = (
 
   if (paymentProvider === PaymentProviderType.MOCK) {
     violations.push('PAYMENT_PROVIDER=mock');
+  }
+
+  // Beta free mode never builds a payment provider, so it is the only way to run production without Toss keys.
+  if (
+    parsed.BILLING_MODE === BillingMode.PAID &&
+    paymentProvider === PaymentProviderType.TOSS &&
+    (!parsed.TOSS_CLIENT_KEY || !parsed.TOSS_SECRET_KEY)
+  ) {
+    violations.push(
+      'PAYMENT_PROVIDER=toss (or unset) requires TOSS_CLIENT_KEY and TOSS_SECRET_KEY (or BILLING_MODE=beta_free)',
+    );
   }
 
   if (parsed.AUTH_PROVIDERS?.includes(AuthProviderType.DEV)) {
@@ -315,6 +331,7 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
       parsed.PAYMENT_PROVIDER ?? (isDemo ? PaymentProviderType.MOCK : PaymentProviderType.TOSS),
     tossClientKey: parsed.TOSS_CLIENT_KEY ?? null,
     tossSecretKey: parsed.TOSS_SECRET_KEY ?? null,
+    billingMode: parsed.BILLING_MODE,
     priceKrw: parsed.PRICE_KRW,
     freeMonthLimit: parsed.FREE_MONTH_LIMIT,
     uploadMaxBytes: parsed.UPLOAD_MAX_BYTES,

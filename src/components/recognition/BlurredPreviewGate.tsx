@@ -8,6 +8,7 @@ import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { WEEKDAY_LABELS } from '@/client/MonthLayout';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import LoginOptions from '@/components/LoginOptions';
+import { isBetaFree } from '@/domain/BillingPolicy';
 
 const PLACEHOLDER_CELL_COUNT = 35;
 const PLACEHOLDER_CELLS = Array.from({ length: PLACEHOLDER_CELL_COUNT }, (_, index) => index);
@@ -20,9 +21,11 @@ type BlurredPreviewGateProps = {
 /**
  * Shown after a successful first pass to a visitor who is not logged in. The blurred calendar is a
  * fixed neutral placeholder: no recognition data exists on this page (the status API has none).
+ * Beta free mode shows no price or free months (Spec §20.4).
  */
 const BlurredPreviewGate = ({ recognitionId, loginFailed }: BlurredPreviewGateProps) => {
-  const { freeMonthLimit, priceKrw } = usePublicConfig();
+  const config = usePublicConfig();
+  const isBeta = isBetaFree(config);
   const titleId = useId();
 
   return (
@@ -64,12 +67,17 @@ const BlurredPreviewGate = ({ recognitionId, loginFailed }: BlurredPreviewGatePr
           </span>
         </div>
       </div>
-      <LoginOptions returnTo={`/recognitions/${recognitionId}`} primaryLabel="로그인하고 무료로 확인" />
-      <div className="hint">
-        처음 {formatMonthCount(freeMonthLimit)} 무료 · 카드 등록 없이 시작
-        <br />
-        그다음 달부터 한 달분 {formatPrice(priceKrw)} · 자동 결제 없음
-      </div>
+      <LoginOptions
+        returnTo={`/recognitions/${recognitionId}`}
+        primaryLabel={isBeta ? '로그인하고 확인' : '로그인하고 무료로 확인'}
+      />
+      {!isBeta && (
+        <div className="hint">
+          처음 {formatMonthCount(config.freeMonthLimit)} 무료 · 카드 등록 없이 시작
+          <br />
+          그다음 달부터 한 달분 {formatPrice(config.priceKrw)} · 자동 결제 없음
+        </div>
+      )}
       <div className="notice">
         업로드한 사진은 다시 올리지 않아도 돼요.
         <br />

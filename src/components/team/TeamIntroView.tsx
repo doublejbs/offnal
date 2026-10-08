@@ -7,7 +7,12 @@ export const TEAM_INTRO_POINTS = [
   '근무표가 바뀌면 바뀐 날짜를 표시해 줘요. 공유 링크·캘린더 추가·이미지 저장은 지금처럼 써요.',
 ];
 
-const TeamIntroView = () => {
+type TeamIntroViewProps = {
+  /** Beta free mode: the whole service is free, so the free/no-payment line is left out (Spec §20.4). */
+  isBeta: boolean;
+};
+
+const TeamIntroView = ({ isBeta }: TeamIntroViewProps) => {
   const titleId = useId();
 
   return (
@@ -18,7 +23,7 @@ const TeamIntroView = () => {
           <li key={point}>{point}</li>
         ))}
       </ol>
-      <p className="tiny mb-0">지금은 베타 기간이라 무료예요. 결제 정보를 받지 않아요.</p>
+      {!isBeta && <p className="tiny mb-0">지금은 베타 기간이라 무료예요. 결제 정보를 받지 않아요.</p>}
     </section>
   );
 };

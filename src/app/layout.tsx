@@ -7,6 +7,7 @@ import { type ReactNode } from 'react';
 import { getEnvironmentBannerText } from '@/client/EnvironmentBanner';
 import AppShell from '@/components/AppShell';
 import ConfigProvider from '@/components/ConfigProvider';
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { buildPublicConfig } from '@/server/config/PublicConfig';
 import { getServerComponentContext } from '@/server/http/RequestContext';
 import { buildSiteMetadata, readSiteMetadataSource } from '@/server/metadata/SiteMetadata';
@@ -46,7 +47,11 @@ const RootLayout = async ({ children }: RootLayoutProps) => {
     <html lang="ko" className={notoSansKr.variable}>
       <body>
         <ConfigProvider config={config}>
-          <AppShell bannerText={getEnvironmentBannerText(config)} isLoggedIn={Boolean(context.user)}>
+          <AppShell
+            bannerText={getEnvironmentBannerText(config)}
+            isLoggedIn={Boolean(context.user)}
+            isBeta={isBetaFree(config)}
+          >
             {children}
           </AppShell>
         </ConfigProvider>

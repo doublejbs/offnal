@@ -77,6 +77,7 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 | `APP_SECRET` | 32바이트 이상 무작위 값 (`openssl rand -base64 48`) — 세션·공유 토큰 암호화 키 파생 |
 | `DATABASE_URL` | Supabase Transaction pooler URL (아래 “Supabase 설정”) |
 | `DATABASE_MIGRATION_URL` | Supabase Session pooler 또는 Direct URL (`pnpm db:migrate` 전용) |
+| `BILLING_MODE` | `paid`(기본값, 무료 두 달 후 월 결제) \| `beta_free`(베타 무료 운영, 아래 “베타 무료 운영”) |
 
 배포 전·스키마 변경 시 대상 DB 접속 문자열을 넣은 `.env.local`로 `pnpm db:migrate` → `pnpm db:check`를 실행합니다. 서버리스에서 동시 마이그레이션을 피하려고 운영 DB는 앱 기동 시 자동 마이그레이션하지 않습니다.
 
@@ -166,7 +167,7 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 
 ### 결제 (토스페이먼츠)
 
-`PAYMENT_PROVIDER=toss`, `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`(`test_` 키면 테스트 결제).
+`BILLING_MODE=paid`(기본값), `PAYMENT_PROVIDER=toss`, `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`(`test_` 키면 테스트 결제). `OFFNAL_ENV=production`에서 `BILLING_MODE=paid`인데 토스 키가 없으면 기동 단계에서 차단되므로, 토스 키 없이 운영하려면 `BILLING_MODE=beta_free`(아래 “베타 무료 운영”)를 씁니다.
 
 - 토스 개발자센터 → 웹훅: `https://<도메인>/api/payments/webhook`, 이벤트 `PAYMENT_STATUS_CHANGED`(가상계좌를 쓰면 `DEPOSIT_CALLBACK`도)
 - 결제 성공 리다이렉트만으로 권한을 주지 않습니다. 서버가 승인 API 결과의 주문·금액·통화를 주문 행과 대조한 뒤에만 해당 월 이용권을 발급하고, 웹훅은 본문을 믿지 않고 토스 API로 재조회합니다.
@@ -193,15 +194,43 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 | `AUTH_PROVIDERS` | `kakao` |
 | `VISION_PROVIDER` / `PAYMENT_PROVIDER` | `mock` / `mock` |
 
-**테스트 결제 데이터 주의**: mock 결제로 받은 월 이용권은 DB에 `payments.provider='mock'`으로 남습니다. mock 결제를 쓰는 테스트 배포는 **운영과 다른 Supabase 프로젝트**를 쓰는 것을 권장합니다. 같은 프로젝트를 운영으로 올릴 때는 `OFFNAL_ENV=production`으로 바꾸기 **전에** Supabase SQL Editor에서 [`docs/sql/CleanupMockPayments.sql`](docs/sql/CleanupMockPayments.sql)(mock 결제에 연결된 이용권 → mock 결제 이벤트 → mock 결제 순으로 삭제)을 실행하고 `pnpm db:check`에 경고가 없는지 확인하세요. `db:check`는 mock 결제·이용권이 남아 있으면 경고를 출력합니다. mock 인식으로 만든 가상 근무 데이터도 남으므로 별도 프로젝트가 가장 깔끔합니다.
+**테스트 결제 데이터 주의**: mock 결제로 받은 월 이용권은 DB에 `payments.provider='mock'`으로 남습니다. mock 결제를 쓰는 테스트 배포는 **운영과 다른 Supabase 프로젝트**를 쓰는 것을 권장합니다. 같은 프로젝트를 운영으로 올릴 때는 `OFFNAL_ENV=production`으로 바꾸기 **전에** Supabase SQL Editor에서 정리 SQL을 실행하고 `pnpm db:check`에 경고가 없는지 확인하세요. **베타 무료 운영으로 올릴 때는 [`docs/sql/ConvertMockToBeta.sql`](docs/sql/ConvertMockToBeta.sql)**(이용권을 `beta`로 바꾸고 mock 결제만 삭제, 아래 “베타 무료 운영”)을 씁니다. [`docs/sql/CleanupMockPayments.sql`](docs/sql/CleanupMockPayments.sql)(mock 결제에 연결된 이용권 → mock 결제 이벤트 → mock 결제 순으로 삭제)은 테스트 결제로 받은 달의 이용권까지 지워 그 달의 ICS·PNG가 402로 막히므로 베타 전환에는 쓰지 않습니다. `db:check`는 mock 결제·이용권이 남아 있으면 경고를 출력합니다. mock 인식으로 만든 가상 근무 데이터도 남으므로 별도 프로젝트가 가장 깔끔합니다.
 
-키가 준비되면 `VISION_PROVIDER=anthropic`+`ANTHROPIC_API_KEY`, `PAYMENT_PROVIDER=toss`+토스 키로 바꾸고 `OFFNAL_ENV=production`으로 올립니다. 빌드(`next build`)는 환경 변수·DB에 접근하지 않으므로(모든 화면이 요청 시 렌더링) 값이 비어 있어도 빌드는 통과하고, 잘못된 설정은 첫 요청에서 드러납니다. Supabase 값이 없으면 `src/proxy.ts`는 아무것도 하지 않습니다.
+키가 준비되면 `VISION_PROVIDER=anthropic`+`ANTHROPIC_API_KEY`, `PAYMENT_PROVIDER=toss`+토스 키로 바꾸고 `OFFNAL_ENV=production`으로 올립니다. 토스 키 없이 먼저 운영하려면 아래 “베타 무료 운영”을 따릅니다. 빌드(`next build`)는 환경 변수·DB에 접근하지 않으므로(모든 화면이 요청 시 렌더링) 값이 비어 있어도 빌드는 통과하고, 잘못된 설정은 첫 요청에서 드러납니다. Supabase 값이 없으면 `src/proxy.ts`는 아무것도 하지 않습니다.
 
 1. 위 환경 변수를 Production/Preview에 각각 등록(preview는 `OFFNAL_ENV=preview`, 테스트 키 사용 권장)
 2. `pnpm db:migrate`로 대상 DB에 마이그레이션 적용
 3. 배포 후 `/api/config/public`에서 `appMode: "live"` 확인
 4. 업로드 한도 4MB는 Vercel 함수 요청 본문 한도(약 4.5MB) 때문이며, 화면이 업로드 전에 사진을 줄입니다.
 5. IP 기준 한도는 신뢰할 수 있는 프록시(Vercel)가 `x-forwarded-for`를 설정한다고 가정합니다. 다른 환경에서는 `src/server/http/ClientIp.ts`를 맞춰야 합니다.
+
+#### 베타 무료 운영 (BILLING_MODE=beta_free)
+
+결제 없이 베타로 서비스를 엽니다(Spec §20). 결제 코드는 그대로 두고 설정 하나로 잠급니다.
+
+- 모든 달을 무료로 등록합니다. 저장하면 그 달에 `beta` 이용권이 생기고(trial 차감 없음, 월 개수 제한 없음) ICS·PNG도 그대로 받을 수 있습니다.
+- 결제 API(`POST /api/payments`·`/api/payments/confirm`·`/api/payments/webhook`)는 404, `/checkout/**`는 찾을 수 없음 화면입니다. 토스 키를 검사하지 않습니다.
+- 화면에서 가격·무료 개월 수·결제·이용권 문구를 숨기고, 워드마크 옆에 `베타` 라벨을 둡니다. 테스트 결제 배너도 뜨지 않습니다.
+
+| 변수 | 베타 운영 값 |
+|---|---|
+| `OFFNAL_ENV` | `production` |
+| `BILLING_MODE` | `beta_free` |
+| `PAYMENT_PROVIDER` | **삭제** (`mock`은 production에서 기동 차단) |
+| `GEMINI_TIER` | `paid` (`VISION_PROVIDER=gemini`일 때 production 필수 — 실제 근무표가 학습에 쓰이지 않게) |
+| `CRON_SECRET` | 32자 이상 무작위 값 |
+
+테스트 배포(mock 결제)를 쓰던 같은 Supabase 프로젝트를 베타 운영으로 올리는 순서:
+
+1. 베타 무료 모드 변경을 `main`에 머지
+2. `DATABASE_MIGRATION_URL`을 넣은 `.env.local`로 `pnpm db:migrate` (0007 `entitlements_source_check`에 `beta` 추가)
+3. `pnpm db:check` — 마이그레이션 `적용 8 / 저장소 8` 확인 (mock 경고는 이 단계에서는 남아 있어도 됩니다)
+4. Vercel Production 환경 변수를 위 표대로 바꿈 (`PAYMENT_PROVIDER` 삭제)
+5. 재배포 (환경 변수는 새 배포부터 적용). Preview 배포가 같은 Supabase DB를 쓰면 Preview 환경 변수도 `BILLING_MODE=beta_free`로 설정하거나 별도 DB를 쓰세요.
+6. Supabase SQL Editor에서 [`docs/sql/ConvertMockToBeta.sql`](docs/sql/ConvertMockToBeta.sql) 전체를 실행 — 한 트랜잭션으로 mock 결제 이용권·`trial` 이용권을 `beta`로 바꾸고(정식 결제 때 무료 두 달 보존), 이용권 없는 공개 월을 `beta`로 채우고, mock 결제 이벤트·결제를 삭제합니다. 여러 번 실행해도 결과가 같습니다. 마지막 확인 쿼리에서 trial·mock·이용권 없는 공개 월이 모두 0인지 보고, `pnpm db:check`에 mock 경고가 없는지 다시 확인합니다.
+7. `/api/config/public`에서 `billingMode: "beta_free"`, `isMockPayment: false` 확인
+
+**나중에 결제를 켤 때**: `BILLING_MODE=paid`와 `PAYMENT_PROVIDER=toss`(또는 삭제 유지) + `TOSS_CLIENT_KEY`·`TOSS_SECRET_KEY`를 넣고 재배포합니다(위 “결제 (토스페이먼츠)”). 베타 동안 등록한 달은 `beta` 이용권이 남아 `EXISTING`으로 계속 열리고(그 달을 결제하려 하면 409 `ALREADY_ENTITLED`), 무료 두 달은 `trial` 행만 세므로 그때부터 새로 적용됩니다. 데이터 변환은 필요 없습니다.
 
 ## 공유 미리보기(OG)
 
@@ -217,7 +246,7 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 - 비회원 업로드 → 표 인식 → 흐린 미리보기(중립 플레이스홀더, 인증 전 응답·HTML에 이름·근무 없음) → 로그인 → 같은 작업 claim → 이름·월 선택 → 개인 추출 → 수정 → 저장
 - 로그인한 사용자는 블러 없이 이름 선택으로 바로 이동, 로그인 취소·실패 시 작업 유지, 만료 시 재업로드 안내, 인식 실패는 원인·재시도 제공
 - 확인 필요 칸(null)은 저장 차단, 사용자 정의 코드·휴무 여부·시간(다음 날 종료) 편집, 원본 비교·확대, 이름 미발견 시 직접 입력
-- 월별 이용권: 계정당 서로 다른 두 달 무료(첫 확정 저장 시 차감), 같은 달 재저장 무료, 세 번째 달부터 단건 결제, 삭제해도 소진 이력 유지 — 모두 서버 트랜잭션에서 판정
+- 월별 이용권: 계정당 서로 다른 두 달 무료(첫 확정 저장 시 차감), 같은 달 재저장 무료, 세 번째 달부터 단건 결제, 삭제해도 소진 이력 유지 — 모두 서버 트랜잭션에서 판정. `BILLING_MODE=beta_free`에서는 모든 달이 무료(`beta` 이용권)이고 결제 경로가 닫힙니다.
 - 읽기 전용 공유 링크(공개 월 선택, 재발급·중지, no-store·noindex·no-referrer), ICS(Asia/Seoul→UTC, 야간 다음 날 종료, 휴무 기본 제외), PNG
 - 업로드 검증(시그니처·크기·픽셀), 익명 세션·IP·계정별 한도, 원본 자동 삭제, CSRF Origin 검사, 보안 헤더
 

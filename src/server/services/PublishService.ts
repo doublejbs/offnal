@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, eq, isNull, max, sql } from 'drizzle-orm';
 
+import { isBetaFree } from '@/domain/BillingPolicy';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { DraftStatus } from '@/domain/enums/DraftStatus';
@@ -22,6 +23,7 @@ import { isDraftExpired } from '@/server/services/DraftService';
 import {
   countTrialEntitlements,
   hasEntitlement,
+  insertBetaEntitlement,
   insertTrialEntitlement,
 } from '@/server/services/EntitlementService';
 import { findTeamMonthForUser } from '@/server/services/TeamMonthLookup';
@@ -79,14 +81,26 @@ const findInitialRevision = async (tx: DbTransaction, userId: string, yearMonth:
   return (row?.value ?? 0) + 1;
 };
 
-/** Uses the month's entitlement, else inserts a trial while free months remain, else 402. */
+/**
+ * Uses the month's entitlement, else (beta free) inserts a beta one without spending a trial, else inserts a
+ * trial while free months remain, else 402. Returns whether a trial was used.
+ */
 const ensureEntitlement = async (tx: DbTransaction, userId: string, yearMonth: string): Promise<boolean> => {
   if (await hasEntitlement(tx, userId, yearMonth)) {
     return false;
   }
 
-  const pricing = getPricing(getAppConfig());
+  const config = getAppConfig();
+
+  if (isBetaFree(config)) {
+    await insertBetaEntitlement(tx, userId, yearMonth);
+
+    return false;
+  }
+
+  const pricing = getPricing(config);
   const access = decideMonthAccess({
+    billingMode: config.billingMode,
     hasEntitlementForMonth: false,
     trialUsedCount: await countTrialEntitlements(tx, userId),
     freeMonthLimit: pricing.freeMonthLimit,

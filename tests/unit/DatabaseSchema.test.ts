@@ -323,6 +323,7 @@ describe('Database schema', () => {
       db.insert(entitlements).values({ userId, yearMonth: '2026-10', source: 'gift' as EntitlementSource }),
       CHECK_VIOLATION,
     );
+    await db.insert(entitlements).values({ userId, yearMonth: '2026-11', source: EntitlementSource.BETA });
     await expectSqlState(
       db.insert(recognitionJobs).values({
         status: 'done' as RecognitionStatus,

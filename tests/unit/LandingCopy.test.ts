@@ -3,14 +3,21 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLandingFaqs,
   formatHours,
+  getLandingTeamText,
   LANDING_RECIPIENT_POINTS,
   LANDING_SHARE_METHODS,
   LANDING_STEPS,
   LANDING_TEAM_TEXT,
 } from '@/client/LandingCopy';
+import { BillingMode } from '@/domain/enums/BillingMode';
 import { ExportPanel } from '@/domain/enums/ExportPanel';
 
-const SOURCE = { freeMonthLimit: 2, priceKrw: 990, sourceTtlHours: 24 };
+const SOURCE = { billingMode: BillingMode.PAID, freeMonthLimit: 2, priceKrw: 990, sourceTtlHours: 24 };
+
+const BETA_SOURCE = { ...SOURCE, billingMode: BillingMode.BETA_FREE };
+
+/** Beta copy must not mention price, free months, payment or passes (Spec §20.4). "원본" is fine, "990원" is not. */
+const BILLING_WORDS = /무료|결제|\d[\d,]*원|이용권|구매|비용/;
 
 const findAnswer = (source: typeof SOURCE, question: string): string => {
   const faq = buildLandingFaqs(source).find((item) => item.question.includes(question));
@@ -90,5 +97,28 @@ describe('landing copy', () => {
   it('describes team sharing honestly as a free beta (no price promised)', () => {
     expect(LANDING_TEAM_TEXT).toContain('베타 기간 무료');
     expect(LANDING_TEAM_TEXT).not.toMatch(/\d[\d,]*원|영구|평생/);
+  });
+
+  it('paid mode team text is the same constant', () => {
+    expect(getLandingTeamText(BillingMode.PAID)).toBe(LANDING_TEAM_TEXT);
+  });
+
+  it('beta free: no price, free months or payment in the FAQ or team text', () => {
+    const faqs = buildLandingFaqs(BETA_SOURCE);
+    const allText = [
+      ...faqs.flatMap((faq) => [faq.question, faq.answer]),
+      getLandingTeamText(BillingMode.BETA_FREE),
+    ].join(' ');
+
+    expect(faqs.some((faq) => faq.question.includes('무료로 몇 달'))).toBe(false);
+    expect(faqs).toHaveLength(3);
+    expect(allText).not.toMatch(BILLING_WORDS);
+    expect(findAnswer(BETA_SOURCE, '근무가 바뀌면')).toBe(
+      '새 근무표 사진을 올리거나 달력에서 직접 고친 뒤 다시 저장하면 돼요. 공유 중인 달이면 같은 링크에 바로 반영돼요. 캘린더에 이미 추가한 일정은 자동으로 바뀌지 않아요.',
+    );
+    expect(findAnswer(BETA_SOURCE, '원본 사진')).toContain('올린 뒤 24시간이 지나면');
+    expect(getLandingTeamText(BillingMode.BETA_FREE)).toBe(
+      '근무표 담당자가 사진을 한 번 올리면 팀원 모두가 각자 달력을 받아요.',
+    );
   });
 });

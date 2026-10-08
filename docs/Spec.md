@@ -33,6 +33,7 @@
 - **`OFFNAL_ENV=production`에서 `APP_MODE=demo` 또는 mock 제공자(`VISION_PROVIDER=mock`, `PAYMENT_PROVIDER=mock`, `AUTH_PROVIDERS`에 `dev`, `STORAGE_DRIVER=local`, PGlite)는 기동 시 예외로 차단한다.** (`src/server/config/AppConfig.ts`)
 - demo 모드에서는 모든 화면 상단에 `DemoBanner`(“개발 데모 모드 · 예시 인식·테스트 결제이며 실제 처리가 아니에요”)를 표시한다.
 - **live 테스트 배포**: `OFFNAL_ENV=development|preview` + `APP_MODE=live`에서는 실제 Supabase(인증·DB·Storage)와 함께 `VISION_PROVIDER=mock`·`PAYMENT_PROVIDER=mock`을 허용한다(production은 계속 차단). mock 제공자가 하나라도 켜져 있으면 같은 배너 컴포넌트로 “테스트 환경 · 근무표 인식과 결제는 예시·테스트로 동작해요. 실제 청구 없음”(하나만이면 해당 항목만)을 표시하고, `/api/config/public`에 `isMockVision`·`isMockPayment`를 노출한다. live에서는 데모 로그인이 항상 꺼진다. 테스트 결제 버튼 문구 “테스트 결제 · 실제 청구 없음”은 그대로.
+- **베타 무료 모드**: `BILLING_MODE=beta_free`면 결제 없이 모든 달을 무료로 저장한다. 결제 경로·문구는 잠근다(§20).
 - `STORAGE_DRIVER` 기본값: demo·test는 `local`, 그 밖의 live는 `s3`(서버리스 파일시스템은 영속되지 않음).
 - live 모드에서 키가 없는 제공자는 “설정 대기” 상태로 명시적 오류(`PROVIDER_NOT_CONFIGURED`)를 반환한다. 성공한 척하지 않는다.
 
@@ -217,7 +218,7 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 **발행 트랜잭션** (`PublishService.publish`):
 1. `SELECT ... FROM users WHERE id=$1 FOR UPDATE` (사용자 단위 직렬화 → 서로 다른 세 월 동시 발행에도 무료 2개 초과 불가)
 2. draft 소유·`editing`·revision 일치 확인, `getPublishBlockers` 비어야 함(아니면 422)
-3. 해당 월 entitlement 존재 → 사용. 없으면 trial 수 < `FREE_MONTH_LIMIT`(2) → trial 삽입. 아니면 402 `PAYMENT_REQUIRED`
+3. 해당 월 entitlement 존재 → 사용. 없으면 trial 수 < `FREE_MONTH_LIMIT`(2) → trial 삽입. 아니면 402 `PAYMENT_REQUIRED` (`BILLING_MODE=beta_free`면 trial 대신 `beta` 삽입, 개수 제한 없음 — §20.2)
 4. calendar 없으면 생성(표시 이름 = draft.displayName)
 5. `published_months` upsert(revision+1, 스냅샷 교체, **share_visible은 기존 값 유지, 신규는 false**)
 6. draft `published`. 같은 월의 다른 editing draft는 유지
@@ -225,6 +226,8 @@ type PersonExtraction = { yearMonth: string; rowId: string; displayName: string;
 - 이미 `published`인 같은 draft 재요청 → 성공 응답 그대로(멱등, 추가 차감 없음)
 
 ### 7.3 결제
+
+> `BILLING_MODE=beta_free`에서는 아래 API가 모두 404다(§20.3).
 
 > 요청·응답 타입 계약(7.3·7.4 공유/내보내기): `src/domain/types/api/`의 `CreatePaymentRequest`, `CreatePaymentResponse`, `ConfirmPaymentRequest`, `ConfirmPaymentResponse`, `UpdateShareRequest`, `ShareSettingsResponse`(`GET /api/calendar/share` 포함), `SharedCalendarResponse`, `ExportDataResponse`와 enum `PaymentClientMode`. 서버·UI 모두 이 파일을 기준으로 한다.
 
@@ -358,7 +361,7 @@ interface PaymentProvider {
 
 ## 12. 환경 변수 (`.env.example`)
 
-`OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, DATABASE_MIGRATION_URL(db:migrate 전용, 세션 풀러/직접 연결), DATABASE_SSL_ROOT_CERT(선택, 기본은 저장소의 Supabase Root 2021 CA로 검증), AUTH_PROVIDERS(kakao,dev), NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY(또는 레거시 NEXT_PUBLIC_SUPABASE_ANON_KEY, 공개 가능; JWT 검증은 getClaims가 프로젝트 JWKS로 하므로 별도 issuer 값 불필요), VISION_PROVIDER(anthropic|gemini|mock), ANTHROPIC_API_KEY, GEMINI_API_KEY, GEMINI_TIER(free|paid, production의 gemini는 paid 필수), VISION_MODEL(기본 claude-opus-5-5, gemini는 gemini-3.7-flash), VISION_EFFORT, VISION_TIMEOUT_MS, VISION_PIPELINE(baseline|warp|warp-strip, 기본 warp-strip), MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(990), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
+`OFFNAL_ENV, APP_MODE, APP_URL, APP_SECRET(32바이트+), DATABASE_URL, PGLITE_DIR, STORAGE_DRIVER(local|s3), LOCAL_STORAGE_DIR, S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, DATABASE_MIGRATION_URL(db:migrate 전용, 세션 풀러/직접 연결), DATABASE_SSL_ROOT_CERT(선택, 기본은 저장소의 Supabase Root 2021 CA로 검증), AUTH_PROVIDERS(kakao,dev), NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY(또는 레거시 NEXT_PUBLIC_SUPABASE_ANON_KEY, 공개 가능; JWT 검증은 getClaims가 프로젝트 JWKS로 하므로 별도 issuer 값 불필요), VISION_PROVIDER(anthropic|gemini|mock), ANTHROPIC_API_KEY, GEMINI_API_KEY, GEMINI_TIER(free|paid, production의 gemini는 paid 필수), VISION_MODEL(기본 claude-opus-5-5, gemini는 gemini-3.7-flash), VISION_EFFORT, VISION_TIMEOUT_MS, VISION_PIPELINE(baseline|warp|warp-strip, 기본 warp-strip), MOCK_VISION_DELAY_MS, PAYMENT_PROVIDER(toss|mock), BILLING_MODE(paid|beta_free, 기본 paid — §20), TOSS_CLIENT_KEY, TOSS_SECRET_KEY, PRICE_KRW(990), FREE_MONTH_LIMIT(2), UPLOAD_MAX_BYTES, UPLOAD_MAX_PIXELS, RATE_LIMIT_ANON_DAILY(5), RATE_LIMIT_IP_DAILY(20), RATE_LIMIT_USER_DAILY(20), EXTRACT_LIMIT_USER_MONTHLY(30), SOURCE_TTL_HOURS(24), DRAFT_TTL_DAYS(30), CRON_SECRET`
 
 한도·TTL 숫자는 모두 **초기 제안값**이며 README에 그렇게 명시한다.
 
@@ -456,3 +459,51 @@ interface PaymentProvider {
   - 안드로이드·PC: 기존 blob 다운로드 유지.
 - 안내 문구: iOS — “캘린더 추가 화면이 열리면 ‘모두 추가’를 눌러 주세요”, 안드로이드 — “받은 파일을 열어 캘린더 앱으로 가져와 주세요”, PC — 기존. 일회성 가져오기·중복 가능 안내는 유지.
 - 테스트: 플랫폼 감지 단위 테스트(대표 UA 목록), ICS 라우트 inline/attachment 헤더 통합 테스트. 실기기 확인은 사용자 검증 필요(미검증으로 보고).
+
+## 20. 베타 무료 운영 모드 (2026-10-08 추가)
+
+결제 없이 베타로 서비스를 연다(2026-10-08 사용자 결정 — "결제 이야기는 없이 서비스 오픈"). 결제 코드는 지우지 않고 설정 하나로 잠근다. 나중에 결제를 켜도 베타 동안 등록한 달은 그대로 유지되고, 무료 두 달은 그때부터 새로 적용된다.
+
+### 20.1 설정
+
+- `BILLING_MODE`: string enum `BillingMode`(`src/domain/enums/BillingMode.ts`) — `paid`(기본값, §3·§7.3 동작 그대로) | `beta_free`.
+- production 검증(`AppConfig`):
+  - `PAYMENT_PROVIDER=mock` 차단은 모드와 관계없이 유지한다.
+  - `BILLING_MODE=paid` + 토스 제공자인데 `TOSS_CLIENT_KEY`/`TOSS_SECRET_KEY`가 없으면 기동 단계에서 차단한다. 토스 키 없는 production은 `beta_free`로만 뜬다.
+  - `beta_free`에서는 토스 키를 검사하지 않는다.
+- `/api/config/public`에 `billingMode`를 노출한다. `beta_free`에서는 `isMockPayment=false`.
+
+### 20.2 이용권 (서버 판정)
+
+- `EntitlementSource.BETA = 'beta'`를 추가한다. `entitlements_source_check` 제약에 `beta`를 더하는 마이그레이션이 생긴다(허용값만 늘어나 기존 배포와 호환). 새 테이블이 없어 RLS 마이그레이션은 없다.
+- `MonthAccess.BETA_FREE = 'beta_free'`(표시용, 저장하지 않음). 판정 순서: 그 달 이용권이 있으면 `EXISTING` → `beta_free`면 `BETA_FREE` → 그 외 기존 규칙.
+- 발행(§7.2 3단계): `beta_free`에서 그 달 이용권이 없으면 `beta` 이용권을 넣는다(`onConflictDoNothing`). **trial을 쓰지 않으며 `usedTrial=false`**, 월 개수 제한도 없다. 사용자 행 `FOR UPDATE`와 `unique(user_id, year_month)`가 그대로 멱등·동시성을 지킨다(같은 달 재시도·동시 발행에도 이용권 1행).
+- 내보내기(ICS·PNG)는 바꾸지 않는다 — 베타 월에는 `beta` 행이 있어 통과한다.
+- `paid`로 바꾸면 `beta` 월은 `EXISTING`으로 열리고 trial 개수는 `trial` 행만 세므로 무료 두 달이 남는다. 그 달을 결제하려 하면 409 `ALREADY_ENTITLED`.
+
+### 20.3 결제 경로 차단
+
+- `beta_free`에서 `POST /api/payments`·`/api/payments/confirm`·`/api/payments/webhook`은 결제 제공자를 만들기 전에 404(`NOT_FOUND`)를 반환한다.
+- `/checkout/**`는 레이아웃에서 `notFound()` 처리한다.
+
+### 20.4 화면 문구
+
+- `beta_free`에서는 가격·무료 개월 수·결제·이용권 문구를 어디에도 보이지 않는다(랜딩·업로드·흐린 미리보기 게이트·저장 패널·달력 액션·팀 소개·공유 메타데이터 설명). 테스트 결제 배너 문구도 띄우지 않는다(mock 인식 배너는 유지).
+- 워드마크 옆에 작은 `베타` 라벨을 둔다. 경고 배너 형태는 쓰지 않는다.
+- 문구: 저장 안내 "저장하면 바로 달력에 반영돼요" / 이미 등록한 달 "이미 등록한 달이에요. 고친 내용으로 다시 저장돼요" / 저장 버튼 "확인하고 저장" / 게이트 버튼 "로그인하고 확인" / 달 삭제 확인 "달력과 공유 링크에서 이 달이 사라져요. 같은 달은 언제든 다시 등록할 수 있어요."
+
+### 20.5 운영 전환 (테스트 배포 → 베타 production)
+
+`docs/sql/CleanupMockPayments.sql`을 베타 전환에 쓰지 않는다 — mock 결제 이용권을 지우면 그 달의 ICS·PNG가 402로 막힌다. 대신 `docs/sql/ConvertMockToBeta.sql`을 한 트랜잭션으로 실행한다.
+
+1. mock 결제에 연결된 이용권을 `source='beta', payment_id=null`로 바꾼다.
+2. 테스트 기간의 `trial` 이용권도 `beta`로 바꾼다(2026-10-08 결정 — 정식 결제 때 무료 두 달 보존).
+3. 이용권 없는 공개 월을 `beta`로 채운다(`on conflict do nothing`).
+4. mock `payment_events`·`payments`를 지운다.
+
+이후 `pnpm db:check`에 mock 경고가 없어야 한다. Vercel env: `OFFNAL_ENV=production`, `BILLING_MODE=beta_free`, `PAYMENT_PROVIDER` 삭제.
+
+### 20.6 테스트
+
+- 단위: `BILLING_MODE` 파싱·production 검증 4가지, 판정 순서, 베타 문구에 `무료|결제|원|이용권`이 없음.
+- 통합(`BetaFreeFlow`): 서로 다른 세 달 이상 발행 성공·trial 0행, 같은 달 재발행·동시 발행 1행, 세 번째 달 ICS 200, 결제 API 3종 404, `paid` 전환 후 `EXISTING`·`freeRemaining=2`. 변환 SQL 검증.
