@@ -3,7 +3,7 @@ import 'server-only';
 import { after } from 'next/server';
 
 import { OcrMode } from '@/domain/enums/OcrMode';
-import { OffnalEnv } from '@/domain/enums/OffnalEnv';
+import { VercelEnv } from '@/domain/enums/VercelEnv';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { describeError } from '@/server/errors/ErrorName';
 import { EXTRACT_MAX_DURATION_SECONDS } from '@/server/services/ExtractRouteLimits';
@@ -108,8 +108,7 @@ export const resolveOcrShadowTarget = (env: RawEnv, appUrl: string): OcrShadowTa
     };
   }
 
-  // VERCEL_ENV uses the same values as OffnalEnv (production, preview, development).
-  if (env.VERCEL_ENV === OffnalEnv.PRODUCTION) {
+  if (env.VERCEL_ENV === VercelEnv.PRODUCTION) {
     return { origin: appUrl, headers: {} };
   }
 
