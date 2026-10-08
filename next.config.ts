@@ -55,6 +55,14 @@ const OCR_LANGUAGE_DATA_INCLUDES = [
   './node_modules/@tesseract.js-data/{kor,eng}/4.0.0_best_int/*.traineddata.gz',
 ];
 
+/**
+ * The OCR engine ships only when `OCR_BUNDLE=1` at build time (Spec §22-10). Its pnpm paths are symlinked
+ * directories, which Vercel rejects as an invalid function package; shadow OCR stays off in production
+ * until the bundle is fixed and memory is measured. Without the engine, `OCR_MODE=shadow` only records
+ * `error` rows (the user's response is unaffected).
+ */
+const OCR_BUNDLE = process.env.OCR_BUNDLE === '1';
+
 const nextConfig: NextConfig = {
   // tesseract.js starts its worker thread from a path computed at runtime and loads its WASM core via fs,
   // so it must stay a plain node_modules package (not bundled).
@@ -66,7 +74,7 @@ const nextConfig: NextConfig = {
     // Shadow OCR (Spec §22) runs after the personal extract: the worker script (not statically required)
     // and the LSTM-only WASM cores it picks by CPU features (relaxed SIMD, SIMD, plain). Keys are globs,
     // so `[id]` would be a character class: `*` stands for the dynamic segment.
-    '/api/recognitions/*/extract': [...TESSERACT_TRACE_INCLUDES, ...OCR_LANGUAGE_DATA_INCLUDES],
+    ...(OCR_BUNDLE ? { '/api/recognitions/*/extract': [...TESSERACT_TRACE_INCLUDES, ...OCR_LANGUAGE_DATA_INCLUDES] } : {}),
   },
   // Local data (PGlite, storage, an old OCR cache) must never ship with the OCR function.
   outputFileTracingExcludes: {
