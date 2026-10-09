@@ -1,5 +1,5 @@
 import { MS_PER_DAY } from '@/domain/DomainLimits';
-import { getZonedParts, SEOUL_TIMEZONE } from '@/domain/TimeZone';
+import { getZonedParts, SEOUL_TIMEZONE, zonedWallTimeToUtc } from '@/domain/TimeZone';
 import { type DateParts } from '@/domain/types/DateParts';
 import { type YearMonthParts } from '@/domain/types/YearMonthParts';
 
@@ -126,6 +126,14 @@ export const todayInSeoul = (now: Date): string => {
   const parts = getZonedParts(now, SEOUL_TIMEZONE);
 
   return toDateString(parts.year, parts.month, parts.day);
+};
+
+/** Milliseconds from `now` until the next 00:00 in Seoul (always > 0; exactly at midnight it is a full day). */
+export const msUntilNextSeoulMidnight = (now: Date): number => {
+  const tomorrow = shiftDateParts(getZonedParts(now, SEOUL_TIMEZONE), 1);
+  const midnight = zonedWallTimeToUtc({ ...tomorrow, hour: 0, minute: 0 }, SEOUL_TIMEZONE);
+
+  return midnight.getTime() - now.getTime();
 };
 
 export const nextYearMonth = (yearMonth: string): string => {
