@@ -14,6 +14,7 @@ import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { BillingMode } from '@/domain/enums/BillingMode';
 import { MonthAccess } from '@/domain/enums/MonthAccess';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
+import { TeamMode } from '@/domain/enums/TeamMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
 
@@ -32,6 +33,7 @@ const BILLING_WORDS = /무료|결제|\d[\d,]*원|이용권|구매|비용|두 달
 const buildConfig = (billingMode: BillingMode): PublicConfigResponse => ({
   appMode: AppMode.LIVE,
   billingMode,
+  teamMode: TeamMode.ENABLED,
   priceKrw: 990,
   freeMonthLimit: 2,
   authProviders: [AuthProviderType.KAKAO],

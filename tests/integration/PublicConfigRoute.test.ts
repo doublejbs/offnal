@@ -4,6 +4,7 @@ import { GET as publicConfigRoute } from '@/app/api/config/public/route';
 import { AppMode } from '@/domain/enums/AppMode';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
 import { BillingMode } from '@/domain/enums/BillingMode';
+import { TeamMode } from '@/domain/enums/TeamMode';
 import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
 import {
   createApiTestClient,
@@ -40,6 +41,7 @@ describe('public config', () => {
     expect(body).toMatchObject({
       appMode: AppMode.DEMO,
       billingMode: BillingMode.PAID,
+      teamMode: TeamMode.ENABLED,
       priceKrw: 990,
       freeMonthLimit: 2,
       authProviders: [AuthProviderType.DEV],
@@ -98,5 +100,16 @@ describe('public config', () => {
       isMockVision: true,
       isMockPayment: false,
     });
+  });
+
+  it('reports coming_soon team mode (Spec §24.1)', async () => {
+    envSandbox.set({ TEAM_MODE: 'coming_soon' });
+
+    const client = createApiTestClient();
+    const body = await readJson<PublicConfigResponse>(
+      await client.send(publicConfigRoute, '/api/config/public'),
+    );
+
+    expect(body.teamMode).toBe(TeamMode.COMING_SOON);
   });
 });
