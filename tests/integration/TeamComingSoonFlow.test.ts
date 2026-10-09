@@ -3,15 +3,21 @@ import path from 'node:path';
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import { GET as exportDataRoute } from '@/app/api/calendar/[yearMonth]/export-data/route';
 import { GET as exportIcsRoute } from '@/app/api/calendar/[yearMonth]/export.ics/route';
 import { GET as getMonthRoute } from '@/app/api/calendar/[yearMonth]/route';
 import { GET as calendarRoute } from '@/app/api/calendar/route';
+import { POST as updateShareRoute } from '@/app/api/calendar/share/route';
+import { GET as sharedRoute } from '@/app/api/shared/[token]/route';
 import { POST as createTeamRoute } from '@/app/api/teams/route';
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { CalendarMonthSource } from '@/domain/enums/CalendarMonthSource';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
 import { type CalendarMonthResponse } from '@/domain/types/api/CalendarMonthResponse';
 import { type CalendarSummaryResponse } from '@/domain/types/api/CalendarSummaryResponse';
+import { type ExportDataResponse } from '@/domain/types/api/ExportDataResponse';
+import { type SharedCalendarResponse } from '@/domain/types/api/SharedCalendarResponse';
+import { type ShareSettingsResponse } from '@/domain/types/api/ShareSettingsResponse';
 import { teamInvites, teamMembers, teamRosters, teams } from '@/server/db/Schema';
 import {
   type ApiTestClient,
@@ -203,6 +209,39 @@ describe('team coming soon mode', () => {
 
     expect(icsResponse.status).toBe(200);
     expect(await icsResponse.text()).toContain('BEGIN:VCALENDAR');
+
+    // PNG export data of the team month.
+    const exportResponse = await member.send(exportDataRoute, `/api/calendar/${TEAM_MONTH}/export-data`, {
+      params: { yearMonth: TEAM_MONTH },
+    });
+
+    expect(exportResponse.status).toBe(200);
+    expect((await readJson<ExportDataResponse>(exportResponse)).yearMonth).toBe(TEAM_MONTH);
+
+    // Shared link: the team month stays visible to recipients.
+    const shareResponse = await member.send(updateShareRoute, '/api/calendar/share', {
+      json: { displayName: '이여름', visibleMonths: [TEAM_MONTH] },
+    });
+
+    expect(shareResponse.status).toBe(200);
+
+    const settings = await readJson<ShareSettingsResponse>(shareResponse);
+    const token = new URL(settings.url ?? '').pathname.slice('/s/'.length);
+    const sharedResponse = await createApiTestClient().send(
+      sharedRoute,
+      `/api/shared/${token}?month=${TEAM_MONTH}`,
+      {
+        params: { token },
+        origin: null,
+      },
+    );
+
+    expect(sharedResponse.status).toBe(200);
+
+    const shared = await readJson<SharedCalendarResponse>(sharedResponse);
+
+    expect(shared.months).toContain(TEAM_MONTH);
+    expect(shared.month?.yearMonth).toBe(TEAM_MONTH);
   });
 
   it('serves the team routes again once enabled', async () => {

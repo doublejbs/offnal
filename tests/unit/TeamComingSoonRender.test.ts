@@ -1,12 +1,21 @@
 import { type ComponentProps, createElement, type ReactElement } from 'react';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import JoinLayout from '@/app/join/layout';
+import JoinPage from '@/app/join/[token]/page';
+import TeamsLayout from '@/app/teams/layout';
+import TeamsPage from '@/app/teams/page';
+import TeamPage from '@/app/teams/[id]/page';
+import TeamRosterPage from '@/app/teams/[id]/roster/[yearMonth]/page';
+import RosterPage from '@/app/teams/[id]/rosters/[rosterId]/page';
 import CalendarMonthView from '@/components/calendar/CalendarMonthView';
 import TeamMonthNotice from '@/components/calendar/TeamMonthNotice';
 import ConfigProvider from '@/components/ConfigProvider';
 import HeaderNav from '@/components/HeaderNav';
-import TeamComingSoonGate from '@/components/team/TeamComingSoonGate';
 import TeamComingSoonView from '@/components/team/TeamComingSoonView';
 import UploadPanel from '@/components/upload/UploadPanel';
 import { AppMode } from '@/domain/enums/AppMode';
@@ -204,18 +213,58 @@ describe('team coming soon (smoke render)', () => {
     expect(loggedOut).toContain('<a class="primary" href="/">처음으로</a>');
   });
 
-  it('teams/join layout gate: page replaced in coming soon, untouched when enabled', async () => {
+  it('teams/join layouts: page replaced in coming soon, untouched when enabled', async () => {
     envSandbox.set({ TEAM_MODE: 'coming_soon' });
     serverContext.user = { id: 'u1' };
 
-    const soon = renderToStaticMarkup(await TeamComingSoonGate({ children: 'team page' }));
+    for (const Layout of [TeamsLayout, JoinLayout]) {
+      const soon = renderToStaticMarkup(await Layout({ children: 'team page' }));
 
-    expect(soon).toContain('팀 공유는 준비 중이에요');
-    expect(soon).toContain('내 달력으로');
-    expect(soon).not.toContain('team page');
+      expect(soon).toContain('팀 공유는 준비 중이에요');
+      expect(soon).toContain('내 달력으로');
+      expect(soon).not.toContain('team page');
+    }
 
     envSandbox.set({ TEAM_MODE: 'enabled' });
 
-    expect(await TeamComingSoonGate({ children: 'team page' })).toBe('team page');
+    expect(await TeamsLayout({ children: 'team page' })).toBe('team page');
+    expect(await JoinLayout({ children: 'team page' })).toBe('team page');
+  });
+
+  it('teams/join pages: no server work in coming soon (params never read)', async () => {
+    envSandbox.set({ TEAM_MODE: 'coming_soon' });
+
+    // Awaiting these params throws: a page that reads them (or anything after) fails the test.
+    const params = {
+      then: () => {
+        throw new Error('page read its params in coming soon');
+      },
+    } as unknown as Promise<never>;
+
+    expect(await TeamsPage()).toBeNull();
+    expect(await TeamPage({ params })).toBeNull();
+    expect(await TeamRosterPage({ params })).toBeNull();
+    expect(await RosterPage({ params })).toBeNull();
+    expect(await JoinPage({ params })).toBeNull();
+  });
+
+  it('every /teams/** and /join/** page checks coming soon itself', async () => {
+    const pageFiles: string[] = [];
+
+    for (const dir of ['src/app/teams', 'src/app/join']) {
+      const entries = await readdir(dir, { withFileTypes: true, recursive: true });
+
+      pageFiles.push(
+        ...entries
+          .filter((entry) => entry.isFile() && entry.name === 'page.tsx')
+          .map((entry) => path.join(entry.parentPath, entry.name)),
+      );
+    }
+
+    expect(pageFiles).toHaveLength(5);
+
+    for (const file of pageFiles) {
+      expect(await readFile(file, 'utf8'), file).toContain('isTeamComingSoon(getAppConfig())');
+    }
   });
 });
