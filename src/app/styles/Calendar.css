@@ -46,6 +46,21 @@
   background: var(--bluefill);
 }
 
+/* Today: filled circle on the day number; the negative margin keeps it at the 19.5px line box so rows stay aligned. */
+.today-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  margin: -2.25px 0;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--today-bg);
+  color: var(--today-ink);
+  font-weight: 700;
+}
+
 .badge {
   display: inline-block;
   font-size: 12px;

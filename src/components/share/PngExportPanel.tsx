@@ -65,6 +65,7 @@ const PngExportPanel = ({ yearMonth, displayName, definitions, entries }: PngExp
         definitions={definitions}
         selectedDate={null}
         showLegend={false}
+        showToday={false}
       />
       <div className="hint">
         {used.map((definition) => (

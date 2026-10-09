@@ -10,6 +10,7 @@ import {
   getShiftTone,
   toneClassName,
 } from '@/client/ShiftStyle';
+import { useTodayInSeoul } from '@/components/calendar/UseTodayInSeoul';
 import { type ShiftDefinition } from '@/domain/types/ShiftDefinition';
 import { type ShiftEntry } from '@/domain/types/ShiftEntry';
 import { filterUsedDefinitions } from '@/domain/UsedDefinitions';
@@ -24,6 +25,10 @@ type MonthGridProps = {
   showLegend?: boolean;
   /** Team months: dates changed since the member's acknowledged revision ("변경" mark). */
   changedDates?: string[];
+  /** Marks today's date (Seoul). Off for the PNG export preview: a saved image outlives "today". */
+  showToday?: boolean;
+  /** Overrides the mounted-clock "today" (tests render on the server, where the hook yields null). */
+  today?: string | null;
 };
 
 const KEY_OFFSETS: Record<string, number> = {
@@ -46,7 +51,11 @@ const MonthGrid = ({
   onSelectDate,
   showLegend = true,
   changedDates = [],
+  showToday = true,
+  today: todayOverride,
 }: MonthGridProps) => {
+  const seoulToday = useTodayInSeoul();
+  const today = showToday ? (todayOverride === undefined ? seoulToday : todayOverride) : null;
   const buttonsRef = useRef(new Map<string, HTMLButtonElement>());
   const entryByDate = new Map(entries.map((entry) => [entry.date, entry]));
   const legend = filterUsedDefinitions(definitions, entries);
@@ -108,10 +117,11 @@ const MonthGrid = ({
 
             const entry = entryByDate.get(date) ?? { date, code: null, reviewReasons: [], confirmed: false };
             const isChanged = changedDates.includes(date);
-            const label = `${formatMonthDay(date)} ${describeEntryStatus(entry)}${isChanged ? ' 변경됨' : ''}`;
+            const isToday = date === today;
+            const label = `${isToday ? '오늘, ' : ''}${formatMonthDay(date)} ${describeEntryStatus(entry)}${isChanged ? ' 변경됨' : ''}`;
             const content = (
               <>
-                <span>{dayOfDate(date)}</span>
+                <span className={isToday ? 'today-mark' : undefined}>{dayOfDate(date)}</span>
                 <span className={toneClassName(getEntryTone(entry, definitions))}>{getBadgeText(entry)}</span>
                 {isChanged && (
                   <span className="changed-mark" aria-hidden="true">
@@ -123,7 +133,13 @@ const MonthGrid = ({
 
             if (!onSelectDate) {
               return (
-                <div key={date} className="day" role="img" aria-label={label}>
+                <div
+                  key={date}
+                  className="day"
+                  role="img"
+                  aria-label={label}
+                  aria-current={isToday ? 'date' : undefined}
+                >
                   {content}
                 </div>
               );
@@ -138,6 +154,7 @@ const MonthGrid = ({
                 tabIndex={date === tabStop ? 0 : -1}
                 aria-pressed={selectedDate === date}
                 aria-label={label}
+                aria-current={isToday ? 'date' : undefined}
                 onClick={() => onSelectDate(date)}
                 onKeyDown={(event) => handleKeyDown(event, date)}
               >
