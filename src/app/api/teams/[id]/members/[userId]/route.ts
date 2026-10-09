@@ -1,12 +1,13 @@
-import { apiRoute, type TeamMemberParams } from '@/server/http/ApiRoute';
+import { type TeamMemberParams } from '@/server/http/ApiRoute';
 import { parseJsonBody } from '@/server/http/RouteHelpers';
+import { teamApiRoute } from '@/server/http/TeamApiRoute';
 import { removeMember, updateMember } from '@/server/services/TeamMembershipService';
 import { updateTeamMemberRequestSchema } from '@/server/services/TeamRequestSchemas';
 
 export const runtime = 'nodejs';
 
 /** UpdateTeamMemberRequest → TeamMemberDto (ADMIN). */
-export const PATCH = apiRoute<TeamMemberParams>(
+export const PATCH = teamApiRoute<TeamMemberParams>(
   { mutating: true },
   async ({ request, db, context, params }) =>
     updateMember(
@@ -19,6 +20,6 @@ export const PATCH = apiRoute<TeamMemberParams>(
 );
 
 /** OkResponse (ADMIN): removes a member or a pending request. */
-export const DELETE = apiRoute<TeamMemberParams>({ mutating: true }, async ({ db, context, params }) =>
+export const DELETE = teamApiRoute<TeamMemberParams>({ mutating: true }, async ({ db, context, params }) =>
   removeMember(db, context, params.id, params.userId),
 );

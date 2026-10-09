@@ -6,12 +6,14 @@ import { useId } from 'react';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { formatHours } from '@/client/LandingCopy';
+import { TEAM_COMING_SOON_UPLOAD_TEXT } from '@/client/TeamComingSoonCopy';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import LandingGuideView from '@/components/upload/LandingGuideView';
 import { useUploadState } from '@/components/upload/UseUploadState';
 import LoginOptions from '@/components/LoginOptions';
 import { isBetaFree } from '@/domain/BillingPolicy';
 import { LoginEmphasis } from '@/domain/enums/LoginEmphasis';
+import { isTeamComingSoon } from '@/domain/TeamPolicy';
 
 type UploadPanelProps = {
   isLoggedIn: boolean;
@@ -25,6 +27,7 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
   const config = usePublicConfig();
   const { billingMode, freeMonthLimit, priceKrw, sourceTtlHours, uploadMaxBytes } = config;
   const isBeta = isBetaFree(config);
+  const teamComingSoon = isTeamComingSoon(config);
   const { isUploading, statusText, error, handleFileChange } = useUploadState(uploadMaxBytes);
   const inputId = useId();
   const loginSectionId = useId();
@@ -110,6 +113,7 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
           freeMonthLimit={freeMonthLimit}
           priceKrw={priceKrw}
           sourceTtlHours={sourceTtlHours}
+          isTeamComingSoon={teamComingSoon}
         />
       )}
       {isLoggedIn ? (
@@ -117,9 +121,13 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
           <Link href="/calendar" className="textbutton">
             내 달력 보기
           </Link>
-          <Link href="/teams" className="textbutton">
-            {isBeta ? '팀으로 함께 쓰기' : '팀으로 함께 쓰기 (베타 기간 무료)'}
-          </Link>
+          {teamComingSoon ? (
+            <span className="tiny">{TEAM_COMING_SOON_UPLOAD_TEXT}</span>
+          ) : (
+            <Link href="/teams" className="textbutton">
+              {isBeta ? '팀으로 함께 쓰기' : '팀으로 함께 쓰기 (베타 기간 무료)'}
+            </Link>
+          )}
         </div>
       ) : (
         <section className="block" aria-labelledby={loginSectionId}>

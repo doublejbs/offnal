@@ -80,6 +80,7 @@ PGlite는 연결이 하나라 동시 트랜잭션이 직렬화됩니다. “서�
 | `DATABASE_URL` | Supabase Transaction pooler URL (아래 “Supabase 설정”) |
 | `DATABASE_MIGRATION_URL` | Supabase Session pooler 또는 Direct URL (`pnpm db:migrate` 전용) |
 | `BILLING_MODE` | `paid`(기본값, 무료 두 달 후 월 결제) \| `beta_free`(베타 무료 운영, 아래 “베타 무료 운영”) |
+| `TEAM_MODE` | `enabled`(기본값) \| `coming_soon`(팀 기능 준비 중, 아래 “팀 기능 준비 중”) — 운영은 `coming_soon` |
 
 배포 전·스키마 변경 시 대상 DB 접속 문자열을 넣은 `.env.local`로 `pnpm db:migrate` → `pnpm db:check`를 실행합니다. 서버리스에서 동시 마이그레이션을 피하려고 운영 DB는 앱 기동 시 자동 마이그레이션하지 않습니다.
 
@@ -262,6 +263,16 @@ pnpm vision:eval -- --dir .data/eval --models gemini-3.1-flash-lite,gemini-3.7-f
 7. `/api/config/public`에서 `billingMode: "beta_free"`, `isMockPayment: false` 확인
 
 **나중에 결제를 켤 때**: `BILLING_MODE=paid`와 `PAYMENT_PROVIDER=toss`(또는 삭제 유지) + `TOSS_CLIENT_KEY`·`TOSS_SECRET_KEY`를 넣고 재배포합니다(위 “결제 (토스페이먼츠)”). 베타 동안 등록한 달은 `beta` 이용권이 남아 `EXISTING`으로 계속 열리고(그 달을 결제하려 하면 409 `ALREADY_ENTITLED`), 무료 두 달은 `trial` 행만 세므로 그때부터 새로 적용됩니다. 데이터 변환은 필요 없습니다.
+
+#### 팀 기능 준비 중 (TEAM_MODE=coming_soon)
+
+베타 동안 팀 기능을 “준비 중”으로 돌립니다(Spec §24). 코드·데이터는 그대로 두고 설정 하나로 잠급니다.
+
+- 팀·초대 API(`/api/teams/**`, `/api/invites/**` — 팀 근무표 업로드·인식(`extract-next`)·배포·되돌리기·확인 포함)는 출처 검사·세션·DB·본문 처리 전에 404(`NOT_FOUND`)를 반환합니다.
+- `/teams/**`, `/join/**`는 공통 준비 중 화면(“팀 공유는 준비 중이에요”)을 보여 주고 초대 토큰은 조회하지 않습니다.
+- 머리글 메뉴에서 “팀”을 빼고, 랜딩 팀 섹션에 “준비 중” 표시를 두며, 업로드·달력의 팀 화면 링크를 숨깁니다.
+- 이미 배포된 팀 근무 달은 내 달력·공유 링크·내보내기에 읽기 전용으로 남습니다(“확인했어요” 버튼과 팀 화면 링크만 숨김). 정리 cron도 그대로입니다.
+- 확인: `/api/config/public`에서 `teamMode: "coming_soon"`.
 
 ## 공유 미리보기(OG)
 

@@ -1,8 +1,15 @@
 import AuthRequired from '@/components/AuthRequired';
 import TeamListView from '@/components/team/TeamListView';
+import { isTeamComingSoon } from '@/domain/TeamPolicy';
+import { getAppConfig } from '@/server/config/AppConfig';
 import { getServerComponentContext } from '@/server/http/RequestContext';
 
 const TeamsPage = async () => {
+  // Team "준비 중" mode: the layout shows the coming-soon screen; do no work here (Spec §24.2).
+  if (isTeamComingSoon(getAppConfig())) {
+    return null;
+  }
+
   const context = await getServerComponentContext();
 
   if (!context.user) {
