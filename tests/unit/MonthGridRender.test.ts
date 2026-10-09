@@ -28,10 +28,9 @@ describe('MonthGrid today mark', () => {
     const html = renderGrid({ today: TODAY, selectedDate: TODAY, onSelectDate: () => undefined });
 
     expect(countMatches(html, /class="today-mark"/g)).toBe(1);
-    expect(countMatches(html, /aria-current="date"/g)).toBe(1);
-    expect(html).toMatch(
-      /<button[^>]*aria-pressed="true"[^>]*aria-label="오늘, 11월 9일 D"[^>]*aria-current="date"/,
-    );
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*aria-label="오늘, 11월 9일 D"/);
+    // The "오늘, " prefix is the only announcement; aria-current would say it twice.
+    expect(html).not.toContain('aria-current');
     expect(html).toContain('<span class="today-mark">9</span>');
     expect(html).toContain('aria-label="11월 10일 D"');
     expect(countMatches(html, /오늘, /g)).toBe(1);
@@ -41,7 +40,7 @@ describe('MonthGrid today mark', () => {
     const html = renderGrid({ today: TODAY });
 
     expect(html).not.toContain('<button');
-    expect(html).toMatch(/<div class="day" role="img" aria-label="오늘, 11월 9일 D" aria-current="date">/);
+    expect(html).toMatch(/<div class="day" role="img" aria-label="오늘, 11월 9일 D">/);
     expect(countMatches(html, /class="today-mark"/g)).toBe(1);
   });
 
@@ -49,7 +48,6 @@ describe('MonthGrid today mark', () => {
     const html = renderGrid({ today: '2026-12-09', onSelectDate: () => undefined });
 
     expect(html).not.toContain('today-mark');
-    expect(html).not.toContain('aria-current');
     expect(html).not.toContain('오늘, ');
   });
 
@@ -64,6 +62,6 @@ describe('MonthGrid today mark', () => {
     const html = renderGrid({ onSelectDate: () => undefined });
 
     expect(html).not.toContain('today-mark');
-    expect(html).not.toContain('aria-current');
+    expect(html).not.toContain('오늘, ');
   });
 });

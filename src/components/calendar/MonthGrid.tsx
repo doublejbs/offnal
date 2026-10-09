@@ -133,13 +133,7 @@ const MonthGrid = ({
 
             if (!onSelectDate) {
               return (
-                <div
-                  key={date}
-                  className="day"
-                  role="img"
-                  aria-label={label}
-                  aria-current={isToday ? 'date' : undefined}
-                >
+                <div key={date} className="day" role="img" aria-label={label}>
                   {content}
                 </div>
               );
@@ -154,7 +148,6 @@ const MonthGrid = ({
                 tabIndex={date === tabStop ? 0 : -1}
                 aria-pressed={selectedDate === date}
                 aria-label={label}
-                aria-current={isToday ? 'date' : undefined}
                 onClick={() => onSelectDate(date)}
                 onKeyDown={(event) => handleKeyDown(event, date)}
               >
