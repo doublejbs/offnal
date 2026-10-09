@@ -129,3 +129,10 @@
 .landing-faq p {
   margin: 0 0 14px;
 }
+
+/* Team "준비 중" chip next to the landing team title (Spec §24.2). */
+.landing-section h2 .soon-chip {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: 2px;
+}

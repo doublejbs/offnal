@@ -1,6 +1,10 @@
 import { type Metadata } from 'next';
 import { type ReactNode } from 'react';
 
+import TeamComingSoonView from '@/components/team/TeamComingSoonView';
+import { isTeamComingSoon } from '@/domain/TeamPolicy';
+import { getAppConfig } from '@/server/config/AppConfig';
+import { getServerComponentContext } from '@/server/http/RequestContext';
 import { PRIVATE_ROBOTS } from '@/server/metadata/SiteMetadata';
 
 /** Join screens are per-user: keep them out of search indexes. */
@@ -10,6 +14,18 @@ type JoinLayoutProps = {
   children: ReactNode;
 };
 
-const JoinLayout = ({ children }: JoinLayoutProps) => children;
+/**
+ * Team "준비 중" mode shows the shared coming-soon screen instead of the page (Spec §24.2). Layouts and pages
+ * render in parallel, so every page below also returns early on its own (no params, session or team reads).
+ */
+const JoinLayout = async ({ children }: JoinLayoutProps) => {
+  if (!isTeamComingSoon(getAppConfig())) {
+    return children;
+  }
+
+  const context = await getServerComponentContext();
+
+  return <TeamComingSoonView isLoggedIn={Boolean(context.user)} />;
+};
 
 export default JoinLayout;

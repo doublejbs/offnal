@@ -42,8 +42,9 @@
   min-width: 0;
 }
 
-/* Beta free mode label beside the wordmark (Spec §20.4): small and quiet, not a warning. */
-.beta-chip {
+/* Beta free mode label beside the wordmark (Spec §20.4) and the team "준비 중" chip (§24.2): small and quiet, not a warning. */
+.beta-chip,
+.soon-chip {
   padding: 1px 6px;
   border: 1px solid var(--line);
   border-radius: 999px;

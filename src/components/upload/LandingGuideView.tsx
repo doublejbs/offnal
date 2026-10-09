@@ -5,7 +5,9 @@ import LandingShareView from '@/components/upload/LandingShareView';
 import LandingStepsView from '@/components/upload/LandingStepsView';
 import LandingTeamView from '@/components/upload/LandingTeamView';
 
-type LandingGuideViewProps = LandingCopySource;
+type LandingGuideViewProps = LandingCopySource & {
+  isTeamComingSoon: boolean;
+};
 
 /** Signed-out service guide under the upload box (Spec §17): how it works, sharing, recipients, team sharing (beta), FAQ. */
 const LandingGuideView = ({
@@ -13,6 +15,7 @@ const LandingGuideView = ({
   freeMonthLimit,
   priceKrw,
   sourceTtlHours,
+  isTeamComingSoon,
 }: LandingGuideViewProps) => {
   const faqs = buildLandingFaqs({ billingMode, freeMonthLimit, priceKrw, sourceTtlHours });
 
@@ -21,7 +24,7 @@ const LandingGuideView = ({
       <LandingStepsView />
       <LandingShareView />
       <LandingRecipientView />
-      <LandingTeamView billingMode={billingMode} />
+      <LandingTeamView billingMode={billingMode} isTeamComingSoon={isTeamComingSoon} />
       <LandingFaqView faqs={faqs} />
     </div>
   );

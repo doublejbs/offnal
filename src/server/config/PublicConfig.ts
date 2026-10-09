@@ -15,6 +15,7 @@ export const buildPublicConfig = (config: AppConfig = getAppConfig()): PublicCon
   return {
     appMode: config.appMode,
     billingMode: config.billingMode,
+    teamMode: config.teamMode,
     priceKrw: pricing.priceKrw,
     freeMonthLimit: pricing.freeMonthLimit,
     authProviders: config.authProviders,

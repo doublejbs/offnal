@@ -10,9 +10,11 @@ import { OcrMode } from '@/domain/enums/OcrMode';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
+import { TeamMode } from '@/domain/enums/TeamMode';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
+import { isTeamComingSoon } from '@/domain/TeamPolicy';
 import { parseAppConfig } from '@/server/config/AppConfig';
 import { DEFAULT_FREE_MONTH_LIMIT, DEFAULT_PRICE_KRW } from '@/server/config/PricingConfig';
 
@@ -146,6 +148,20 @@ describe('parseAppConfig', () => {
     expect(isBetaFree(paid)).toBe(false);
     expect(betaFree.billingMode).toBe(BillingMode.BETA_FREE);
     expect(isBetaFree(betaFree)).toBe(true);
+  });
+
+  it('defaults TEAM_MODE to enabled and reads coming_soon', () => {
+    const enabled = parseAppConfig({ OFFNAL_ENV: 'development' });
+    const comingSoon = parseAppConfig({ OFFNAL_ENV: 'development', TEAM_MODE: 'coming_soon' });
+
+    expect(enabled.teamMode).toBe(TeamMode.ENABLED);
+    expect(isTeamComingSoon(enabled)).toBe(false);
+    expect(comingSoon.teamMode).toBe(TeamMode.COMING_SOON);
+    expect(isTeamComingSoon(comingSoon)).toBe(true);
+    expect(parseAppConfig({ ...VALID_PRODUCTION_ENV, TEAM_MODE: 'coming_soon' }).teamMode).toBe(
+      TeamMode.COMING_SOON,
+    );
+    expect(() => parseAppConfig({ OFFNAL_ENV: 'development', TEAM_MODE: 'off' })).toThrow(/TEAM_MODE/);
   });
 
   it('blocks paid production with Toss but without Toss keys', () => {

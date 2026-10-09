@@ -11,6 +11,7 @@ import { OcrMode } from '@/domain/enums/OcrMode';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { PaymentProviderType } from '@/domain/enums/PaymentProviderType';
 import { StorageDriver } from '@/domain/enums/StorageDriver';
+import { TeamMode } from '@/domain/enums/TeamMode';
 import { VisionEffort } from '@/domain/enums/VisionEffort';
 import { VisionPipelineMode } from '@/domain/enums/VisionPipelineMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
@@ -62,6 +63,8 @@ export type AppConfig = {
   tossSecretKey: string | null;
   /** `beta_free` opens every month without payment and hides pricing (Spec §20). */
   billingMode: BillingMode;
+  /** `coming_soon` closes every team API (404) and shows a "준비 중" screen for team pages (Spec §24). */
+  teamMode: TeamMode;
   priceKrw: number;
   freeMonthLimit: number;
   uploadMaxBytes: number;
@@ -150,6 +153,7 @@ const envSchema = z.object({
   TOSS_CLIENT_KEY: optionalText,
   TOSS_SECRET_KEY: optionalText,
   BILLING_MODE: z.enum(BillingMode).default(BillingMode.PAID),
+  TEAM_MODE: z.enum(TeamMode).default(TeamMode.ENABLED),
   PRICE_KRW: positiveInt(DEFAULT_PRICE_KRW),
   FREE_MONTH_LIMIT: nonNegativeInt(DEFAULT_FREE_MONTH_LIMIT),
   // Vercel function request bodies are limited to ~4.5MB; the UI downscales photos before upload.
@@ -393,6 +397,7 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     tossClientKey: parsed.TOSS_CLIENT_KEY ?? null,
     tossSecretKey: parsed.TOSS_SECRET_KEY ?? null,
     billingMode: parsed.BILLING_MODE,
+    teamMode: parsed.TEAM_MODE,
     priceKrw: parsed.PRICE_KRW,
     freeMonthLimit: parsed.FREE_MONTH_LIMIT,
     uploadMaxBytes: parsed.UPLOAD_MAX_BYTES,

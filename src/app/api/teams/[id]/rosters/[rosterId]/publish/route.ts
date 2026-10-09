@@ -1,12 +1,13 @@
-import { apiRoute, type TeamRosterParams } from '@/server/http/ApiRoute';
+import { type TeamRosterParams } from '@/server/http/ApiRoute';
 import { parseJsonBody } from '@/server/http/RouteHelpers';
+import { teamApiRoute } from '@/server/http/TeamApiRoute';
 import { publishTeamRoster } from '@/server/services/TeamRosterPublishService';
 import { publishTeamRosterRequestSchema } from '@/server/services/TeamRequestSchemas';
 
 export const runtime = 'nodejs';
 
 /** PublishTeamRosterRequest → PublishTeamRosterResponse (ADMIN). 422 PUBLISH_BLOCKED, 409 REVISION_CONFLICT. */
-export const POST = apiRoute<TeamRosterParams>(
+export const POST = teamApiRoute<TeamRosterParams>(
   { mutating: true },
   async ({ request, db, context, params }) => {
     const body = await parseJsonBody(request, publishTeamRosterRequestSchema);

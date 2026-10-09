@@ -17,6 +17,7 @@ import RecoverableError from '@/components/RecoverableError';
 import { isBetaFree } from '@/domain/BillingPolicy';
 import { CalendarMonthSource } from '@/domain/enums/CalendarMonthSource';
 import { ScreenLoadState } from '@/domain/enums/ScreenLoadState';
+import { isTeamComingSoon } from '@/domain/TeamPolicy';
 
 type CalendarMonthViewProps = {
   yearMonth: string;
@@ -24,7 +25,9 @@ type CalendarMonthViewProps = {
 
 const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
   const state = useCalendarMonthState(yearMonth);
-  const isBeta = isBetaFree(usePublicConfig());
+  const config = usePublicConfig();
+  const isBeta = isBetaFree(config);
+  const teamComingSoon = isTeamComingSoon(config);
   const { summary, month } = state;
 
   if (state.loadState === ScreenLoadState.LOADING) {
@@ -100,6 +103,7 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
           hasPersonalBackup={month.hasPersonalBackup}
           isAcking={state.isAcking}
           onAck={state.handleAckChanges}
+          isTeamComingSoon={teamComingSoon}
         />
       )}
       {showShareBanner && (
@@ -144,11 +148,13 @@ const CalendarMonthView = ({ yearMonth }: CalendarMonthViewProps) => {
         </Link>
       </div>
       {team ? (
-        <div className="center">
-          <Link href="/teams" className="textbutton">
-            내 팀 보기
-          </Link>
-        </div>
+        !teamComingSoon && (
+          <div className="center">
+            <Link href="/teams" className="textbutton">
+              내 팀 보기
+            </Link>
+          </div>
+        )
       ) : (
         <CalendarPersonalActions
           yearMonth={yearMonth}
