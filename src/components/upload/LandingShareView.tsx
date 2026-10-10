@@ -10,13 +10,18 @@ const METHOD_ICONS: Record<ExportPanel, LucideIcon> = {
   [ExportPanel.PNG]: ImageIcon,
 };
 
+type LandingShareViewProps = {
+  /** Section title; the sample trial's last step names it after its own context (Spec §26.3). */
+  title?: string;
+};
+
 /** "이렇게 공유해요": link, one-time calendar import (ICS), and calendar image. */
-const LandingShareView = () => {
+const LandingShareView = ({ title = LANDING_SHARE_TITLE }: LandingShareViewProps) => {
   const titleId = useId();
 
   return (
     <section className="landing-section" aria-labelledby={titleId}>
-      <h2 id={titleId}>{LANDING_SHARE_TITLE}</h2>
+      <h2 id={titleId}>{title}</h2>
       <ul className="landing-methods">
         {LANDING_SHARE_METHODS.map((item) => {
           const Icon = METHOD_ICONS[item.method];

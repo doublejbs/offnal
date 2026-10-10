@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server';
 
 import { ContentDisposition } from '@/domain/enums/ContentDisposition';
+import { runWithAnalyticsRequest } from '@/server/analytics/AnalyticsRequestScope';
 import { hashIp } from '@/server/auth/SessionService';
 import { getDb } from '@/server/db/Database';
 import { type ParamsRouteContext, type TokenParams } from '@/server/http/ApiRoute';
@@ -23,28 +24,34 @@ export const runtime = 'nodejs';
  * An inline (open=1) request is an iOS navigation: expired/limited failures redirect to the page.
  */
 export const GET = withPublicShareHeaders(
-  async (request: NextRequest, routeContext: ParamsRouteContext<TokenParams>): Promise<Response> => {
-    const { token } = await routeContext.params;
-    const { searchParams } = request.nextUrl;
-    const disposition = parseIcsDisposition(searchParams);
-    const month = searchParams.get('month');
+  async (request: NextRequest, routeContext: ParamsRouteContext<TokenParams>): Promise<Response> =>
+    runWithAnalyticsRequest(request.headers, async () => {
+      const { token } = await routeContext.params;
+      const { searchParams } = request.nextUrl;
+      const disposition = parseIcsDisposition(searchParams);
+      const month = searchParams.get('month');
 
-    try {
-      const db = await getDb();
+      try {
+        const db = await getDb();
 
-      await enforceSharedViewLimit(db, hashIp(getClientIpFromHeaders(request.headers)));
+        await enforceSharedViewLimit(db, hashIp(getClientIpFromHeaders(request.headers)));
 
-      const { fileName, body } = await exportSharedMonthIcs(db, token, month, parseIncludeOff(searchParams));
+        const { fileName, body } = await exportSharedMonthIcs(
+          db,
+          token,
+          month,
+          parseIncludeOff(searchParams),
+        );
 
-      return icsResponse(fileName, body, disposition);
-    } catch (error: unknown) {
-      const notice = disposition === ContentDisposition.INLINE ? toSharedIcsNotice(error) : null;
+        return icsResponse(fileName, body, disposition);
+      } catch (error: unknown) {
+        const notice = disposition === ContentDisposition.INLINE ? toSharedIcsNotice(error) : null;
 
-      if (notice) {
-        return buildSharedIcsFailureRedirect(token, month, notice);
+        if (notice) {
+          return buildSharedIcsFailureRedirect(token, month, notice);
+        }
+
+        return toErrorResponse(request, error);
       }
-
-      return toErrorResponse(request, error);
-    }
-  },
+    }),
 );

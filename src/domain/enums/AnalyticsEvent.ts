@@ -18,4 +18,13 @@ export enum AnalyticsEvent {
   TEAM_MEMBER_JOINED = 'team_member_joined',
   PAYMENT_SHOWN = 'payment_shown',
   PAYMENT_SUCCEEDED = 'payment_succeeded',
+  // Entry screen and sample trial (Spec §26.5). Client events arrive through POST /api/events.
+  LANDING_UPLOAD_CLICKED = 'landing_upload_clicked',
+  SAMPLE_STARTED = 'sample_started',
+  SAMPLE_COMPLETED = 'sample_completed',
+  SAMPLE_CTA_CLICKED = 'sample_cta_clicked',
+  SHARE_LATER_CLICKED = 'share_later_clicked',
+  LOGIN_CLICKED = 'login_clicked',
+  /** Recorded by the OAuth callback (server), never accepted from the client. */
+  LOGIN_FAILED = 'login_failed',
 }

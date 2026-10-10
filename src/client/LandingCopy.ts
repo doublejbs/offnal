@@ -28,6 +28,9 @@ export type LandingFaq = {
   answer: string;
 };
 
+/** Entry subtitle for shift nurses (Spec §26.1), one string per line. */
+export const LANDING_SUBTITLE_LINES = ['3교대 근무표 사진 한 장으로', '내 D·E·N만 달력에 정리하고 공유해요.'] as const;
+
 export const LANDING_STEPS_TITLE = '이렇게 써요';
 
 export const LANDING_SHARE_TITLE = '이렇게 공유해요';

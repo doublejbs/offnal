@@ -1,6 +1,7 @@
 import { type Metadata } from 'next';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
+import { SAMPLE_TRY_DESCRIPTION, SAMPLE_TRY_PATH, SAMPLE_TRY_TITLE } from '@/client/SampleTryCopy';
 import { isBetaFree } from '@/domain/BillingPolicy';
 import { type BillingMode } from '@/domain/enums/BillingMode';
 import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
@@ -32,7 +33,9 @@ const OG_IMAGE = {
   alt: OG_IMAGE_ALT,
 };
 
-const SERVICE_SENTENCE = '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요.';
+/** Same message as the entry subtitle (Spec §26.1): shift nurses, one photo, only my D·E·N. */
+const SERVICE_SENTENCE =
+  '3교대 근무표 사진 한 장으로 내 D·E·N만 달력에 정리해 캘린더에 추가하고 가족·연인과 공유해요.';
 
 /** Beta free mode drops the pricing sentence (Spec §20.4). */
 export const buildSiteDescription = (source: SiteMetadataSource): string => {
@@ -62,7 +65,10 @@ export const readSiteMetadataSource = (config: AppConfig = getAppConfig()): Site
  * Site-wide og tags. `url` is set only by pages whose own address it is: a child segment's
  * openGraph replaces the parent's, and an inherited og:url would point previews at the wrong page.
  */
-export const buildSiteOpenGraph = (source: SiteMetadataSource, url?: string): NonNullable<Metadata['openGraph']> => ({
+export const buildSiteOpenGraph = (
+  source: SiteMetadataSource,
+  url?: string,
+): NonNullable<Metadata['openGraph']> => ({
   type: 'website',
   siteName: SITE_NAME,
   locale: 'ko_KR',
@@ -94,6 +100,23 @@ export const buildSiteMetadata = (source: SiteMetadataSource): Metadata => {
 /** For indexable entry pages (`/`, `/upload`): the site og tags plus their own og:url. */
 export const buildEntryPageMetadata = (source: SiteMetadataSource, url: string): Metadata => ({
   openGraph: buildSiteOpenGraph(source, url),
+});
+
+/** /try (Spec §26.3): fixed title and description, site og image, its own og:url; indexable. */
+export const buildSampleTryMetadata = (source: SiteMetadataSource): Metadata => ({
+  title: SAMPLE_TRY_TITLE,
+  description: SAMPLE_TRY_DESCRIPTION,
+  openGraph: {
+    ...buildSiteOpenGraph(source, SAMPLE_TRY_PATH),
+    title: `${SAMPLE_TRY_TITLE} · ${SITE_NAME}`,
+    description: SAMPLE_TRY_DESCRIPTION,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${SAMPLE_TRY_TITLE} · ${SITE_NAME}`,
+    description: SAMPLE_TRY_DESCRIPTION,
+    images: [OG_IMAGE],
+  },
 });
 
 /**

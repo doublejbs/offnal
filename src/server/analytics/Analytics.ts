@@ -9,6 +9,7 @@ import {
   type AnalyticsProperties,
   validateAnalyticsProperties,
 } from '@/server/analytics/AnalyticsProperties';
+import { readAnalyticsRequestFacts } from '@/server/analytics/AnalyticsRequestScope';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { getDb } from '@/server/db/Database';
 import { analyticsEvents } from '@/server/db/Schema';
@@ -64,6 +65,13 @@ const nextTimestamp = (): Date => {
   return new Date(ms);
 };
 
+/** Inside a route, every event also says whether it came from an Instagram/Facebook in-app browser (Spec §26.5). */
+const withRequestFacts = (properties: AnalyticsProperties): AnalyticsProperties => {
+  const facts = readAnalyticsRequestFacts();
+
+  return facts ? { ...properties, inApp: facts.inApp } : properties;
+};
+
 /** Validated row with ids replaced by keys. Throws `AnalyticsPropertyError` on disallowed properties. */
 export const buildAnalyticsRow = (
   event: AnalyticsEvent,
@@ -114,7 +122,12 @@ export const track = (event: AnalyticsEvent, input: TrackInput = {}): void => {
       return;
     }
 
-    const row = buildAnalyticsRow(event, input, config.appSecret, nextTimestamp());
+    const row = buildAnalyticsRow(
+      event,
+      { ...input, properties: withRequestFacts(input.properties ?? {}) },
+      config.appSecret,
+      nextTimestamp(),
+    );
 
     if (config.analyticsSink === AnalyticsSink.CONSOLE) {
       console.info(JSON.stringify({ type: 'analytics', ...row }));

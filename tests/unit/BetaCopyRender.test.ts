@@ -18,6 +18,8 @@ import { TeamMode } from '@/domain/enums/TeamMode';
 import { VisionProviderType } from '@/domain/enums/VisionProviderType';
 import { type PublicConfigResponse } from '@/domain/types/api/PublicConfigResponse';
 
+const SHARE_LATER_URL = 'http://localhost:3100/?utm_source=share_later';
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
 }));
@@ -121,8 +123,14 @@ describe('beta free copy (smoke render)', () => {
   });
 
   it('upload panel (signed out, with the landing guide)', () => {
-    const beta = renderWithConfig(BillingMode.BETA_FREE, createElement(UploadPanel, { isLoggedIn: false }));
-    const paid = renderWithConfig(BillingMode.PAID, createElement(UploadPanel, { isLoggedIn: false }));
+    const beta = renderWithConfig(
+      BillingMode.BETA_FREE,
+      createElement(UploadPanel, { isLoggedIn: false, shareLaterUrl: SHARE_LATER_URL }),
+    );
+    const paid = renderWithConfig(
+      BillingMode.PAID,
+      createElement(UploadPanel, { isLoggedIn: false, shareLaterUrl: SHARE_LATER_URL }),
+    );
 
     expect(beta).not.toMatch(BILLING_WORDS);
     expect(beta).toContain('근무표 사진을 올려 주세요');
@@ -132,8 +140,14 @@ describe('beta free copy (smoke render)', () => {
   });
 
   it('upload panel (signed in)', () => {
-    const beta = renderWithConfig(BillingMode.BETA_FREE, createElement(UploadPanel, { isLoggedIn: true }));
-    const paid = renderWithConfig(BillingMode.PAID, createElement(UploadPanel, { isLoggedIn: true }));
+    const beta = renderWithConfig(
+      BillingMode.BETA_FREE,
+      createElement(UploadPanel, { isLoggedIn: true, shareLaterUrl: SHARE_LATER_URL }),
+    );
+    const paid = renderWithConfig(
+      BillingMode.PAID,
+      createElement(UploadPanel, { isLoggedIn: true, shareLaterUrl: SHARE_LATER_URL }),
+    );
 
     expect(beta).not.toMatch(BILLING_WORDS);
     expect(beta).toContain('팀으로 함께 쓰기');

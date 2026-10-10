@@ -1,8 +1,10 @@
 import { type Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
+import { buildShareLaterUrl } from '@/client/ShareLater';
 import UploadPanel from '@/components/upload/UploadPanel';
 import { pickLandingMonth } from '@/domain/CalendarLanding';
+import { getAppConfig } from '@/server/config/AppConfig';
 import { getDb } from '@/server/db/Database';
 import { getServerComponentContext } from '@/server/http/RequestContext';
 import { buildEntryPageMetadata, readSiteMetadataSource } from '@/server/metadata/SiteMetadata';
@@ -24,7 +26,12 @@ const HomePage = async () => {
     }
   }
 
-  return <UploadPanel isLoggedIn={Boolean(context.user)} />;
+  return (
+    <UploadPanel
+      isLoggedIn={Boolean(context.user)}
+      shareLaterUrl={buildShareLaterUrl(getAppConfig().appUrl)}
+    />
+  );
 };
 
 export default HomePage;

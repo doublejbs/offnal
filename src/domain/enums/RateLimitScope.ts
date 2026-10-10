@@ -5,4 +5,5 @@ export enum RateLimitScope {
   EXTRACT_USER = 'extract:user',
   SHARED_VIEW_IP = 'shared:ip',
   PAYMENT_WEBHOOK_IP = 'webhook:ip',
+  CLIENT_EVENTS_IP = 'events:ip',
 }

@@ -64,14 +64,21 @@ export const shareOrDownloadFile = async (
   return ShareOutcome.DOWNLOADED;
 };
 
+/** Share sheet title/text sent with a link (the clipboard gets the url only). */
+export type ShareLinkMessage = {
+  title?: string;
+  text?: string;
+};
+
 /** Web Share for the link, otherwise the clipboard. FAILED means the caller shows a selectable field. */
 export const shareOrCopyLink = async (
   url: string,
   environment: ShareEnvironment = getBrowserShareEnvironment(),
+  message: ShareLinkMessage = {},
 ): Promise<ShareOutcome> => {
   if (environment.share) {
     try {
-      await environment.share({ url });
+      await environment.share({ ...message, url });
 
       return ShareOutcome.SHARED;
     } catch (error: unknown) {

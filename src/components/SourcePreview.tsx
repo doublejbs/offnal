@@ -24,14 +24,20 @@ type SourcePreviewProps = {
   src: string;
   /** Image description (personal: "내가 올린 근무표 원본", team: "팀 근무표 원본"). */
   alt?: string;
+  /** Starting zoom (the sample trial opens its wide roster at about two weeks per screen, Spec §26.3). */
+  initialZoom?: number;
 };
 
 /**
  * Owner-only original photo (served no-store). Zoom with buttons, +/- keys or a two-finger pinch;
  * the frame scrolls so a zoomed image can be panned by touch, mouse wheel or arrow keys.
  */
-const SourcePreview = ({ src, alt = '내가 올린 근무표 원본' }: SourcePreviewProps) => {
-  const [zoom, setZoom] = useState(MIN_ZOOM);
+const SourcePreview = ({
+  src,
+  alt = '내가 올린 근무표 원본',
+  initialZoom = MIN_ZOOM,
+}: SourcePreviewProps) => {
+  const [zoom, setZoom] = useState(() => clampZoom(initialZoom));
   const [hasError, setHasError] = useState(false);
   const pointersRef = useRef(new Map<number, { x: number; y: number }>());
   const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);

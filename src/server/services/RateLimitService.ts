@@ -183,3 +183,15 @@ export const enforceWebhookLimit = async (db: DbExecutor, ipHash: string): Promi
     },
   ]);
 };
+
+/** Client analytics events per IP hash (POST /api/events, Spec §26.5). Throws 429 over the limit. */
+export const enforceClientEventLimit = async (db: DbExecutor, ipHash: string): Promise<void> => {
+  await enforceRateLimits(db, [
+    {
+      scope: RateLimitScope.CLIENT_EVENTS_IP,
+      subject: ipHash,
+      window: RateLimitWindow.DAILY,
+      limit: getAppConfig().rateLimitEventsIpDaily,
+    },
+  ]);
+};

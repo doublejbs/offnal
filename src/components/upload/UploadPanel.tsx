@@ -1,38 +1,64 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarPlus, Image as ImageIcon, Link as LinkIcon, LoaderCircle, ScanLine } from 'lucide-react';
-import { useId } from 'react';
+import {
+  CalendarPlus,
+  FlaskConical,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  LoaderCircle,
+  ScanLine,
+} from 'lucide-react';
+import { useId, useRef } from 'react';
 
+import { sendClientEvent } from '@/client/ClientAnalytics';
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
-import { formatHours } from '@/client/LandingCopy';
+import { formatHours, LANDING_SUBTITLE_LINES } from '@/client/LandingCopy';
+import { SAMPLE_TRY_LINK_TEXT, SAMPLE_TRY_PATH } from '@/client/SampleTryCopy';
 import { TEAM_COMING_SOON_UPLOAD_TEXT } from '@/client/TeamComingSoonCopy';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import LandingGuideView from '@/components/upload/LandingGuideView';
+import SamplePreviewView from '@/components/upload/SamplePreviewView';
+import ShareLaterView from '@/components/upload/ShareLaterView';
+import { UPLOAD_BOX_ID, useUploadHashFocus } from '@/components/upload/UseUploadHashFocus';
 import { useUploadState } from '@/components/upload/UseUploadState';
 import LoginOptions from '@/components/LoginOptions';
 import { isBetaFree } from '@/domain/BillingPolicy';
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { LoginClickSource } from '@/domain/enums/LoginClickSource';
 import { LoginEmphasis } from '@/domain/enums/LoginEmphasis';
 import { isTeamComingSoon } from '@/domain/TeamPolicy';
 
 type UploadPanelProps = {
   isLoggedIn: boolean;
+  /** "링크 보내 두기" target: APP_URL + `?utm_source=share_later` (Spec §26.4), built on the server. */
+  shareLaterUrl: string;
+};
+
+/** On the input: a label click reaches it as a click too, and so does keyboard activation. */
+const handleUploadClick = () => {
+  sendClientEvent({ event: AnalyticsEvent.LANDING_UPLOAD_CLICKED });
 };
 
 /**
  * Entry screen: free months and price from server config, AI/deletion notice before choosing a photo; signed out,
- * a service guide (Spec §17). Beta free mode shows no price, free months or payment (Spec §20.4).
+ * a service guide (Spec §17). Beta free mode shows no price, free months or payment (Spec §20.4). A sample
+ * calendar preview sits above the upload box; the sample trial and share-later controls below it (Spec §26).
  */
-const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
+const UploadPanel = ({ isLoggedIn, shareLaterUrl }: UploadPanelProps) => {
   const config = usePublicConfig();
   const { billingMode, freeMonthLimit, priceKrw, sourceTtlHours, uploadMaxBytes } = config;
   const isBeta = isBetaFree(config);
   const teamComingSoon = isTeamComingSoon(config);
   const { isUploading, statusText, error, handleFileChange } = useUploadState(uploadMaxBytes);
   const inputId = useId();
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const loginSectionId = useId();
   const freeMonths = formatMonthCount(freeMonthLimit);
   const price = formatPrice(priceKrw);
+
+  useUploadHashFocus(boxRef, inputRef);
 
   return (
     <>
@@ -42,30 +68,33 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
         <br />
         이번 달 준비 끝.
       </h1>
-      <p>
-        내 근무만 달력으로 정리하고
+      <p className="landing-subtitle">
+        {LANDING_SUBTITLE_LINES[0]}
         <br />
-        가족과 친구에게 공유해 보세요.
+        {LANDING_SUBTITLE_LINES[1]}
       </p>
-      <div className="uploadbox">
+      <SamplePreviewView />
+      <div id={UPLOAD_BOX_ID} ref={boxRef} className="uploadbox">
         <div className="uploadicon" aria-hidden="true">
           <ScanLine size={22} />
         </div>
         <h2>근무표 사진을 올려 주세요</h2>
         <p>표 전체와 날짜가 선명하게 보이는 사진 (JPG·PNG·WebP)</p>
         <input
+          ref={inputRef}
           id={inputId}
           className="visually-hidden"
           type="file"
           accept="image/jpeg,image/png,image/webp"
           onChange={handleFileChange}
+          onClick={handleUploadClick}
           disabled={isUploading}
         />
         <label htmlFor={inputId} className="primary" aria-disabled={isUploading} data-busy={isUploading}>
           {isUploading ? <LoaderCircle size={18} className="spin" aria-hidden="true" /> : null}
           {isUploading ? '올리는 중…' : '사진 선택'}
         </label>
-        <div className="status-line mt-10" role="status" aria-live="polite">
+        <div className="status-line upload-status" role="status" aria-live="polite">
           {statusText}
         </div>
         {error && (
@@ -74,6 +103,11 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
           </div>
         )}
       </div>
+      <Link href={SAMPLE_TRY_PATH} className="secondary sample-try-link">
+        <FlaskConical size={17} aria-hidden="true" />
+        {SAMPLE_TRY_LINK_TEXT}
+      </Link>
+      <ShareLaterView shareUrl={shareLaterUrl} />
       <div className="hint keep-all">
         사진은 AI로 분석하며 공유 화면에는 포함되지 않아요.
         <br />
@@ -133,7 +167,12 @@ const UploadPanel = ({ isLoggedIn }: UploadPanelProps) => {
         <section className="block" aria-labelledby={loginSectionId}>
           <h2 id={loginSectionId}>이미 이용 중이신가요?</h2>
           <p>로그인하면 저장한 달력을 바로 볼 수 있어요.</p>
-          <LoginOptions returnTo="/" primaryLabel="로그인" emphasis={LoginEmphasis.SECONDARY} />
+          <LoginOptions
+            returnTo="/"
+            primaryLabel="로그인"
+            emphasis={LoginEmphasis.SECONDARY}
+            analyticsFrom={LoginClickSource.LANDING}
+          />
         </section>
       )}
     </>

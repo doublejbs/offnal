@@ -24,6 +24,7 @@
     "db:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/db/DbCheck.ts",
     "storage:check": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/storage/StorageCheck.ts",
     "brand:images": "tsx scripts/GenerateBrandImages.ts",
+    "sample:roster": "tsx scripts/GenerateSampleRoster.ts",
     "vision:eval": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/vision/eval/VisionEval.ts",
     "ocr:shadow-report": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/vision/ocr/OcrShadowReport.ts",
     "analytics:report": "tsx --conditions=react-server --env-file-if-exists=.env.local src/server/analytics/AnalyticsReport.ts"

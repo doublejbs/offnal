@@ -5,7 +5,15 @@ import { z } from 'zod';
 
 import { MS_PER_DAY } from '@/domain/DomainLimits';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
-import { type AnalyticsReportData, type DailyEventCount } from '@/server/analytics/AnalyticsStats';
+import { LoginClickSource } from '@/domain/enums/LoginClickSource';
+import { ShareLaterMethod } from '@/domain/enums/ShareLaterMethod';
+import {
+  type AnalyticsReportData,
+  type DailyEventCount,
+  emptyLandingCounts,
+  type LandingCounts,
+  type LandingReport,
+} from '@/server/analytics/AnalyticsStats';
 import { type DbExecutor } from '@/server/db/Database';
 
 const RETENTION_DAYS = 7;
@@ -57,12 +65,55 @@ const weeklySchema = z.object({ users: count });
 const retentionSchema = z.object({ eligible: count, retained: count });
 const dailyActiveSchema = z.object({ date: z.string(), users: count });
 const dailyEventSchema = z.object({ date: z.string(), event: z.enum(AnalyticsEvent), count });
+const landingSchema = z.object({
+  in_app: z.boolean().nullable(),
+  upload_clicked: count,
+  uploads: count,
+  sample_started: count,
+  sample_completed: count,
+  sample_cta_clicked: count,
+  share_later_clicked: count,
+  share_later_shared: count,
+  share_later_copied: count,
+  login_clicked: count,
+  login_clicked_landing: count,
+  login_clicked_gate: count,
+  login_completed: count,
+  login_failed: count,
+});
+
+const toLandingCounts = (row: z.infer<typeof landingSchema>): LandingCounts => ({
+  uploadClicked: row.upload_clicked,
+  uploads: row.uploads,
+  sampleStarted: row.sample_started,
+  sampleCompleted: row.sample_completed,
+  sampleCtaClicked: row.sample_cta_clicked,
+  shareLaterClicked: row.share_later_clicked,
+  shareLaterShared: row.share_later_shared,
+  shareLaterCopied: row.share_later_copied,
+  loginClicked: row.login_clicked,
+  loginClickedLanding: row.login_clicked_landing,
+  loginClickedGate: row.login_clicked_gate,
+  loginCompleted: row.login_completed,
+  loginFailed: row.login_failed,
+});
+
+const addLandingCounts = (left: LandingCounts, right: LandingCounts): LandingCounts => {
+  const sum = emptyLandingCounts();
+
+  for (const key of Object.keys(sum) as (keyof LandingCounts)[]) {
+    sum[key] = left[key] + right[key];
+  }
+
+  return sum;
+};
 
 /** Timestamps as ISO text (both drivers bind strings the same way). */
 const at = (value: Date) => sql`${value.toISOString()}::timestamptz`;
 const isEvent = (event: AnalyticsEvent) => sql`event = ${event}`;
 const intProperty = (key: string) => sql`(properties ->> ${key})::int`;
 const boolProperty = (key: string) => sql`coalesce((properties ->> ${key})::boolean, false)`;
+const textProperty = (key: string) => sql`properties ->> ${key}`;
 const seoulDate = (column: ReturnType<typeof sql>) =>
   sql`to_char(${column} at time zone ${SEOUL}, 'YYYY-MM-DD')`;
 
@@ -243,6 +294,8 @@ export const collectAnalyticsReport = async (
     `),
   ).map((row) => dailyEventSchema.parse(row));
 
+  const landing = await collectLandingReport(db, inWindow);
+
   return {
     days,
     funnel,
@@ -263,5 +316,58 @@ export const collectAnalyticsReport = async (
     activity: { dailyActive, weeklyActive: weekly.users },
     retention,
     daily,
+    landing,
   };
+};
+
+/**
+ * Spec §26.5 entry-screen counts in the window, grouped by the server-computed `inApp` (null: recorded
+ * before the flag existed, counted in the total only).
+ */
+const collectLandingReport = async (
+  db: DbExecutor,
+  inWindow: ReturnType<typeof sql>,
+): Promise<LandingReport> => {
+  const counted = (condition: ReturnType<typeof sql>) => sql`count(*) filter (where ${condition})`;
+  const rows = readRows(
+    await db.execute(sql`
+      select
+        (properties ->> 'inApp')::boolean as in_app,
+        ${counted(isEvent(AnalyticsEvent.LANDING_UPLOAD_CLICKED))} as upload_clicked,
+        ${counted(sql`${isEvent(AnalyticsEvent.UPLOAD_STARTED)} and not ${boolProperty('team')}`)} as uploads,
+        ${counted(isEvent(AnalyticsEvent.SAMPLE_STARTED))} as sample_started,
+        ${counted(isEvent(AnalyticsEvent.SAMPLE_COMPLETED))} as sample_completed,
+        ${counted(isEvent(AnalyticsEvent.SAMPLE_CTA_CLICKED))} as sample_cta_clicked,
+        ${counted(isEvent(AnalyticsEvent.SHARE_LATER_CLICKED))} as share_later_clicked,
+        ${counted(sql`${isEvent(AnalyticsEvent.SHARE_LATER_CLICKED)} and ${textProperty('method')} = ${ShareLaterMethod.SHARE}`)} as share_later_shared,
+        ${counted(sql`${isEvent(AnalyticsEvent.SHARE_LATER_CLICKED)} and ${textProperty('method')} = ${ShareLaterMethod.COPY}`)} as share_later_copied,
+        ${counted(isEvent(AnalyticsEvent.LOGIN_CLICKED))} as login_clicked,
+        ${counted(sql`${isEvent(AnalyticsEvent.LOGIN_CLICKED)} and ${textProperty('from')} = ${LoginClickSource.LANDING}`)} as login_clicked_landing,
+        ${counted(sql`${isEvent(AnalyticsEvent.LOGIN_CLICKED)} and ${textProperty('from')} = ${LoginClickSource.GATE}`)} as login_clicked_gate,
+        ${counted(isEvent(AnalyticsEvent.LOGIN_COMPLETED))} as login_completed,
+        ${counted(isEvent(AnalyticsEvent.LOGIN_FAILED))} as login_failed
+      from analytics_events
+      where ${inWindow}
+      group by 1
+    `),
+  ).map((row) => landingSchema.parse(row));
+  const report: LandingReport = {
+    all: emptyLandingCounts(),
+    inApp: emptyLandingCounts(),
+    notInApp: emptyLandingCounts(),
+  };
+
+  for (const row of rows) {
+    const counts = toLandingCounts(row);
+
+    report.all = addLandingCounts(report.all, counts);
+
+    if (row.in_app === true) {
+      report.inApp = addLandingCounts(report.inApp, counts);
+    } else if (row.in_app === false) {
+      report.notInApp = addLandingCounts(report.notInApp, counts);
+    }
+  }
+
+  return report;
 };

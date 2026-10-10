@@ -25,6 +25,48 @@ export type FunnelStep = {
 
 export type DailyEventCount = { date: string; event: AnalyticsEvent; count: number };
 
+/** Entry-screen event counts (Spec §26.5): plain event counts, the client events carry no job to follow. */
+export type LandingCounts = {
+  uploadClicked: number;
+  /** Personal `upload_started` (team roster uploads excluded). */
+  uploads: number;
+  sampleStarted: number;
+  sampleCompleted: number;
+  sampleCtaClicked: number;
+  shareLaterClicked: number;
+  shareLaterShared: number;
+  shareLaterCopied: number;
+  loginClicked: number;
+  loginClickedLanding: number;
+  loginClickedGate: number;
+  loginCompleted: number;
+  loginFailed: number;
+};
+
+export type LandingReport = {
+  all: LandingCounts;
+  /** `inApp = true`: Instagram/Facebook in-app browser. */
+  inApp: LandingCounts;
+  /** `inApp = false`. Events recorded before `inApp` existed are only in `all`. */
+  notInApp: LandingCounts;
+};
+
+export const emptyLandingCounts = (): LandingCounts => ({
+  uploadClicked: 0,
+  uploads: 0,
+  sampleStarted: 0,
+  sampleCompleted: 0,
+  sampleCtaClicked: 0,
+  shareLaterClicked: 0,
+  shareLaterShared: 0,
+  shareLaterCopied: 0,
+  loginClicked: 0,
+  loginClickedLanding: 0,
+  loginClickedGate: 0,
+  loginCompleted: 0,
+  loginFailed: 0,
+});
+
 export type AnalyticsReportData = {
   days: number;
   funnel: FunnelCounts;
@@ -65,6 +107,7 @@ export type AnalyticsReportData = {
     retained: number;
   };
   daily: DailyEventCount[];
+  landing: LandingReport;
 };
 
 const FUNNEL_LABELS: [keyof FunnelCounts, string][] = [
@@ -131,6 +174,25 @@ const formatDaily = (rows: DailyEventCount[]): string[] => {
   ];
 };
 
+/** "10 → 업로드 3 (30.0%)": a count followed by the next step and its share of the previous one. */
+const formatStep = (label: string, count: number, previous: number): string =>
+  `${label} ${count} (${formatRate(toRate(count, previous))})`;
+
+const formatLandingGroup = (title: string, counts: LandingCounts): string[] => [
+  `  ${title}`,
+  `    사진 선택 누름 ${counts.uploadClicked} → ${formatStep('업로드', counts.uploads, counts.uploadClicked)}`,
+  `    예시 체험 시작 ${counts.sampleStarted} → ${formatStep('완료', counts.sampleCompleted, counts.sampleStarted)} → ${formatStep('내 근무표로 만들기', counts.sampleCtaClicked, counts.sampleCompleted)}`,
+  `    나중에 하기 누름 ${counts.shareLaterClicked} (공유 시트 ${counts.shareLaterShared} — 취소 포함 · 복사 ${counts.shareLaterCopied})`,
+  `    로그인 누름 ${counts.loginClicked} (첫 화면 ${counts.loginClickedLanding} · 게이트 ${counts.loginClickedGate}) · 로그인 완료(모든 경로) ${counts.loginCompleted} · 실패 ${counts.loginFailed}`,
+];
+
+const formatLanding = (landing: LandingReport): string[] => [
+  '첫 화면 깔때기 (기간 안 이벤트 건수 · 방문 수는 Vercel 대시보드에서, 업로드·로그인 완료는 모든 경로 포함 — 로그인 완료는 누름 대비 비율이 아님)',
+  ...formatLandingGroup('전체', landing.all),
+  ...formatLandingGroup('앱 안 브라우저(인스타그램·페이스북)', landing.inApp),
+  ...formatLandingGroup('일반 브라우저', landing.notInApp),
+];
+
 const average = (values: number[]): number | null =>
   values.length === 0 ? null : values.reduce((sum, value) => sum + value, 0) / values.length;
 
@@ -161,6 +223,8 @@ export const formatAnalyticsReport = (data: AnalyticsReportData): string => {
     `  일 활성(평균): ${dailyAverage === null ? '—' : `${dailyAverage.toFixed(1)}명`}, 마지막 날(${latestDay?.date ?? '—'}): ${latestDay?.users ?? 0}명`,
     `  주 활성(마지막 7일): ${activity.weeklyActive}명`,
     `  7일 재방문율: ${formatRate(toRate(retention.retained, retention.eligible))} (${retention.retained}/${retention.eligible}명, 첫 발행 후 7일이 지난 사용자 기준)`,
+    '',
+    ...formatLanding(data.landing),
     '',
     '이벤트별 일자 건수 (서울 기준)',
     ...formatDaily(data.daily),
