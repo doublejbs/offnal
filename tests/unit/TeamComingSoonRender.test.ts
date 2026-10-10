@@ -35,6 +35,8 @@ import { createEnvSandbox } from '../helpers/EnvSandbox';
  * leads to `/teams` or `/join`; enabled mode keeps today's links.
  */
 
+const SHARE_LATER_URL = 'http://localhost:3100/?utm_source=share_later';
+
 vi.mock('next/navigation', () => ({
   usePathname: () => '/calendar',
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),
@@ -159,7 +161,9 @@ describe('team coming soon (smoke render)', () => {
   });
 
   it('landing team section: 준비 중 chip, same description, no 팀 공유 알아보기', () => {
-    const { soon, enabled } = renderBoth(createElement(UploadPanel, { isLoggedIn: false }));
+    const { soon, enabled } = renderBoth(
+      createElement(UploadPanel, { isLoggedIn: false, shareLaterUrl: SHARE_LATER_URL }),
+    );
 
     expect(soon).toMatch(/팀 전체가 함께 쓰려면<span class="soon-chip">준비 중<\/span><\/h2>/);
     expect(soon).toContain('근무표 담당자가 사진을 한 번 올리면 팀원 모두가 각자 달력을 받아요.');
@@ -170,7 +174,9 @@ describe('team coming soon (smoke render)', () => {
   });
 
   it('upload (signed in): plain 팀 공유 · 준비 중 text instead of the link', () => {
-    const { soon, enabled } = renderBoth(createElement(UploadPanel, { isLoggedIn: true }));
+    const { soon, enabled } = renderBoth(
+      createElement(UploadPanel, { isLoggedIn: true, shareLaterUrl: SHARE_LATER_URL }),
+    );
 
     expect(soon).toContain('<span class="tiny">팀 공유 · 준비 중</span>');
     expect(soon).not.toContain('팀으로 함께 쓰기');

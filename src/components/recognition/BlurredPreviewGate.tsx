@@ -9,6 +9,7 @@ import { WEEKDAY_LABELS } from '@/client/MonthLayout';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import LoginOptions from '@/components/LoginOptions';
 import { isBetaFree } from '@/domain/BillingPolicy';
+import { LoginClickSource } from '@/domain/enums/LoginClickSource';
 
 const PLACEHOLDER_CELL_COUNT = 35;
 const PLACEHOLDER_CELLS = Array.from({ length: PLACEHOLDER_CELL_COUNT }, (_, index) => index);
@@ -70,6 +71,7 @@ const BlurredPreviewGate = ({ recognitionId, loginFailed }: BlurredPreviewGatePr
       <LoginOptions
         returnTo={`/recognitions/${recognitionId}`}
         primaryLabel={isBeta ? '로그인하고 확인' : '로그인하고 무료로 확인'}
+        analyticsFrom={LoginClickSource.GATE}
       />
       {!isBeta && (
         <div className="hint">

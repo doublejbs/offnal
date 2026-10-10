@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { LoginClickSource } from '@/domain/enums/LoginClickSource';
+import { LoginFailureKind } from '@/domain/enums/LoginFailureKind';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
+import { ShareLaterMethod } from '@/domain/enums/ShareLaterMethod';
 import {
   type AnalyticsProperties,
   AnalyticsPropertyError,
@@ -18,6 +21,17 @@ describe('validateAnalyticsProperties', () => {
 
     expect(validateAnalyticsProperties(properties)).toEqual(properties);
     expect(validateAnalyticsProperties({})).toEqual({});
+  });
+
+  it('accepts the entry-screen enums (Spec §26.5)', () => {
+    const properties: AnalyticsProperties = {
+      method: ShareLaterMethod.COPY,
+      from: LoginClickSource.GATE,
+      kind: LoginFailureKind.EXCHANGE_FAILED,
+      inApp: true,
+    };
+
+    expect(validateAnalyticsProperties(properties)).toEqual(properties);
   });
 
   it('rejects free strings, also at the type level', () => {

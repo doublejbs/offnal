@@ -1,17 +1,26 @@
+import { LoginClickSource } from '@/domain/enums/LoginClickSource';
+import { LoginFailureKind } from '@/domain/enums/LoginFailureKind';
 import { RecognitionErrorCode } from '@/domain/enums/RecognitionErrorCode';
+import { ShareLaterMethod } from '@/domain/enums/ShareLaterMethod';
 
 /**
  * String values allowed in properties: members of these fixed enums only (Spec §23.1). TypeScript string
  * enums are nominal, so a plain string (a name, a code, a token) does not type-check as one of these.
  */
-export type AnalyticsEnumValue = RecognitionErrorCode;
+export type AnalyticsEnumValue =
+  RecognitionErrorCode | ShareLaterMethod | LoginClickSource | LoginFailureKind;
 
 export type AnalyticsPropertyValue = number | boolean | AnalyticsEnumValue;
 
 /** Only numbers, booleans and declared enum values: never names, schedules, tokens or source data. */
 export type AnalyticsProperties = Readonly<Record<string, AnalyticsPropertyValue>>;
 
-const ALLOWED_ENUM_VALUES: ReadonlySet<string> = new Set<string>([...Object.values(RecognitionErrorCode)]);
+const ALLOWED_ENUM_VALUES: ReadonlySet<string> = new Set<string>([
+  ...Object.values(RecognitionErrorCode),
+  ...Object.values(ShareLaterMethod),
+  ...Object.values(LoginClickSource),
+  ...Object.values(LoginFailureKind),
+]);
 
 const MAX_PROPERTY_COUNT = 16;
 /** camelCase identifiers, so a key can never carry free text either. */

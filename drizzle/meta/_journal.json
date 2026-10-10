@@ -99,6 +99,13 @@
       "when": 1791448501724,
       "tag": "0013_analytics_events_subject_index",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791598909400,
+      "tag": "0014_analytics_events_landing_events",
+      "breakpoints": true
     }
   ]
 }

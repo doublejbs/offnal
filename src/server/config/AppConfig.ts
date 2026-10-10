@@ -77,6 +77,8 @@ export type AppConfig = {
   rateLimitSharedIpDaily: number;
   /** Payment webhook deliveries per IP per day (generous: all events come from a few provider IPs). */
   rateLimitWebhookIpDaily: number;
+  /** Client analytics events (POST /api/events) per IP per day (Spec §26.5). */
+  rateLimitEventsIpDaily: number;
   sourceTtlHours: number;
   draftTtlDays: number;
   cronSecret: string | null;
@@ -165,6 +167,7 @@ const envSchema = z.object({
   EXTRACT_LIMIT_USER_MONTHLY: positiveInt(30),
   RATE_LIMIT_SHARED_IP_DAILY: positiveInt(300),
   RATE_LIMIT_WEBHOOK_IP_DAILY: positiveInt(5000),
+  RATE_LIMIT_EVENTS_IP_DAILY: positiveInt(300),
   SOURCE_TTL_HOURS: positiveInt(24),
   DRAFT_TTL_DAYS: positiveInt(30),
   CRON_SECRET: optionalText,
@@ -408,6 +411,7 @@ export const parseAppConfig = (rawEnv: RawEnv): AppConfig => {
     extractLimitUserMonthly: parsed.EXTRACT_LIMIT_USER_MONTHLY,
     rateLimitSharedIpDaily: parsed.RATE_LIMIT_SHARED_IP_DAILY,
     rateLimitWebhookIpDaily: parsed.RATE_LIMIT_WEBHOOK_IP_DAILY,
+    rateLimitEventsIpDaily: parsed.RATE_LIMIT_EVENTS_IP_DAILY,
     sourceTtlHours: parsed.SOURCE_TTL_HOURS,
     draftTtlDays: parsed.DRAFT_TTL_DAYS,
     cronSecret: parsed.CRON_SECRET ?? null,

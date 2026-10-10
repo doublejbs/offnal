@@ -1,14 +1,19 @@
 'use client';
 
+import { sendClientEvent } from '@/client/ClientAnalytics';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import { MAX_DISPLAY_NAME_LENGTH } from '@/domain/DomainLimits';
+import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { AuthProviderType } from '@/domain/enums/AuthProviderType';
+import { type LoginClickSource } from '@/domain/enums/LoginClickSource';
 import { LoginEmphasis } from '@/domain/enums/LoginEmphasis';
 
 type LoginOptionsProps = {
   returnTo: string;
   primaryLabel: string;
   emphasis?: LoginEmphasis;
+  /** Measured entry points (Spec §26.5): a Kakao button click records `login_clicked` with this `from`. */
+  analyticsFrom?: LoginClickSource;
 };
 
 const buildKakaoHref = (returnTo: string): string =>
@@ -28,11 +33,22 @@ const KakaoSymbol = () => (
  * Kakao login (via Supabase Auth) and, in demo mode only, a clearly labelled instant login form.
  * Kakao keeps its brand label and colors; the demo form gets the primary button when it is alone.
  */
-const LoginOptions = ({ returnTo, primaryLabel, emphasis = LoginEmphasis.PRIMARY }: LoginOptionsProps) => {
+const LoginOptions = ({
+  returnTo,
+  primaryLabel,
+  emphasis = LoginEmphasis.PRIMARY,
+  analyticsFrom,
+}: LoginOptionsProps) => {
   const { authProviders } = usePublicConfig();
   const hasKakao = authProviders.includes(AuthProviderType.KAKAO);
   const hasDev = authProviders.includes(AuthProviderType.DEV);
   const isSecondary = emphasis === LoginEmphasis.SECONDARY;
+
+  const handleKakaoClick = () => {
+    if (analyticsFrom) {
+      sendClientEvent({ event: AnalyticsEvent.LOGIN_CLICKED, properties: { from: analyticsFrom } });
+    }
+  };
 
   if (!hasKakao && !hasDev) {
     return <div className="warning">아직 로그인 수단이 연결되지 않았어요. 설정을 기다리고 있어요.</div>;
@@ -44,6 +60,7 @@ const LoginOptions = ({ returnTo, primaryLabel, emphasis = LoginEmphasis.PRIMARY
         <a
           className={isSecondary ? 'secondary kakao-login compact' : 'primary kakao-login'}
           href={buildKakaoHref(returnTo)}
+          onClick={handleKakaoClick}
         >
           <KakaoSymbol />
           카카오로 로그인

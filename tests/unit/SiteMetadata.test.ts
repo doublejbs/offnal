@@ -33,7 +33,7 @@ describe('buildSiteMetadata', () => {
 
   it('builds the description from pricing config', () => {
     expect(buildSiteMetadata(SOURCE).description).toBe(
-      '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요. 처음 두 달 무료, 이후 한 달분 990원.',
+      '3교대 근무표 사진 한 장으로 내 D·E·N만 달력에 정리해 캘린더에 추가하고 가족·연인과 공유해요. 처음 두 달 무료, 이후 한 달분 990원.',
     );
     expect(buildSiteMetadata({ ...SOURCE, priceKrw: 2500, freeMonthLimit: 1 }).description).toContain(
       '처음 한 달 무료, 이후 한 달분 2,500원.',
@@ -44,7 +44,7 @@ describe('buildSiteMetadata', () => {
     const description = buildSiteMetadata({ ...SOURCE, billingMode: BillingMode.BETA_FREE }).description;
 
     expect(description).toBe(
-      '근무표 사진을 올리면 내 근무만 달력으로 정리해 캘린더에 추가하고 가족·연인과 공유해요.',
+      '3교대 근무표 사진 한 장으로 내 D·E·N만 달력에 정리해 캘린더에 추가하고 가족·연인과 공유해요.',
     );
     expect(description).not.toMatch(/원|무료|결제|이용권/);
   });

@@ -136,3 +136,77 @@
   margin-left: 6px;
   vertical-align: 2px;
 }
+
+/* Entry-screen subtitle (Spec §26.1): keeps "D·E·N" on one line. */
+.landing-subtitle {
+  word-break: keep-all;
+  margin-bottom: 16px;
+}
+
+/*
+ * Sample calendar preview (Spec §26.2): the shared static month grid, compacted and cut after about two
+ * weeks with a fade, so "사진 선택" stays in the first 390×844 viewport.
+ */
+.sample-preview {
+  margin: 0 0 4px;
+}
+
+.sample-preview-frame {
+  position: relative;
+  max-height: 150px;
+  overflow: hidden;
+  padding: 10px 10px 0;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg);
+  -webkit-mask-image: linear-gradient(to bottom, #000 74%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 74%, transparent 100%);
+}
+
+.sample-preview-grid .week {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.sample-preview-grid .day {
+  min-height: 0;
+  gap: 3px;
+  padding: 4px 1px;
+  font-size: 12px;
+}
+
+.sample-preview-grid .badge {
+  min-width: 26px;
+  padding: 2px 2px;
+  font-size: 11px;
+}
+
+.sample-preview-caption {
+  margin-top: 6px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--sub);
+}
+
+/* Share later (Spec §26.4): a quiet secondary control under the upload box, below the primary action. */
+.share-later {
+  margin: 0 0 4px;
+}
+
+.share-later-button {
+  min-height: 44px;
+  padding: 10px 14px;
+  font-size: 14px;
+  word-break: keep-all;
+}
+
+.share-later-button svg {
+  flex: none;
+  color: var(--sub);
+}
+
+.share-later-status {
+  margin-top: 6px;
+  text-align: center;
+  overflow-wrap: anywhere;
+}

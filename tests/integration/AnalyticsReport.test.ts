@@ -2,6 +2,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { MS_PER_DAY } from '@/domain/DomainLimits';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
+import { LoginClickSource } from '@/domain/enums/LoginClickSource';
+import { LoginFailureKind } from '@/domain/enums/LoginFailureKind';
+import { ShareLaterMethod } from '@/domain/enums/ShareLaterMethod';
 import { collectAnalyticsReport } from '@/server/analytics/AnalyticsReportQueries';
 import { formatAnalyticsReport } from '@/server/analytics/AnalyticsStats';
 import { analyticsEvents } from '@/server/db/Schema';
@@ -162,5 +165,77 @@ describe('collectAnalyticsReport', () => {
     expect(report.quality.reviewCells).toEqual({ p50: null, p95: null });
     expect(report.retention).toEqual({ eligible: 0, retained: 0 });
     expect(formatAnalyticsReport(report)).toContain('이벤트 없음');
+  });
+
+  it('computes the §26.5 entry-screen funnel with the inApp split', async () => {
+    // A window far from the rows above, so only these events count.
+    const later = new Date(NOW.getTime() + 400 * MS_PER_DAY);
+    const at = new Date(later.getTime() - MS_PER_DAY);
+    const inApp = { inApp: true };
+    const regular = { inApp: false };
+
+    await env.db.insert(analyticsEvents).values([
+      row(AnalyticsEvent.LANDING_UPLOAD_CLICKED, at, {}, inApp),
+      row(AnalyticsEvent.LANDING_UPLOAD_CLICKED, at, {}, inApp),
+      row(AnalyticsEvent.LANDING_UPLOAD_CLICKED, at, {}, regular),
+      // Recorded before inApp existed: counted in the total only.
+      row(AnalyticsEvent.LANDING_UPLOAD_CLICKED, at, {}),
+      row(AnalyticsEvent.UPLOAD_STARTED, at, { subject: '5'.repeat(32) }, { team: false, inApp: true }),
+      row(AnalyticsEvent.UPLOAD_STARTED, at, { subject: '6'.repeat(32) }, { team: false, inApp: false }),
+      row(AnalyticsEvent.UPLOAD_STARTED, at, { subject: '7'.repeat(32) }, { team: true, inApp: false }),
+      row(AnalyticsEvent.SAMPLE_STARTED, at, {}, inApp),
+      row(AnalyticsEvent.SAMPLE_STARTED, at, {}, regular),
+      row(AnalyticsEvent.SAMPLE_COMPLETED, at, {}, inApp),
+      row(AnalyticsEvent.SAMPLE_CTA_CLICKED, at, {}, inApp),
+      row(AnalyticsEvent.SHARE_LATER_CLICKED, at, {}, { method: ShareLaterMethod.SHARE, inApp: true }),
+      row(AnalyticsEvent.SHARE_LATER_CLICKED, at, {}, { method: ShareLaterMethod.COPY, inApp: false }),
+      row(AnalyticsEvent.LOGIN_CLICKED, at, {}, { from: LoginClickSource.LANDING, inApp: true }),
+      row(AnalyticsEvent.LOGIN_CLICKED, at, {}, { from: LoginClickSource.GATE, inApp: true }),
+      row(AnalyticsEvent.LOGIN_CLICKED, at, {}, { from: LoginClickSource.GATE, inApp: false }),
+      row(AnalyticsEvent.LOGIN_COMPLETED, at, { actor: 'e'.repeat(32) }, { firstLogin: true, inApp: false }),
+      row(AnalyticsEvent.LOGIN_FAILED, at, {}, { kind: LoginFailureKind.CANCELLED, inApp: true }),
+    ]);
+
+    const report = await collectAnalyticsReport(env.db, { days: 30, now: later });
+
+    expect(report.landing.all).toEqual({
+      uploadClicked: 4,
+      uploads: 2,
+      sampleStarted: 2,
+      sampleCompleted: 1,
+      sampleCtaClicked: 1,
+      shareLaterClicked: 2,
+      shareLaterShared: 1,
+      shareLaterCopied: 1,
+      loginClicked: 3,
+      loginClickedLanding: 1,
+      loginClickedGate: 2,
+      loginCompleted: 1,
+      loginFailed: 1,
+    });
+    expect(report.landing.inApp).toMatchObject({
+      uploadClicked: 2,
+      uploads: 1,
+      sampleStarted: 1,
+      sampleCompleted: 1,
+      shareLaterShared: 1,
+      loginClicked: 2,
+      loginCompleted: 0,
+      loginFailed: 1,
+    });
+    expect(report.landing.notInApp).toMatchObject({
+      uploadClicked: 1,
+      uploads: 1,
+      sampleStarted: 1,
+      shareLaterCopied: 1,
+      loginClicked: 1,
+      loginCompleted: 1,
+    });
+
+    const text = formatAnalyticsReport(report);
+
+    expect(text).toContain('첫 화면 깔때기');
+    expect(text).toContain('사진 선택 누름 4 → 업로드 2 (50.0%)');
+    expect(text).toContain('앱 안 브라우저(인스타그램·페이스북)');
   });
 });

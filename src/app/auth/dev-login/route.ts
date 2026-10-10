@@ -2,6 +2,7 @@ import { type NextRequest } from 'next/server';
 import { z } from 'zod';
 
 import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
+import { runWithAnalyticsRequest } from '@/server/analytics/AnalyticsRequestScope';
 import { getDevAuthProvider, isDevLoginEnabled } from '@/server/auth/AuthProviderRegistry';
 import { completeDemoLogin } from '@/server/auth/LoginService';
 import { getDb } from '@/server/db/Database';
@@ -58,38 +59,39 @@ const notFoundResponse = (): Response =>
  * Demo-only instant login (JSON or form). Same completion as the OAuth callback; 303 to `returnTo`.
  * A browser form never gets JSON back: outside demo mode plain 404, any failure → `returnTo?login=failed`.
  */
-export const POST = async (request: NextRequest): Promise<Response> => {
-  if (!isDevLoginEnabled()) {
-    return notFoundResponse();
-  }
-
-  let returnTo = '/';
-
-  try {
-    assertSameOrigin(request);
-
-    const raw = await readRawBody(request);
-
-    returnTo = sanitizeReturnTo(raw.returnTo);
-
-    const parsed = devLoginRequestSchema.safeParse(raw);
-
-    if (!parsed.success) {
-      throw new ApiError(ApiErrorCode.VALIDATION_ERROR);
+export const POST = async (request: NextRequest): Promise<Response> =>
+  runWithAnalyticsRequest(request.headers, async () => {
+    if (!isDevLoginEnabled()) {
+      return notFoundResponse();
     }
 
-    const profile = getDevAuthProvider().createProfile(parsed.data.displayName ?? '');
-    const db = await getDb();
-    const result = await completeDemoLogin(db, await getRequestContext(request, db), profile);
+    let returnTo = '/';
 
-    return buildLoginRedirect(result, returnTo, 303);
-  } catch (error: unknown) {
-    if (error instanceof ApiError) {
-      console.warn('[auth] dev login failed', { code: error.code });
-    } else {
-      logUnexpectedError(request, error);
+    try {
+      assertSameOrigin(request);
+
+      const raw = await readRawBody(request);
+
+      returnTo = sanitizeReturnTo(raw.returnTo);
+
+      const parsed = devLoginRequestSchema.safeParse(raw);
+
+      if (!parsed.success) {
+        throw new ApiError(ApiErrorCode.VALIDATION_ERROR);
+      }
+
+      const profile = getDevAuthProvider().createProfile(parsed.data.displayName ?? '');
+      const db = await getDb();
+      const result = await completeDemoLogin(db, await getRequestContext(request, db), profile);
+
+      return buildLoginRedirect(result, returnTo, 303);
+    } catch (error: unknown) {
+      if (error instanceof ApiError) {
+        console.warn('[auth] dev login failed', { code: error.code });
+      } else {
+        logUnexpectedError(request, error);
+      }
+
+      return buildLoginFailedRedirect(returnTo, 303);
     }
-
-    return buildLoginFailedRedirect(returnTo, 303);
-  }
-};
+  });

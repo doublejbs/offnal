@@ -9,6 +9,7 @@ import {
   track,
 } from '@/server/analytics/Analytics';
 import { buildActorKey, buildSubjectKey } from '@/server/analytics/AnalyticsKeys';
+import { runWithAnalyticsRequest } from '@/server/analytics/AnalyticsRequestScope';
 import { getAppConfig } from '@/server/config/AppConfig';
 
 import { createEnvSandbox } from '../helpers/EnvSandbox';
@@ -97,6 +98,31 @@ describe('track', () => {
     });
     expect(rows[0]?.createdAt).toBeInstanceOf(Date);
     expect(JSON.stringify(rows[0])).not.toContain(JOB_ID);
+  });
+
+  it('adds the request scope inApp flag (never the User-Agent) to every event', async () => {
+    sandbox.set({ ANALYTICS_SINK: 'db' });
+
+    const rows = recordWrites();
+    const userAgent = 'Mozilla/5.0 (iPhone) Mobile/15E148 Instagram 389.0.0.29.87';
+
+    runWithAnalyticsRequest(new Headers({ 'user-agent': userAgent }), () => {
+      track(AnalyticsEvent.UPLOAD_STARTED, { properties: { team: false } });
+    });
+    await runWithAnalyticsRequest(new Headers(), async () => {
+      await Promise.resolve();
+      track(AnalyticsEvent.CALENDAR_VIEWED, { actorUserId: USER_ID });
+    });
+    // Outside a request (scripts): no inApp at all.
+    track(AnalyticsEvent.UPLOAD_STARTED, { properties: { team: true } });
+    await flushAnalyticsForTesting();
+
+    expect(rows.map((row) => row.properties)).toEqual([
+      { team: false, inApp: true },
+      { inApp: false },
+      { team: true },
+    ]);
+    expect(JSON.stringify(rows)).not.toContain('Instagram');
   });
 
   it('defers the write: nothing is written before the scheduled task runs', async () => {

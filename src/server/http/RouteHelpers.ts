@@ -5,6 +5,7 @@ import { ApiErrorCode } from '@/domain/enums/ApiErrorCode';
 import { ContentDisposition } from '@/domain/enums/ContentDisposition';
 import { OffnalEnv } from '@/domain/enums/OffnalEnv';
 import { type ApiErrorBody } from '@/domain/types/api/ApiErrorBody';
+import { runWithAnalyticsRequest } from '@/server/analytics/AnalyticsRequestScope';
 import { getAppConfig } from '@/server/config/AppConfig';
 import { ApiError } from '@/server/errors/ApiError';
 
@@ -104,13 +105,14 @@ export const toErrorResponse = (request: NextRequest, error: unknown): NextRespo
 /** Wraps a JSON route handler: maps ApiError/ZodError to JSON errors and hides unexpected failures. */
 export const withRoute =
   <TArgs extends [NextRequest, ...unknown[]]>(handler: (...args: TArgs) => Promise<Response>) =>
-  async (...args: TArgs): Promise<Response> => {
-    try {
-      return await handler(...args);
-    } catch (error: unknown) {
-      return toErrorResponse(args[0], error);
-    }
-  };
+  async (...args: TArgs): Promise<Response> =>
+    runWithAnalyticsRequest(args[0].headers, async () => {
+      try {
+        return await handler(...args);
+      } catch (error: unknown) {
+        return toErrorResponse(args[0], error);
+      }
+    });
 
 /** CSRF defence for state-changing requests: Origin must equal the APP_URL origin (missing is rejected). */
 export const assertSameOrigin = (request: NextRequest): void => {
@@ -218,16 +220,17 @@ export const buildLoginFailedRedirect = (returnTo: string, status: number): Next
  */
 export const withRedirectRoute =
   (handler: (request: NextRequest) => Promise<Response>, resolveReturnTo: (request: NextRequest) => string) =>
-  async (request: NextRequest): Promise<Response> => {
-    try {
-      return await handler(request);
-    } catch (error: unknown) {
-      if (error instanceof ApiError) {
-        console.warn('[auth] login redirect failed', { path: request.nextUrl.pathname, code: error.code });
-      } else {
-        logUnexpectedError(request, error);
-      }
+  async (request: NextRequest): Promise<Response> =>
+    runWithAnalyticsRequest(request.headers, async () => {
+      try {
+        return await handler(request);
+      } catch (error: unknown) {
+        if (error instanceof ApiError) {
+          console.warn('[auth] login redirect failed', { path: request.nextUrl.pathname, code: error.code });
+        } else {
+          logUnexpectedError(request, error);
+        }
 
-      return buildLoginFailedRedirect(resolveReturnTo(request), 302);
-    }
-  };
+        return buildLoginFailedRedirect(resolveReturnTo(request), 302);
+      }
+    });

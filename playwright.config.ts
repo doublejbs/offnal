@@ -66,6 +66,7 @@ export default defineConfig({
       // Every E2E request comes from one IP: keep per-session/per-user limits, lift the shared IP ones.
       RATE_LIMIT_IP_DAILY: '10000',
       RATE_LIMIT_SHARED_IP_DAILY: '10000',
+      RATE_LIMIT_EVENTS_IP_DAILY: '10000',
       PAYMENT_PROVIDER: 'mock',
       TOSS_CLIENT_KEY: '',
       TOSS_SECRET_KEY: '',
