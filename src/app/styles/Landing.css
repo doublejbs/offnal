@@ -210,3 +210,52 @@
   text-align: center;
   overflow-wrap: anywhere;
 }
+
+/*
+ * Upload box (Spec §26.3-B): the status line under "사진 선택" takes no room until it has text, so the box
+ * does not end in an empty band.
+ */
+.uploadbox {
+  padding-bottom: 18px;
+}
+
+.upload-status {
+  margin-top: 10px;
+}
+
+.upload-status:empty {
+  min-height: 0;
+  margin-top: 0;
+}
+
+/* Sample trial entry (Spec §26.3): secondary, directly under the upload box. */
+.sample-try-link {
+  margin: 0 0 10px;
+  word-break: keep-all;
+}
+
+.sample-try-link svg {
+  flex: none;
+  color: var(--blue);
+}
+
+/* Sample trial (Spec §26.3): a quiet chip on every step that nothing here is saved. */
+.sample-try-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 7px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--sub);
+  font-size: 13px;
+  font-weight: 500;
+  word-break: keep-all;
+}
+
+.sample-try-notice svg {
+  flex: none;
+}

@@ -1,6 +1,7 @@
 import { type Metadata } from 'next';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
+import { SAMPLE_TRY_DESCRIPTION, SAMPLE_TRY_PATH, SAMPLE_TRY_TITLE } from '@/client/SampleTryData';
 import { isBetaFree } from '@/domain/BillingPolicy';
 import { type BillingMode } from '@/domain/enums/BillingMode';
 import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';
@@ -99,6 +100,23 @@ export const buildSiteMetadata = (source: SiteMetadataSource): Metadata => {
 /** For indexable entry pages (`/`, `/upload`): the site og tags plus their own og:url. */
 export const buildEntryPageMetadata = (source: SiteMetadataSource, url: string): Metadata => ({
   openGraph: buildSiteOpenGraph(source, url),
+});
+
+/** /try (Spec §26.3): fixed title and description, site og image, its own og:url; indexable. */
+export const buildSampleTryMetadata = (source: SiteMetadataSource): Metadata => ({
+  title: SAMPLE_TRY_TITLE,
+  description: SAMPLE_TRY_DESCRIPTION,
+  openGraph: {
+    ...buildSiteOpenGraph(source, SAMPLE_TRY_PATH),
+    title: `${SAMPLE_TRY_TITLE} · ${SITE_NAME}`,
+    description: SAMPLE_TRY_DESCRIPTION,
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: `${SAMPLE_TRY_TITLE} · ${SITE_NAME}`,
+    description: SAMPLE_TRY_DESCRIPTION,
+    images: [OG_IMAGE],
+  },
 });
 
 /**

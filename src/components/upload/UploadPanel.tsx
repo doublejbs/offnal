@@ -1,17 +1,26 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarPlus, Image as ImageIcon, Link as LinkIcon, LoaderCircle, ScanLine } from 'lucide-react';
-import { useId } from 'react';
+import {
+  CalendarPlus,
+  FlaskConical,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  LoaderCircle,
+  ScanLine,
+} from 'lucide-react';
+import { useId, useRef } from 'react';
 
 import { sendClientEvent } from '@/client/ClientAnalytics';
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { formatHours, LANDING_SUBTITLE_LINES } from '@/client/LandingCopy';
+import { SAMPLE_TRY_LINK_TEXT, SAMPLE_TRY_PATH } from '@/client/SampleTryData';
 import { TEAM_COMING_SOON_UPLOAD_TEXT } from '@/client/TeamComingSoonCopy';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import LandingGuideView from '@/components/upload/LandingGuideView';
 import SamplePreviewView from '@/components/upload/SamplePreviewView';
 import ShareLaterView from '@/components/upload/ShareLaterView';
+import { UPLOAD_BOX_ID, useUploadHashFocus } from '@/components/upload/UseUploadHashFocus';
 import { useUploadState } from '@/components/upload/UseUploadState';
 import LoginOptions from '@/components/LoginOptions';
 import { isBetaFree } from '@/domain/BillingPolicy';
@@ -34,7 +43,7 @@ const handleUploadClick = () => {
 /**
  * Entry screen: free months and price from server config, AI/deletion notice before choosing a photo; signed out,
  * a service guide (Spec §17). Beta free mode shows no price, free months or payment (Spec §20.4). A sample
- * calendar preview sits above the upload box and a share-later control below it (Spec §26).
+ * calendar preview sits above the upload box; the sample trial and share-later controls below it (Spec §26).
  */
 const UploadPanel = ({ isLoggedIn, shareLaterUrl }: UploadPanelProps) => {
   const config = usePublicConfig();
@@ -43,9 +52,13 @@ const UploadPanel = ({ isLoggedIn, shareLaterUrl }: UploadPanelProps) => {
   const teamComingSoon = isTeamComingSoon(config);
   const { isUploading, statusText, error, handleFileChange } = useUploadState(uploadMaxBytes);
   const inputId = useId();
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const loginSectionId = useId();
   const freeMonths = formatMonthCount(freeMonthLimit);
   const price = formatPrice(priceKrw);
+
+  useUploadHashFocus(boxRef, inputRef);
 
   return (
     <>
@@ -61,13 +74,14 @@ const UploadPanel = ({ isLoggedIn, shareLaterUrl }: UploadPanelProps) => {
         {LANDING_SUBTITLE_LINES[1]}
       </p>
       <SamplePreviewView />
-      <div className="uploadbox">
+      <div id={UPLOAD_BOX_ID} ref={boxRef} className="uploadbox">
         <div className="uploadicon" aria-hidden="true">
           <ScanLine size={22} />
         </div>
         <h2>근무표 사진을 올려 주세요</h2>
         <p>표 전체와 날짜가 선명하게 보이는 사진 (JPG·PNG·WebP)</p>
         <input
+          ref={inputRef}
           id={inputId}
           className="visually-hidden"
           type="file"
@@ -80,7 +94,7 @@ const UploadPanel = ({ isLoggedIn, shareLaterUrl }: UploadPanelProps) => {
           {isUploading ? <LoaderCircle size={18} className="spin" aria-hidden="true" /> : null}
           {isUploading ? '올리는 중…' : '사진 선택'}
         </label>
-        <div className="status-line mt-10" role="status" aria-live="polite">
+        <div className="status-line upload-status" role="status" aria-live="polite">
           {statusText}
         </div>
         {error && (
@@ -89,6 +103,10 @@ const UploadPanel = ({ isLoggedIn, shareLaterUrl }: UploadPanelProps) => {
           </div>
         )}
       </div>
+      <Link href={SAMPLE_TRY_PATH} className="secondary sample-try-link">
+        <FlaskConical size={17} aria-hidden="true" />
+        {SAMPLE_TRY_LINK_TEXT}
+      </Link>
       <ShareLaterView shareUrl={shareLaterUrl} />
       <div className="hint keep-all">
         사진은 AI로 분석하며 공유 화면에는 포함되지 않아요.

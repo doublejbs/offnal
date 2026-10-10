@@ -69,11 +69,8 @@ describe('entry screen copy (§26.1)', () => {
     expect(renderLanding()).not.toMatch(BILLING_WORDS);
   });
 
-  it('has a single primary action and no link to the sample trial yet', () => {
-    const html = renderLanding();
-
-    expect(html.match(/class="primary[ "]/g)).toHaveLength(1);
-    expect(html).not.toContain('href="/try"');
+  it('has a single primary action', () => {
+    expect(renderLanding().match(/class="primary[ "]/g)).toHaveLength(1);
   });
 });
 
@@ -123,6 +120,26 @@ describe('result preview (§26.2)', () => {
     const firstTwoWeeks = new Set(SAMPLE_ENTRIES.slice(0, 14).map((entry) => entry.code));
 
     expect(firstTwoWeeks.size).toBe(codes.size);
+  });
+});
+
+describe('sample trial entry (§26.3)', () => {
+  it('is a secondary link to /try right below the upload box, before share later', () => {
+    const html = renderLanding();
+    const upload = html.indexOf('id="upload"');
+    const trial = html.indexOf('href="/try"');
+    const shareLater = html.indexOf('지금 사진이 없나요? 링크 보내 두기');
+
+    expect(upload).toBeGreaterThan(-1);
+    expect(trial).toBeGreaterThan(html.indexOf('사진 선택'));
+    expect(shareLater).toBeGreaterThan(trial);
+    expect(html).toMatch(
+      /<a class="secondary sample-try-link" href="\/try">(<svg[\s\S]*?<\/svg>)?예시 근무표로 먼저 해 보기<\/a>/,
+    );
+  });
+
+  it('shows it signed in too', () => {
+    expect(renderLanding(true)).toContain('href="/try"');
   });
 });
 

@@ -13,7 +13,7 @@ export const SAMPLE_PREVIEW_LABEL =
 
 export const SAMPLE_PREVIEW_CAPTION = '이런 달력이 만들어져요 · 예시';
 
-const REGULAR_CODE = '상근';
+export const REGULAR_CODE = '상근';
 
 export const SAMPLE_DEFINITIONS: ShiftDefinition[] = [
   { code: 'D', label: '데이', startTime: '07:00', endTime: '15:00', endsNextDay: false, isOff: false },
@@ -31,7 +31,7 @@ export const SAMPLE_DEFINITIONS: ShiftDefinition[] = [
 ];
 
 /** One code per day of the month, Sunday-first weeks: every code already appears in the first two weeks. */
-const SAMPLE_CODES: string[] = [
+export const SAMPLE_PREVIEW_CODES: string[] = [
   ...['D', 'D', 'E', 'E', 'N', 'N', 'OFF'],
   ...['OFF', REGULAR_CODE, 'D', 'E', 'N', 'OFF', 'OFF'],
   ...['E', 'E', 'N', 'N', 'OFF', 'D', 'D'],
@@ -41,7 +41,7 @@ const SAMPLE_CODES: string[] = [
 
 export const SAMPLE_ENTRIES: ShiftEntry[] = listDates(SAMPLE_YEAR_MONTH).map((date, index) => ({
   date,
-  code: SAMPLE_CODES[index] ?? 'OFF',
+  code: SAMPLE_PREVIEW_CODES[index] ?? 'OFF',
   reviewReasons: [],
   confirmed: true,
 }));

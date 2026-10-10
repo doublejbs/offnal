@@ -755,6 +755,17 @@ interface PaymentProvider {
 - `inApp`: `AnalyticsRequestScope`(AsyncLocalStorage)가 `apiRoute`·`withRoute`·`withRedirectRoute`·데모 로그인·공유 ICS 라우트에서 User-Agent로 불리언만 계산해 두고 `track`이 모든 이벤트에 붙인다(인스타그램 `Instagram <버전>`, 페이스북 `FBAN/`·`FBAV/`·`FB_IAB/`). 요청 밖(스크립트)의 이벤트에는 없다. UA 원문은 어디에도 저장·로그하지 않는다.
 - 리포트: "첫 화면 깔때기"를 전체·앱 안 브라우저·일반 브라우저로 나눠 이벤트 건수로 보여 준다(클라이언트 이벤트에는 작업 키가 없어 코호트로 잇지 않는다). 업로드는 개인 `upload_started`, 로그인 성공은 `login_completed` 전체. `inApp`이 없던 예전 행은 전체에만 들어간다.
 
+### 26.3-B 구현 메모 (2026-10-10, B단계: 예시 근무표 체험)
+
+- 데이터: `src/client/SampleTryData.ts` — 가상 이름 6명(실존 인물·E2E 목 이름 아님)의 2026-11 한 달 코드와 사람마다 일부러 읽지 못한 1칸(`reviewDay`, 원본 칸은 얼룩으로 흐림, 인식 결과는 `code: null` + `UNREADABLE`, 사진에서 보이는 정답 `suggestedCode`). 기본 선택(첫 번째 사람)의 한 달은 첫 화면 미리보기(`SAMPLE_PREVIEW_CODES`)와 같다. 병원명 없음.
+- 사진: `public/sample/roster.png`(1520×560) — `pnpm sample:roster`(`scripts/GenerateSampleRoster.ts`, 표 SVG는 `scripts/SampleRosterSvg.ts`)가 위 데이터로 그린다. 데이터를 바꾸면 다시 생성한다(단위 테스트가 SVG 칸·PNG 크기를 데이터와 대조).
+- 흐름: 순수 상태 전환 `src/client/SampleTryFlow.ts`(읽기 → 이름 고르기 → 확인·수정 → 완성; 확인 필요 칸이 남으면 완성으로 못 감, 다른 사람을 고르면 수정 내용 초기화) + `UseSampleTryState`(브라우저 기록 연동: 앞으로 갈 때 같은 `/try` 주소로 기록을 쌓아 휴대폰 뒤로 가기·화면의 뒤로 버튼이 이전 단계로 간다. 새로고침하면 처음부터). 화면은 `src/components/try/`의 단계별 `*View`, 실제 서비스의 `SourcePreview`·`CandidateList`·`MonthGrid`·편집 영역 클래스를 그대로 쓴다. 단계가 바뀌면 제목으로 포커스.
+- 상단 표시 "예시 체험 · 실제 저장되지 않아요"(모든 단계). 완성 단계는 공유 링크·캘린더 추가·이미지 저장을 설명 문구로만 보여 준다(버튼 없음).
+- "내 근무표로 만들기" → 비로그인 `/#upload`, 로그인 `/upload#upload`(로그인 사용자는 `/`가 달력으로 넘어갈 수 있다). 업로드 화면은 `#upload`이면 업로드 상자로 스크롤하고 파일 입력에 포커스한다. 파일 선택 창은 열지 않는다 — 페이지 이동 뒤에는 사용자 동작이 이어지지 않아 브라우저가 막는다.
+- 네트워크: `/try`는 정적 자산과 `/api/events` 외 요청이 없다(링크 미리 가져오기 끔). 이벤트 `sample_started`(진입 1회), `sample_completed`(완성 단계 첫 도달 1회), `sample_cta_clicked`.
+- 메타데이터: 제목 "예시 근무표 체험", 고정 설명. 개인 데이터가 없는 공개 소개 화면이라 색인을 막지 않는다.
+- 첫 화면: 업로드 상자 아래 보조 버튼 "예시 근무표로 먼저 해 보기"(주 액션은 "사진 선택" 하나), 업로드 상자 아래 여백을 줄였다(빈 상태 줄은 높이 0).
+
 ### 26.6 검수
 
 - 디자인: 라이트·다크, 320·390·768px 스크린샷으로 확인(첫 화면에서 "사진 선택" 보임, 미리보기 잘림 자연스러움, 버튼 위계: 주 액션 "사진 선택" 하나, 나머지는 보조).
