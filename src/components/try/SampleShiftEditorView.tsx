@@ -1,4 +1,4 @@
-import { type RefObject, useId } from 'react';
+import { useId } from 'react';
 
 import { describeReviewReason, formatRawText, formatShiftTime } from '@/client/DisplayText';
 import { formatDayLabel } from '@/client/MonthLayout';
@@ -12,7 +12,6 @@ type SampleShiftEditorViewProps = {
   printedCode: string;
   /** The photo's smudged cell: recognition could not read it (the code is only faintly visible). */
   isSmudged: boolean;
-  sectionRef: RefObject<HTMLElement | null>;
   onSelectCode: (code: string) => void;
 };
 
@@ -24,7 +23,6 @@ const SampleShiftEditorView = ({
   entry,
   printedCode,
   isSmudged,
-  sectionRef,
   onSelectCode,
 }: SampleShiftEditorViewProps) => {
   const titleId = useId();
@@ -32,7 +30,7 @@ const SampleShiftEditorView = ({
   const isUnconfirmed = isEntryUnconfirmed(entry);
 
   return (
-    <section ref={sectionRef} className="editor" aria-labelledby={titleId} tabIndex={-1}>
+    <section className="editor" aria-labelledby={titleId}>
       <div className="edithead">
         <strong id={titleId}>{formatDayLabel(entry.date)}</strong>
         <span className="tiny">{isUnconfirmed ? '확인 필요' : '근무 수정'}</span>

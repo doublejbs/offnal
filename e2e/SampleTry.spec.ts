@@ -156,16 +156,30 @@ test('예시 체험: 근무표 읽기 → 이름 고르기 → 확인 필요 칸
 
   expect(unexpected, '체험 중 /api/events와 정적 파일 외 요청').toEqual([]);
 
-  // CTA → the entry screen's upload box, file input focused (the picker cannot be opened after navigating).
+  // CTA → the upload page's upload box (signed out too), file input focused (no picker after navigating).
   await page.getByRole('link', { name: '내 근무표로 만들기' }).click();
-  await expect(page).toHaveURL(/\/#upload$/);
+  await expect(page).toHaveURL(/\/upload#upload$/);
   await expect(page.getByRole('heading', { name: '근무표 사진을 올려 주세요' })).toBeInViewport();
   await expect(page.locator('input[type="file"]')).toBeFocused();
   await expect.poll(() => countOf(watched.events, AnalyticsEvent.SAMPLE_CTA_CLICKED)).toBe(1);
   expect(countOf(watched.events, AnalyticsEvent.SAMPLE_STARTED)).toBe(1);
+
+  // Back from the upload page: a new visit of /try at step 1 (not the finished step)…
+  await page.goBack();
+  await expect(page).toHaveURL(/\/try$/);
+  await expect(page.getByRole('heading', { name: '근무표를 읽었어요.' })).toBeVisible();
+
+  // …and one more back leaves /try: the earlier visit's step entries are skipped, never restored.
+  await page.goBack();
+  await expect(page).toHaveURL(/localhost:\d+\/$/);
+  await expect(page.getByRole('heading', { name: /근무표 한 장이면/ })).toBeVisible();
+
+  // One sample_started per visit of /try (the second visit is the return from the upload page), none from history hops.
+  await expect.poll(() => countOf(watched.events, AnalyticsEvent.SAMPLE_STARTED)).toBe(2);
+  expect(countOf(watched.events, AnalyticsEvent.SAMPLE_COMPLETED)).toBe(1);
 });
 
-test('예시 체험: 로그인한 사용자도 쓰고, 만들기는 업로드 화면으로', async ({ page }) => {
+test('예시 체험: 로그인한 사용자도 쓰고, 새로고침 뒤 뒤로 가기도 한 번에 된다', async ({ page }) => {
   await devLoginViaApi(page.request, uniqueName('예시체험'));
   await page.goto('/try');
   await expect(page.getByRole('note').filter({ hasText: '예시 체험' })).toHaveText(
@@ -177,6 +191,12 @@ test('예시 체험: 로그인한 사용자도 쓰고, 만들기는 업로드 �
   await page.getByRole('button', { name: '내 이름 고르기' }).click();
   await expect(page.getByRole('heading', { name: '어느 분의 근무표인가요?' })).toBeVisible();
   await page.reload();
+  await expect(page.getByRole('heading', { name: '근무표를 읽었어요.' })).toBeVisible();
+
+  // After the reload, the on-screen back returns to step 1 on the first click (the pre-reload entry is stale).
+  await page.getByRole('button', { name: '내 이름 고르기' }).click();
+  await expect(page.getByRole('heading', { name: '어느 분의 근무표인가요?' })).toBeVisible();
+  await page.getByRole('button', { name: '근무표 다시 보기' }).click();
   await expect(page.getByRole('heading', { name: '근무표를 읽었어요.' })).toBeVisible();
 
   await page.getByRole('button', { name: '내 이름 고르기' }).click();

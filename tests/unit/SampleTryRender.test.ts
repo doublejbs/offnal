@@ -3,14 +3,17 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  SAMPLE_DEFAULT_ROW_ID,
-  SAMPLE_ROSTER,
   SAMPLE_TRY_CTA_TEXT,
   SAMPLE_TRY_DESCRIPTION,
-  SAMPLE_TRY_IMAGE_ALT,
-  SAMPLE_TRY_IMAGE_PATH,
   SAMPLE_TRY_NOTICE,
   SAMPLE_TRY_TITLE,
+  SAMPLE_TRY_UPLOAD_HREF,
+} from '@/client/SampleTryCopy';
+import {
+  SAMPLE_DEFAULT_ROW_ID,
+  SAMPLE_ROSTER,
+  SAMPLE_TRY_IMAGE_ALT,
+  SAMPLE_TRY_IMAGE_PATH,
 } from '@/client/SampleTryData';
 import {
   createInitialSampleTryState,
@@ -76,7 +79,7 @@ const renderDone = (): string =>
     createElement(SampleDoneStepView, {
       headingRef: createRef<HTMLHeadingElement>(),
       state: doneState(),
-      ctaHref: '/#upload',
+      ctaHref: SAMPLE_TRY_UPLOAD_HREF,
       onCtaClick: noop,
       onBack: noop,
     }),
@@ -84,7 +87,7 @@ const renderDone = (): string =>
 
 describe('sample trial screen', () => {
   it('starts at step 1 under the "nothing is saved" notice', () => {
-    const html = renderToStaticMarkup(createElement(SampleTryScreen, { ctaHref: '/#upload' }));
+    const html = renderToStaticMarkup(createElement(SampleTryScreen));
 
     expect(SAMPLE_TRY_NOTICE).toBe('예시 체험 · 실제 저장되지 않아요');
     expect(html).toMatch(new RegExp(`role="note"[^>]*>(<svg[\\s\\S]*?</svg>)?${SAMPLE_TRY_NOTICE}</div>`));
@@ -164,10 +167,18 @@ describe('step views', () => {
 
     expect(text).toContain('공유 링크·캘린더 추가·이미지 저장을 할 수 있어요');
     expect(html.match(/class="primary[ "]/g)).toHaveLength(1);
-    expect(html).toMatch(new RegExp(`<a class="primary" href="/#upload">${SAMPLE_TRY_CTA_TEXT}</a>`));
+    expect(html).toMatch(
+      new RegExp(`<a class="primary" href="${SAMPLE_TRY_UPLOAD_HREF}">${SAMPLE_TRY_CTA_TEXT}</a>`),
+    );
     // Static month (no day buttons) and no look-alike share/calendar/image buttons.
     expect(html.match(/<button/g)).toHaveLength(1);
     expect(html).toContain('결과 다시 확인');
+  });
+});
+
+describe('/try CTA', () => {
+  it('always goes to the upload page, which works signed in or out', () => {
+    expect(SAMPLE_TRY_UPLOAD_HREF).toBe('/upload#upload');
   });
 });
 

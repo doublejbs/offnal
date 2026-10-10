@@ -20,8 +20,6 @@ export type SampleRosterPerson = {
   reviewDay: number;
 };
 
-export const SAMPLE_TRY_PATH = '/try';
-
 export const SAMPLE_TRY_YEAR_MONTH = SAMPLE_YEAR_MONTH;
 
 export const SAMPLE_TRY_IMAGE_PATH = '/sample/roster.png';
@@ -31,22 +29,9 @@ export const SAMPLE_TRY_IMAGE_ZOOM = 2;
 
 export const SAMPLE_TRY_IMAGE_ALT = '예시 병동 근무표 사진: 가상의 이름 6명과 2026년 11월 날짜별 근무 코드';
 
-export const SAMPLE_TRY_NOTICE = '예시 체험 · 실제 저장되지 않아요';
-
-export const SAMPLE_TRY_TITLE = '예시 근무표 체험';
-
-export const SAMPLE_TRY_DESCRIPTION =
-  '가상의 병동 근무표로 사진 한 장이 내 근무 달력이 되는 과정을 미리 해 봐요. 로그인 없이 해 볼 수 있고, 아무것도 저장되지 않아요.';
-
-export const SAMPLE_TRY_CTA_TEXT = '내 근무표로 만들기';
-
-export const SAMPLE_TRY_LINK_TEXT = '예시 근무표로 먼저 해 보기';
-
-const R = REGULAR_CODE;
-
 /** Weekday office shift (상근), weekends off — November 2026 starts on a Sunday. */
 const REGULAR_WEEKDAYS: string[] = listDates(SAMPLE_YEAR_MONTH).map((_, index) =>
-  index % 7 === 0 || index % 7 === 6 ? 'OFF' : R,
+  index % 7 === 0 || index % 7 === 6 ? 'OFF' : REGULAR_CODE,
 );
 
 /** The first person is the trial's default choice; their month equals the entry-screen preview. */

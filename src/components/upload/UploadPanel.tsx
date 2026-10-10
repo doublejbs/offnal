@@ -14,7 +14,7 @@ import { useId, useRef } from 'react';
 import { sendClientEvent } from '@/client/ClientAnalytics';
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
 import { formatHours, LANDING_SUBTITLE_LINES } from '@/client/LandingCopy';
-import { SAMPLE_TRY_LINK_TEXT, SAMPLE_TRY_PATH } from '@/client/SampleTryData';
+import { SAMPLE_TRY_LINK_TEXT, SAMPLE_TRY_PATH } from '@/client/SampleTryCopy';
 import { TEAM_COMING_SOON_UPLOAD_TEXT } from '@/client/TeamComingSoonCopy';
 import { usePublicConfig } from '@/components/ConfigProvider';
 import LandingGuideView from '@/components/upload/LandingGuideView';

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { sendClientEvent } from '@/client/ClientAnalytics';
+import { SAMPLE_TRY_PATH } from '@/client/SampleTryCopy';
 import {
   createInitialSampleTryState,
   goBack,
@@ -13,32 +14,19 @@ import {
   selectDate,
   selectPerson,
 } from '@/client/SampleTryFlow';
+import {
+  buildPushedTrialHistoryState,
+  buildTrialHistoryState,
+  createTrialMountId,
+  readTrialHistoryStep,
+} from '@/client/SampleTryHistory';
 import { AnalyticsEvent } from '@/domain/enums/AnalyticsEvent';
 import { SampleTryStep } from '@/domain/enums/SampleTryStep';
-
-/** Key in `history.state` (Next keeps its own keys next to it) recording which trial step an entry shows. */
-const HISTORY_STEP_KEY = 'offnalSampleTryStep';
-
-const STEP_VALUES = new Set<string>(Object.values(SampleTryStep));
-
-const readHistoryStep = (state: unknown): SampleTryStep | null => {
-  if (typeof state !== 'object' || state === null) {
-    return null;
-  }
-
-  const value = (state as Record<string, unknown>)[HISTORY_STEP_KEY];
-
-  return typeof value === 'string' && STEP_VALUES.has(value) ? (value as SampleTryStep) : null;
-};
-
-const pushHistoryStep = (step: SampleTryStep) => {
-  window.history.pushState({ [HISTORY_STEP_KEY]: step }, '');
-};
 
 /**
  * Sample trial (Spec §26.3): client-only steps with browser history (each step forward adds an entry on the
  * same /try address, so the phone's back gesture and the on-screen back button both return one step; a reload
- * starts over) and the trial's three usage events.
+ * starts over) and the trial's three usage events. Entries of an earlier mount are skipped (see SampleTryHistory).
  */
 export const useSampleTryState = () => {
   const [state, setState] = useState<SampleTryState>(createInitialSampleTryState);
@@ -46,6 +34,18 @@ export const useSampleTryState = () => {
   const hasCompletedRef = useRef(false);
   const hasMovedRef = useRef(false);
   const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const mountIdRef = useRef<string | null>(null);
+
+  // This mount starts at READ on the current entry, whatever an earlier mount left there.
+  useEffect(() => {
+    const mountId = createTrialMountId();
+
+    mountIdRef.current = mountId;
+    window.history.replaceState(
+      buildTrialHistoryState(window.history.state, mountId, SampleTryStep.READ),
+      '',
+    );
+  }, []);
 
   useEffect(() => {
     if (!hasStartedRef.current) {
@@ -56,9 +56,22 @@ export const useSampleTryState = () => {
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      const step = readHistoryStep(event.state) ?? SampleTryStep.READ;
+      // Leaving /try is the router's business.
+      if (window.location.pathname !== SAMPLE_TRY_PATH || !mountIdRef.current) {
+        return;
+      }
+
+      const step = readTrialHistoryStep(event.state, mountIdRef.current);
 
       hasMovedRef.current = true;
+
+      if (step === null) {
+        // A stale entry from an earlier visit: keep going back (towards leaving), at READ meanwhile.
+        setState((current) => restoreStep(current, SampleTryStep.READ));
+        window.history.back();
+
+        return;
+      }
 
       setState((current) => restoreStep(current, step));
     };
@@ -95,7 +108,11 @@ export const useSampleTryState = () => {
     }
 
     hasMovedRef.current = true;
-    pushHistoryStep(next.step);
+
+    if (mountIdRef.current) {
+      window.history.pushState(buildPushedTrialHistoryState(mountIdRef.current, next.step), '');
+    }
+
     setState(next);
   };
 
@@ -103,7 +120,9 @@ export const useSampleTryState = () => {
   const handleBack = () => {
     hasMovedRef.current = true;
 
-    if (readHistoryStep(window.history.state) === state.step) {
+    const mountId = mountIdRef.current;
+
+    if (mountId && readTrialHistoryStep(window.history.state, mountId) === state.step) {
       window.history.back();
 
       return;
@@ -133,5 +152,3 @@ export const useSampleTryState = () => {
     handleCtaClick,
   };
 };
-
-export type SampleTryScreenState = ReturnType<typeof useSampleTryState>;

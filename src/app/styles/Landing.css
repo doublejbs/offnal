@@ -212,20 +212,15 @@
 }
 
 /*
- * Upload box (Spec §26.3-B): the status line under "사진 선택" takes no room until it has text, so the box
- * does not end in an empty band.
+ * Upload box (Spec §26.3-B): the one-line status under "사진 선택" keeps its line reserved (no jump when
+ * "사진을 올리고 있어요…" appears) and the box ends right below it instead of in an empty band.
  */
 .uploadbox {
-  padding-bottom: 18px;
+  padding-bottom: 12px;
 }
 
 .upload-status {
-  margin-top: 10px;
-}
-
-.upload-status:empty {
-  min-height: 0;
-  margin-top: 0;
+  margin-top: 8px;
 }
 
 /* Sample trial entry (Spec §26.3): secondary, directly under the upload box. */

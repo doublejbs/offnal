@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { type RefObject } from 'react';
 
 import { SAMPLE_DEFINITIONS } from '@/client/SamplePreviewData';
-import { findSamplePerson, SAMPLE_TRY_CTA_TEXT, SAMPLE_TRY_YEAR_MONTH } from '@/client/SampleTryData';
+import { SAMPLE_TRY_CTA_TEXT } from '@/client/SampleTryCopy';
+import { findSamplePerson, SAMPLE_TRY_YEAR_MONTH } from '@/client/SampleTryData';
 import { type SampleTryState } from '@/client/SampleTryFlow';
 import MonthGrid from '@/components/calendar/MonthGrid';
 import SampleBackButtonView from '@/components/try/SampleBackButtonView';

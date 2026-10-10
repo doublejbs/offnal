@@ -1,7 +1,7 @@
 import { type Metadata } from 'next';
 
 import { formatMonthCount, formatPrice } from '@/client/DisplayText';
-import { SAMPLE_TRY_DESCRIPTION, SAMPLE_TRY_PATH, SAMPLE_TRY_TITLE } from '@/client/SampleTryData';
+import { SAMPLE_TRY_DESCRIPTION, SAMPLE_TRY_PATH, SAMPLE_TRY_TITLE } from '@/client/SampleTryCopy';
 import { isBetaFree } from '@/domain/BillingPolicy';
 import { type BillingMode } from '@/domain/enums/BillingMode';
 import { type AppConfig, getAppConfig } from '@/server/config/AppConfig';

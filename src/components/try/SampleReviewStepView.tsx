@@ -1,7 +1,7 @@
 'use client';
 
 import { Image as ImageIcon } from 'lucide-react';
-import { type RefObject, useRef, useState } from 'react';
+import { type RefObject, useState } from 'react';
 
 import { formatReviewWarning } from '@/client/DisplayText';
 import { SAMPLE_DEFINITIONS } from '@/client/SamplePreviewData';
@@ -41,7 +41,6 @@ const SampleReviewStepView = ({
   onBack,
 }: SampleReviewStepViewProps) => {
   const [isSourceOpen, setIsSourceOpen] = useState(false);
-  const editorRef = useRef<HTMLElement | null>(null);
   const person = findSamplePerson(state.entriesRowId);
   const reviewDates = listReviewDates(state.entries);
   const warning = formatReviewWarning({ count: reviewDates.length, dates: reviewDates });
@@ -99,7 +98,6 @@ const SampleReviewStepView = ({
           entry={selectedEntry}
           printedCode={person.codes[selectedDay - 1] ?? ''}
           isSmudged={selectedDay === person.reviewDay}
-          sectionRef={editorRef}
           onSelectCode={onSelectCode}
         />
       )}
