@@ -749,11 +749,12 @@ interface PaymentProvider {
 - 코드: 문구 `LANDING_SUBTITLE_LINES`(`src/client/LandingCopy.ts`)·`SiteMetadata` 설명, 미리보기 `SamplePreviewView` + 가상 데이터 `src/client/SamplePreviewData.ts`(2026-11, 일요일 시작 — `/try`에서 재사용 가능), 나중에 하기 `ShareLaterView`·`UseShareLaterState`·`src/client/ShareLater.ts`(`shareOrCopyLink`에 title·text 인자 추가). `/try`(26.3)와 그 버튼은 B단계.
 - 미리보기는 `MonthGrid` 정적 모드(`showLegend={false}`, `showToday={false}`)를 높이 150px로 잘라 아래를 흐리게 한다(약 2주). 390×844(데모 배너 포함)에서 "사진 선택" 아래 끝 709px. 바깥 `role="img"`에 이름을 두고 안쪽 칸 전체는 `aria-hidden`.
 - 공유 URL은 서버 페이지(`/`, `/upload`)가 `APP_URL`로 만들어 `UploadPanel`에 넘긴다. `method`는 공유 시트를 열었으면(공유·취소) `share`, 아니면 `copy`. 클립보드도 안 되면 주소를 상태 줄에 보여 준다.
-- 이벤트: enum `ShareLaterMethod`·`LoginClickSource`·`LoginFailureKind`(`cancelled`·`unavailable`·`exchange_failed`·`link_failed`, 속성 이름 `kind`). CHECK 제약은 마이그레이션 0014(허용값 추가만).
-- `POST /api/events`(`ClientEventService`): sink `off`면 바로 끝, 같은 출처 → 1KB 이하 JSON → 허용 목록·속성 엄격 검사(`ClientEventSchema`, 추가 키가 있으면 버림 — 클라이언트가 보낸 `inApp`·id 포함) → IP 해시당 하루 `RATE_LIMIT_EVENTS_IP_DAILY`(기본 300) → 세션으로 actor. 결과와 상관없이 항상 204(본문 없음), 갱신된 Supabase 쿠키는 응답에 붙인다. 클라이언트 `sendClientEvent`는 `sendBeacon` → `fetch keepalive` 순, 실패는 삼킨다.
+- 이벤트: enum `ShareLaterMethod`·`LoginClickSource`·`LoginFailureKind`(`cancelled`·`unavailable`·`server_error`(코드 교환 전 DB·세션 확인 등 우리 쪽 실패)·`exchange_failed`·`link_failed`, 속성 이름 `kind`). CHECK 제약은 마이그레이션 0014(허용값 추가만) — 이벤트 이름에만 걸려 있고 속성 값은 jsonb라 `kind`가 늘어도 마이그레이션이 필요 없다(서버 속성 검증이 enum 값을 허용).
+- `POST /api/events`(`ClientEventService`): sink `off`면 바로 끝, 같은 출처 → 1KB 이하 JSON(본문을 읽는 중에 1KB를 넘으면 스트림을 끊고 버림, Content-Type은 보지 않음) → 허용 목록·속성 엄격 검사(`ClientEventSchema`, 추가 키가 있으면 버림 — 클라이언트가 보낸 `inApp`·id 포함) → IP 해시당 하루 `RATE_LIMIT_EVENTS_IP_DAILY`(기본 300) → 세션으로 actor. 결과와 상관없이 항상 204(본문 없음), 갱신된 Supabase 쿠키는 응답에 붙인다. 클라이언트 `sendClientEvent`는 `sendBeacon` → `fetch keepalive` 순, 실패는 삼킨다. beacon 본문은 CORS 안전 목록 형식인 `text/plain;charset=UTF-8`(Chromium·안드로이드 앱 안 WebView는 `application/json` Blob beacon에서 예외를 던진다).
+- 남용 방지는 IP당 하루 한도뿐이다(전체 상한은 두지 않음) — 이벤트가 작고 저장만 하며 화면에 영향이 없어, 여러 IP로 부풀리는 위험은 받아들인다(리포트 숫자가 튀면 IP 해시별로 확인).
 - 연결: "사진 선택"(파일 입력의 click — 라벨 클릭·키보드 모두, `/upload`에서도 같은 이벤트), 나중에 하기, 카카오 로그인 버튼(`LoginOptions analyticsFrom` — 첫 화면 `landing`, 흐린 미리보기 `gate`; 데모 로그인은 세지 않음), 로그인 콜백 실패(`login_failed`, actor 없음).
 - `inApp`: `AnalyticsRequestScope`(AsyncLocalStorage)가 `apiRoute`·`withRoute`·`withRedirectRoute`·데모 로그인·공유 ICS 라우트에서 User-Agent로 불리언만 계산해 두고 `track`이 모든 이벤트에 붙인다(인스타그램 `Instagram <버전>`, 페이스북 `FBAN/`·`FBAV/`·`FB_IAB/`). 요청 밖(스크립트)의 이벤트에는 없다. UA 원문은 어디에도 저장·로그하지 않는다.
-- 리포트: "첫 화면 깔때기"를 전체·앱 안 브라우저·일반 브라우저로 나눠 이벤트 건수로 보여 준다(클라이언트 이벤트에는 작업 키가 없어 코호트로 잇지 않는다). 업로드는 개인 `upload_started`, 로그인 성공은 `login_completed` 전체. `inApp`이 없던 예전 행은 전체에만 들어간다.
+- 리포트: "첫 화면 깔때기"를 전체·앱 안 브라우저·일반 브라우저로 나눠 이벤트 건수로 보여 준다(클라이언트 이벤트에는 작업 키가 없어 코호트로 잇지 않는다). 업로드는 개인 `upload_started`, 로그인 완료는 `login_completed` 전체(모든 경로라 '로그인 누름' 대비 비율로 보이지 않는다). 나중에 하기의 `share`는 공유 시트를 연 건수라 취소도 포함한다. `inApp`이 없던 예전 행은 전체에만 들어간다.
 
 ### 26.3-B 구현 메모 (2026-10-10, B단계: 예시 근무표 체험)
 

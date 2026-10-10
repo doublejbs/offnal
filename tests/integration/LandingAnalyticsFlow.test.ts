@@ -65,19 +65,34 @@ const readEvents = async (): Promise<AnalyticsEventRow[]> => {
 const sendEvent = (
   client: ApiTestClient,
   body: unknown,
-  options: { origin?: string | null; userAgent?: string; raw?: string } = {},
+  options: { origin?: string | null; userAgent?: string; raw?: string; contentType?: string } = {},
 ): Promise<Response> =>
   client.send(eventsRoute, '/api/events', {
     method: 'POST',
     origin: options.origin,
     headers: {
-      'content-type': 'application/json',
+      'content-type': options.contentType ?? 'application/json',
       ...(options.userAgent ? { 'user-agent': options.userAgent } : {}),
     },
     body: options.raw ?? JSON.stringify(body),
   });
 
 describe('POST /api/events', () => {
+  it('accepts the beacon body type (text/plain JSON) like a JSON fetch', async () => {
+    const client = createApiTestClient();
+
+    expect(
+      (
+        await sendEvent(
+          client,
+          { event: AnalyticsEvent.SAMPLE_STARTED },
+          { contentType: 'text/plain;charset=UTF-8' },
+        )
+      ).status,
+    ).toBe(204);
+    expect((await readEvents()).map((row) => row.event)).toEqual([AnalyticsEvent.SAMPLE_STARTED]);
+  });
+
   it('stores an allowed client event with validated properties and a server-computed inApp', async () => {
     const client = createApiTestClient();
     const responses = [

@@ -4,6 +4,12 @@ import { type ShareLaterMethod } from '@/domain/enums/ShareLaterMethod';
 
 export const CLIENT_EVENTS_PATH = '/api/events';
 
+/**
+ * A CORS-safelisted type: Chromium (and Android in-app WebViews) throws on a beacon Blob typed
+ * application/json. The server parses the body as JSON whatever the type.
+ */
+const BEACON_CONTENT_TYPE = 'text/plain;charset=UTF-8';
+
 /** What the page may report (the server allowlist, Spec §26.5). No ids, names or `inApp`: the server adds those it trusts. */
 export type ClientEventPayload =
   | {
@@ -46,7 +52,7 @@ export const sendClientEvent = (
     const body = JSON.stringify(payload);
 
     try {
-      if (transport.sendBeacon?.(CLIENT_EVENTS_PATH, new Blob([body], { type: 'application/json' }))) {
+      if (transport.sendBeacon?.(CLIENT_EVENTS_PATH, new Blob([body], { type: BEACON_CONTENT_TYPE }))) {
         return;
       }
     } catch {

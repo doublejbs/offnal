@@ -12,11 +12,12 @@ import { getAppConfig } from '@/server/config/AppConfig';
 import { getDb } from '@/server/db/Database';
 import { ApiError } from '@/server/errors/ApiError';
 import { getClientIpFromHeaders } from '@/server/http/ClientIp';
+import { readLimitedText } from '@/server/http/LimitedBody';
 import { getRequestSession } from '@/server/http/RequestContext';
 import { assertSameOrigin } from '@/server/http/RouteHelpers';
 import { enforceClientEventLimit } from '@/server/services/RateLimitService';
 
-/** A client event is a few dozen bytes; anything larger is not ours. */
+/** A client event is a few dozen bytes; anything larger (in bytes) is not ours. */
 const MAX_BODY_LENGTH = 1024;
 
 /** Expected drops (another site, over the daily limit): not worth a log line. */
@@ -32,9 +33,10 @@ const readBody = async (request: NextRequest): Promise<unknown> => {
     return null;
   }
 
-  const text = await request.text();
+  // Content-Length may be absent or wrong: the limit is enforced while reading.
+  const text = await readLimitedText(request.body, MAX_BODY_LENGTH);
 
-  if (text.length > MAX_BODY_LENGTH) {
+  if (text === null) {
     return null;
   }
 
@@ -56,7 +58,7 @@ const logFailure = (error: unknown): void => {
 };
 
 /**
- * POST /api/events (Spec §26.5): same origin, allowlisted client events with declared properties only, a
+ * POST /api/events (Spec §26.5): any Content-Type (the beacon sends text/plain JSON), same origin, allowlisted client events with declared properties only, a
  * daily limit per IP, the actor from the session (never the body). Anything else is dropped silently:
  * this never throws, so the caller always answers 204. Returns the Supabase client whose refreshed
  * cookies belong on the response (null when the session was not resolved).

@@ -191,3 +191,38 @@ test('예시 체험: 로그인한 사용자도 쓰고, 만들기는 업로드 �
   await expect(page).toHaveURL(/\/upload#upload$/);
   await expect(page.locator('input[type="file"]')).toBeFocused();
 });
+
+test('이벤트 beacon: Chromium이 막지 않는 text/plain 본문으로 보낸다', async ({ page }) => {
+  // Record what the page hands to the real sendBeacon and whether Chromium queued it (a non-safelisted type throws).
+  await page.addInitScript(() => {
+    const original = navigator.sendBeacon.bind(navigator);
+    const calls: { type: string; queued: boolean | string }[] = [];
+
+    (window as unknown as { beaconCalls: typeof calls }).beaconCalls = calls;
+    navigator.sendBeacon = (url: string | URL, data?: BodyInit | null) => {
+      const type = data instanceof Blob ? data.type : typeof data;
+
+      try {
+        const queued = original(url, data);
+
+        calls.push({ type, queued });
+
+        return queued;
+      } catch (error) {
+        calls.push({ type, queued: String(error) });
+        throw error;
+      }
+    };
+  });
+
+  const eventRequest = page.waitForRequest((request) => pathOf(request) === EVENTS_PATH);
+
+  await page.goto('/try');
+  await eventRequest;
+
+  const calls = await page.evaluate(
+    () => (window as unknown as { beaconCalls: { type: string; queued: boolean | string }[] }).beaconCalls,
+  );
+
+  expect(calls[0]).toEqual({ type: 'text/plain;charset=utf-8', queued: true });
+});

@@ -79,14 +79,20 @@ export const GET = withRedirectRoute(async (request: NextRequest) => {
   }
 
   const { provider, supabase } = login;
+  // Which step failed decides `login_failed.kind`: ours before the exchange, the exchange, or linking after it.
+  let failureKind = LoginFailureKind.SERVER_ERROR;
   let exchanged = false;
 
   try {
     const db = await getDb();
     const context = await getPreLoginContext(request, db);
+
+    failureKind = LoginFailureKind.EXCHANGE_FAILED;
+
     const profile = await provider.exchangeCode(code);
 
     exchanged = true;
+    failureKind = LoginFailureKind.LINK_FAILED;
     await completeSupabaseLogin(db, context, profile);
 
     const redirect = NextResponse.redirect(buildAppUrl(returnTo), 302);
@@ -103,7 +109,7 @@ export const GET = withRedirectRoute(async (request: NextRequest) => {
     return response;
   } catch (error: unknown) {
     console.warn('[auth] login completion failed', describeError(error));
-    trackLoginFailed(exchanged ? LoginFailureKind.LINK_FAILED : LoginFailureKind.EXCHANGE_FAILED);
+    trackLoginFailed(failureKind);
 
     if (exchanged) {
       await abandonSupabaseSession(supabase);

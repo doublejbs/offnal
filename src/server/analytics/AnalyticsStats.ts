@@ -182,12 +182,12 @@ const formatLandingGroup = (title: string, counts: LandingCounts): string[] => [
   `  ${title}`,
   `    사진 선택 누름 ${counts.uploadClicked} → ${formatStep('업로드', counts.uploads, counts.uploadClicked)}`,
   `    예시 체험 시작 ${counts.sampleStarted} → ${formatStep('완료', counts.sampleCompleted, counts.sampleStarted)} → ${formatStep('내 근무표로 만들기', counts.sampleCtaClicked, counts.sampleCompleted)}`,
-  `    나중에 하기 누름 ${counts.shareLaterClicked} (공유 ${counts.shareLaterShared} · 복사 ${counts.shareLaterCopied})`,
-  `    로그인 누름 ${counts.loginClicked} (첫 화면 ${counts.loginClickedLanding} · 게이트 ${counts.loginClickedGate}) → ${formatStep('성공', counts.loginCompleted, counts.loginClicked)} · 실패 ${counts.loginFailed}`,
+  `    나중에 하기 누름 ${counts.shareLaterClicked} (공유 시트 ${counts.shareLaterShared} — 취소 포함 · 복사 ${counts.shareLaterCopied})`,
+  `    로그인 누름 ${counts.loginClicked} (첫 화면 ${counts.loginClickedLanding} · 게이트 ${counts.loginClickedGate}) · 로그인 완료(모든 경로) ${counts.loginCompleted} · 실패 ${counts.loginFailed}`,
 ];
 
 const formatLanding = (landing: LandingReport): string[] => [
-  '첫 화면 깔때기 (기간 안 이벤트 건수 · 방문 수는 Vercel 대시보드에서, 업로드·로그인 성공은 모든 경로 포함)',
+  '첫 화면 깔때기 (기간 안 이벤트 건수 · 방문 수는 Vercel 대시보드에서, 업로드·로그인 완료는 모든 경로 포함 — 로그인 완료는 누름 대비 비율이 아님)',
   ...formatLandingGroup('전체', landing.all),
   ...formatLandingGroup('앱 안 브라우저(인스타그램·페이스북)', landing.inApp),
   ...formatLandingGroup('일반 브라우저', landing.notInApp),

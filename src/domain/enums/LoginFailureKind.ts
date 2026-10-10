@@ -4,6 +4,8 @@ export enum LoginFailureKind {
   CANCELLED = 'cancelled',
   /** Kakao login is not enabled or not configured. */
   UNAVAILABLE = 'unavailable',
+  /** Our side failed before the provider was asked (DB, pre-login context). */
+  SERVER_ERROR = 'server_error',
   /** The code could not be exchanged for a session. */
   EXCHANGE_FAILED = 'exchange_failed',
   /** The exchange succeeded but linking the app user (or claiming jobs) failed. */

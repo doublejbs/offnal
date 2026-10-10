@@ -7,7 +7,7 @@ import { LoginClickSource } from '@/domain/enums/LoginClickSource';
 const readBlob = async (blob: unknown): Promise<string> => (blob as Blob).text();
 
 describe('sendClientEvent', () => {
-  it('prefers sendBeacon with a JSON body', async () => {
+  it('prefers sendBeacon with a CORS-safelisted text/plain JSON body', async () => {
     const sendBeacon = vi.fn(() => true);
     const fetch = vi.fn();
 
@@ -22,7 +22,8 @@ describe('sendClientEvent', () => {
     const [path, body] = sendBeacon.mock.calls[0] as unknown as [string, Blob];
 
     expect(path).toBe(CLIENT_EVENTS_PATH);
-    expect(body.type).toBe('application/json');
+    // application/json is not CORS-safelisted: Chromium (incl. Android in-app WebViews) throws on it.
+    expect(body.type).toBe('text/plain;charset=utf-8');
     expect(JSON.parse(await readBlob(body))).toEqual({
       event: AnalyticsEvent.LOGIN_CLICKED,
       properties: { from: LoginClickSource.LANDING },

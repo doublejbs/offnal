@@ -136,8 +136,10 @@ describe('analytics stats', () => {
     expect(text).toContain('방문 수는 Vercel');
     expect(text).toContain('사진 선택 누름 10 → 업로드 3 (30.0%)');
     expect(text).toContain('예시 체험 시작 5 → 완료 3 (60.0%) → 내 근무표로 만들기 1 (33.3%)');
-    expect(text).toContain('나중에 하기 누름 4 (공유 3 · 복사 1)');
-    expect(text).toContain('로그인 누름 6 (첫 화면 2 · 게이트 4) → 성공 4 (66.7%) · 실패 1');
+    expect(text).toContain('나중에 하기 누름 4 (공유 시트 3 — 취소 포함 · 복사 1)');
+    expect(text).toContain('로그인 누름 6 (첫 화면 2 · 게이트 4) · 로그인 완료(모든 경로) 4 · 실패 1');
+    // Completions come from every login path, so they are not a share of the clicks (could exceed 100%).
+    expect(text).not.toMatch(/로그인 완료[^\n]*%/);
     expect(text).toContain('앱 안 브라우저(인스타그램·페이스북)');
     expect(text).toContain('사진 선택 누름 8 → 업로드 0 (0.0%)');
     expect(text).toContain('일반 브라우저');
